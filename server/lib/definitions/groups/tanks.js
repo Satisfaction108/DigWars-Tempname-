@@ -30,11 +30,11 @@ Class.basic = {
                 X: 0,
                 Y: 0,
                 ANGLE: 0,
-                DELAY: 0
+                DELAY: 0.1
             },
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic]), // Gun/projectile stats
-                TYPE: 'bullet', // What the gun shoots
+                TYPE: 'drone', // What the gun shoots
                 COLOR: 'grey', // Gun colour
                 LABEL: "", // Gun label (shows up in death messages)
                 STAT_CALCULATOR: 0,
@@ -159,7 +159,7 @@ Class.sniper = {
     PARENT: 'genericTank',
     LABEL: "Sniper",
     BODY: {
-        FOV: 1.2 * base.FOV
+        FOV: 4 * base.FOV
     },
     GUNS: [
         {

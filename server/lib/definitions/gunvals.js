@@ -115,8 +115,8 @@ module.exports = {
         spray: 0.25
     },
     triplet: {
-        reload: 1.2,
-        recoil: 2/3,
+        reload: 0.1,
+        recoil: 0,
         shudder: 0.9,
         health: 0.85,
         damage: 0.85,
@@ -150,9 +150,9 @@ module.exports = {
     sniper: {
         reload: 1.35,
         shudder: 0.25,
-        damage: 0.8,
-        pen: 1.1,
-        speed: 1.5,
+        damage: 10,
+        pen: 10,
+        speed: 10,
         maxSpeed: 1.5,
         density: 1.5,
         spray: 0.2,
@@ -658,7 +658,7 @@ module.exports = {
         spray: 5
     },
     sidewinder: {
-        reload: 1.5,
+        reload: 0.1,
         recoil: 2,
         health: 1.5,
         damage: 0.9,

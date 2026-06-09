@@ -23,7 +23,7 @@ module.exports = {
             id: 'la', // (<host>/#<id>)
 
             region: "Local", // The region the server is on.
-            gamemode: ['tdm'], // The selected gamemode.
+            gamemode: ['maze', 'arms_race'], // The selected gamemode.
             player_cap: 80, // Not including bots. Set to 0 to disable.
 
             featured: false, // Whether the server is featured or not.
@@ -32,7 +32,7 @@ module.exports = {
 
             properties: { // This overrides settings in the config.js file, assuming the selected gamemode doesn't also override it.
                 teams: 4,
-                bot_cap: 40
+                bot_cap: 12000
             }
         },
         {
@@ -45,12 +45,12 @@ module.exports = {
             id: 'lb', // (<host>/#<id>)
 
             region: "Local", // The region the server is on.
-            gamemode: ['retrograde', 'ffa'], // The selected gamemode.
+            gamemode: ['ffa'], // The selected gamemode.
             player_cap: 80, // Not including bots. Set to 0 to disable.
-
+            arms_race: true,
             featured: false, // Whether the server is featured or not.
             unlisted: true, // Whether the server shows up in the server list (if its id isn't in the url).
-            private: true, // Whether the server requires a privileged token to join (except through server travel).
+            private: false, // Whether the server requires a privileged token to join (except through server travel).
 
             properties: { // This overrides settings in the config.js file, assuming the selected gamemode doesn't also override it.
                 teams: 4,
@@ -175,17 +175,17 @@ module.exports = {
         return 0;
     },
 
-    level_cap: 45, // Maximum normally achievable level.
+    level_cap: 100, // Maximum normally achievable level.
     level_cap_cheat: 45, // Maximum level via the level-up key and auto-level-up.
 
     skill_cap: 9, // Default skill caps.
-    tier_cap: 17, // Amount of tank tiers.
+    tier_cap: 100, // Amount of tank tiers.
     tier_multiplier: 15, // Level difference between each tier.
 
     // Bots
     bot_cap: 0, // Maximum number of bots that can be on the server. Set to 0 to disable bots.
     bot_xp_gain: 60, // How much XP bots get until they reach level_cap.
-    bot_start_level: 45, // How much XP bots will receive when first created.
+    bot_start_level: 100, // How much XP bots will receive when first created.
     bot_skill_upgrade_chances: [1, 1, 3, 4, 4, 4, 4, 2, 1, 1], // The chances of a bot upgrading a specific skill when skill upgrades are available.
     bot_class_upgrade_chances: [1, 5, 20, 37, 37], // The chances of a bot upgrading a specific amount of times before it stops upgrading.
     bot_name_prefix: "[AI] ", // This is prefixed before the bot's randomly chosen name.
@@ -248,7 +248,7 @@ module.exports = {
     ]),
 
     // Classic Food
-    classic_food: false, // Enables classic (Old Dreadnoughts) food types.
+    classic_food: true, // Enables classic (Old Dreadnoughts) food types.
     classic_food_types: [ // Possible classic food types outside the nest
         [1, [
             [65, 'egg'], [64, 'triangle'], [45, 'square'], [7, 'pentagon']//, [1, 'hexagon']
@@ -275,11 +275,11 @@ module.exports = {
     ],
 
     // Bosses
-    enable_bosses: true,
-    boss_spawn_cooldown: 260, // The delay (in seconds) between boss spawns.
+    enable_bosses: false,
+    boss_spawn_cooldown: 20, // The delay (in seconds) between boss spawns.
     boss_spawn_delay: 6, // The delay (in seconds) between the boss spawn being announced and the boss(es) actually spawning.
     boss_types: [
-            {
+            /*{
             bosses: ['eliteDestroyer', 'eliteGunner', 'eliteSprayer', 'eliteBattleship', 'eliteSpawner'],
             amount: [5, 5, 4, 2, 1], chance: 2, nameType: 'a',
         },
@@ -292,17 +292,17 @@ module.exports = {
             bosses: ['summoner', 'eliteSkimmer', 'nestKeeper'],
             amount: [2, 2, 1], chance: 1, nameType: 'a',
             message: 'A strange trembling...',
-        },
-        /*{
+        },*/
+        {
             bosses: ['paladin', 'freyja', 'zaphkiel', 'nyx', 'theia'],
-            amount: [1], chance: 0.01,
+            amount: [1], chance: 50,
             message: 'The world tremors as the celestials are reborn anew!',
         },
         {
             bosses: ['julius', 'genghis', 'napoleon'],
-            amount: [1], chance: 0.1,
+            amount: [1], chance: 50,
             message: 'The darkness arrives as the realms are torn apart!',
-        }*/
+        }
     ],
 
     // How many members a team can have in comparison to an unweighed team.
@@ -319,7 +319,7 @@ module.exports = {
     // DO NOT change them here unless you know what you are doing!
     gamemode_name_prefixes: [],
     arena_shape: 'rect',
-    arms_race: false,
+    arms_race: true,
     blackout: false,
     clan_wars: false,
     diep: false,
