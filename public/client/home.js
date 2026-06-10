@@ -11,10 +11,10 @@
         if (icon) icon.textContent = t === 'light' ? '\u2600' : '\u263E';
     }
 
-    applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+    applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 
     document.addEventListener('DOMContentLoaded', function () {
-        applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+        applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 
         // Theme toggle
         var tb = document.getElementById('themeToggleBtn');
