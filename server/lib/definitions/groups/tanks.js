@@ -4743,7 +4743,7 @@ Class.sidewinder = {
                 ASPECT: 4.5
             },
             PROPERTIES: {
-                SHOOT_SETTINGS: combineStats([g.basic, g.sniper, g.hunter>
+                SHOOT_SETTINGS: combineStats([g.basic, g.sniper, g.hunter, g.sidewinder]),
                 TYPE: 'snake',
                 STAT_CALCULATOR: 'sustained'
             }
