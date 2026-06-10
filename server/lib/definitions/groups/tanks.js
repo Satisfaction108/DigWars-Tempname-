@@ -99,7 +99,7 @@ Class.director = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }
         }
@@ -159,7 +159,7 @@ Class.sniper = {
     PARENT: 'genericTank',
     LABEL: "Sniper",
     BODY: {
-        FOV: 1.2 * base.FOV,
+        FOV: 10.2 * base.FOV,
         SPEED: 2 * base.SPEED
     },
     GUNS: [
@@ -818,7 +818,7 @@ Class.overseer = {
             SYNCS_SKILLS: true,
             STAT_CALCULATOR: 'drone',
             WAIT_TO_CYCLE: true,
-            MAX_CHILDREN: 4
+            MAX_CHILDREN: 40
         }
     })
 }
@@ -957,7 +957,7 @@ Class.spawner = {
                 X: 15
             },
             PROPERTIES: {
-                MAX_CHILDREN: 4,
+                MAX_CHILDREN: 40,
                 SHOOT_SETTINGS: combineStats([g.minion, g.spawner]),
                 TYPE: 'minion',
                 STAT_CALCULATOR: 'drone',
@@ -1187,7 +1187,7 @@ Class.underseer = {
         FOV: base.FOV * 1.1,
     },
     SHAPE: 4,
-    MAX_CHILDREN: 15,
+    MAX_CHILDREN: 150,
     GUNS: weaponArray({
         POSITION: {
             LENGTH: 6,
@@ -1379,7 +1379,7 @@ Class.assembler = {
                 SHOOT_SETTINGS: combineStats([g.trap, g.setTrap]),
                 TYPE: 'assemblent',
                 NO_LIMITATIONS: true,
-                MAX_CHILDREN: 8,
+                MAX_CHILDREN: 80,
                 STAT_CALCULATOR: 'block',
             }
         }
@@ -1475,7 +1475,7 @@ Class.banshee.GUNS = weaponArray({
         SYNCS_SKILLS: true,
         STAT_CALCULATOR: 'drone',
         WAIT_TO_CYCLE: true,
-        MAX_CHILDREN: 2,
+        MAX_CHILDREN: 20,
     },
 }, 3)
 Class.barricade = {
@@ -1644,7 +1644,7 @@ Class.bender = {
         {
             POSITION: [1, 12, 1, 15, 0, 0, 0],
             PROPERTIES: {
-                MAX_CHILDREN: 4, // todo: check if this is still 3
+                MAX_CHILDREN: 40, // todo: check if this is still 3
                 SHOOT_SETTINGS: combineStats([g.minion, g.spawner]),
                 TYPE: 'desmosMinion',
                 STAT_CALCULATOR: 'drone',
@@ -1684,7 +1684,7 @@ Class.bigCheese = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
-                MAX_CHILDREN: 1,
+                MAX_CHILDREN: 10,
                 WAIT_TO_CYCLE: true,
             },
         },
@@ -2160,7 +2160,7 @@ Class.commander = {
                 TYPE: 'drone',
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
-                MAX_CHILDREN: 2,
+                MAX_CHILDREN: 20,
                 STAT_CALCULATOR: 'drone'
             }
         }, 3),
@@ -2204,7 +2204,7 @@ Class.commander_old = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
-                MAX_CHILDREN: 6
+                MAX_CHILDREN: 60
             },
         },
         ...weaponMirror({
@@ -2221,7 +2221,7 @@ Class.commander_old = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
-                MAX_CHILDREN: 6
+                MAX_CHILDREN: 60
             },
         })
     ]
@@ -2741,7 +2741,7 @@ Class.engineer = {
                 SYNCS_SKILLS: true,
                 DESTROY_OLDEST_CHILD: true,
                 STAT_CALCULATOR: 'block',
-                MAX_CHILDREN: 6
+                MAX_CHILDREN: 60
             }
         },
         {
@@ -2777,7 +2777,7 @@ Class.factory = {
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.minion]),
                 TYPE: 'minion',
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 STAT_CALCULATOR: 'drone',
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true
@@ -3197,7 +3197,7 @@ Class.infestor = {
             STAT_CALCULATOR: 'necro',
             WAIT_TO_CYCLE: true,
             DELAY_SPAWN: false,
-            MAX_CHILDREN: 10
+            MAX_CHILDREN: 100
         }
     }), 2)
 }
@@ -3367,7 +3367,7 @@ Class.manager = {
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
                 WAIT_TO_CYCLE: true,
-                MAX_CHILDREN: 8
+                MAX_CHILDREN: 80
             }
         }
     ]
@@ -3384,7 +3384,7 @@ Class.maleficitor = {
         FOV: base.FOV * 1.1
     },
     SHAPE: 4,
-    MAX_CHILDREN: 20,
+    MAX_CHILDREN: 200,
     GUNS: [
         {
             POSITION: {
@@ -3423,7 +3423,7 @@ Class.master = {
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic]),
                 TYPE: 'masterBullet',
-                MAX_CHILDREN: 4,
+                MAX_CHILDREN: 40,
                 DESTROY_OLDEST_CHILD: true
             }
         },
@@ -3704,7 +3704,7 @@ Class.necromancer = {
         FOV: base.FOV * 1.1
     },
     SHAPE: 4,
-    MAX_CHILDREN: 14,
+    MAX_CHILDREN: 140,
     GUNS: weaponArray({
         POSITION: {
             LENGTH: 6,
@@ -3920,7 +3920,7 @@ Class.overlord = {
         SPEED: 0.8 * base.SPEED,
         FOV: 1.1 * base.FOV
     },
-    MAX_CHILDREN: 8,
+    MAX_CHILDREN: 80,
     GUNS: weaponArray({
         POSITION: {
             LENGTH: 6,
@@ -4141,7 +4141,7 @@ Class.prodigy = {
                 STAT_CALCULATOR: 'necro',
                 WAIT_TO_CYCLE: true,
                 DELAY_SPAWN: false,
-                MAX_CHILDREN: 2
+                MAX_CHILDREN: 20
             },
         }, 3, {delayIncrement: 1/3}),
         ...weaponArray([{
@@ -5318,7 +5318,7 @@ Class.surgeon = {
                 X: 17
             },
             PROPERTIES: {
-                MAX_CHILDREN: 2,
+                MAX_CHILDREN: 20,
                 SHOOT_SETTINGS: combineStats([g.trap, g.setTrap, { speed: 0.9, maxSpeed: 0.9 }]),
                 TYPE: 'medkit',
                 NO_LIMITATIONS: true,
@@ -5599,7 +5599,7 @@ Class.wrangler = { // old bender, fires train minions with 3 bodies (though only
         {
             POSITION: [1, 12, 1, 15, 0, 0, 0],
             PROPERTIES: {
-                MAX_CHILDREN: 3,
+                MAX_CHILDREN: 30,
                 SHOOT_SETTINGS: combineStats([g.minion, g.spawner]),
                 TYPE: 'wranglerMinion',
                 STAT_CALCULATOR: 'drone',
@@ -5684,7 +5684,7 @@ Class.alas = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }
         },
@@ -5721,7 +5721,7 @@ Class.bigBalls = {
             SYNCS_SKILLS: true,
             STAT_CALCULATOR: 'drone',
             WAIT_TO_CYCLE: true,
-            MAX_CHILDREN: 1
+            MAX_CHILDREN: 10
         }
     }, 2)
 }

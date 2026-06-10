@@ -24,7 +24,7 @@ module.exports = {
         spray: 15
     },
     drone: {
-        reload: 36,
+        reload: 3,
         recoil: 0.25,
         shudder: 0.1,
         size: 0.6,
@@ -32,12 +32,13 @@ module.exports = {
         spray: 0.1
     },
     swarm: {
-        reload: 23,
+        reload: 300,
         recoil: 0.25,
         shudder: 0.05,
         size: 0.4,
-        damage: 0.75,
-        speed: 4,
+        health: 0.3,
+        damage: 0.075,
+        speed: 0.25,
         spray: 5
     },
     minion: {
@@ -49,13 +50,15 @@ module.exports = {
         spray: 0.1
     },
     trap: {
-        reload: 23,
+        reload: 90,
         shudder: 0.25,
         size: 0.7,
-        damage: 0.75,
-        speed: 3.25,
+        health: 200,
+        damage: 0.1,
+        speed: 0.25,
         resist: 3,
-        spray: 0
+        spray: 0,
+        recoil: 0,
     },
 
     // Spammers
@@ -73,9 +76,11 @@ module.exports = {
     },
     twin: {
         recoil: 0.5,
+        reload: 1,
         shudder: 0.9,
-        health: 0.9,
-        damage: 0.7,
+        health: 9,
+        speed: 0.5,
+        damage: 7,
         spray: 1.2
     },
     doubleTwin: {
@@ -115,7 +120,7 @@ module.exports = {
         spray: 0.25
     },
     triplet: {
-        reload: 0.1,
+        reload: 1,
         recoil: 0,
         shudder: 0.9,
         health: 0.85,
@@ -409,12 +414,15 @@ module.exports = {
     },
     triAngleFront: {
         recoil: 0.2,
-        speed: 1.3,
-        maxSpeed: 1.1,
+        speed: 2,
+        reload: 0.05,
+        damage: 5,
+        health: 10,
+        maxSpeed: 2.5,
         range: 1.5
     },
     thruster: {
-        recoil: 1.5,
+        recoil: 10,
         shudder: 2,
         health: 0.5,
         damage: 0.5,
@@ -516,7 +524,7 @@ module.exports = {
         spray: 2
     },
     bigCheese: {
-        reload: 1.5,
+        reload: 0.1,
         size: 1.8,
         health: 2.5,
         speed: 1.25
@@ -545,8 +553,9 @@ module.exports = {
     pounder: {
         reload: 2,
         recoil: 1.6,
-        damage: 2,
-        speed: 0.85,
+        damage: 2.5,
+        health: 5,
+        speed: 1.5,
         maxSpeed: 0.8,
         density: 1.5,
         resist: 1.15
@@ -591,12 +600,12 @@ module.exports = {
         maxSpeed: 0.8
     },
     shotgun: {
-        reload: 8,
-        recoil: 0.4,
+        reload: 16,
+        recoil: 8,
         size: 1.5,
-        damage: 0.4,
-        pen: 0.8,
-        speed: 1.8,
+        damage: 4,
+        pen: 8,
+        speed: 3,
         maxSpeed: 0.6,
         density: 1.2,
         spray: 1.2
@@ -707,8 +716,8 @@ module.exports = {
         recoil: 4,
         shudder: 0.1,
         size: 3,
-        health: 100,
-        damage: 0.15,
+        health: 400,
+        damage: 1.25,
         pen: 1.25,
         speed: 0.5,
         maxSpeed: 1,
