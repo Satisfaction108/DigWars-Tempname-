@@ -600,7 +600,7 @@ module.exports = {
         maxSpeed: 0.8
     },
     shotgun: {
-        reload: 8,
+        reload: 20,
         recoil: 10,
         size: 1.5,
         damage: 16,
@@ -673,7 +673,7 @@ module.exports = {
         recoil: 60,
         health: 60,
         damage: 40,
-        size: 8,
+        size: 2.25,
         speed: 0.05,
         maxSpeed: 5,
         spray: 1,

@@ -4639,7 +4639,8 @@ Class.shotgun = {
     LABEL: "Shotgun",
     DANGER: 7,
     BODY: {
-        FOV: 2 * base.FOV
+        FOV: 2 * base.FOV,
+        SPEED: 0.5 * base.SPEED
     },
     GUNS: [
         ...weaponMirror([{
@@ -4703,7 +4704,7 @@ Class.shotgun = {
         },
         {
             POSITION: {
-                LENGTH: 15,
+                LENGTH: 45,
                 WIDTH: 14,
                 X: 6
             },
@@ -4714,7 +4715,7 @@ Class.shotgun = {
         },
         {
             POSITION: {
-                LENGTH: 8,
+                LENGTH: 16,
                 WIDTH: 14,
                 ASPECT: -1.3,
                 X: 4
@@ -4731,7 +4732,7 @@ Class.sidewinder = {
         FOV: 1.3 * base.FOV  
     },
     GUNS: [
-        {
+{
             POSITION: {
                 LENGTH: 10,
                 WIDTH: 15,
@@ -4744,13 +4745,29 @@ Class.sidewinder = {
                 LENGTH: 21,
                 WIDTH: 20,
                 ASPECT: 4.5
+            }
+        },
+{ 
+            POSITION: {
+                LENGTH: 10,
+                WIDTH: 45,
+                ASPECT: 1.5,
+                X: 117
+            }
+        },
+{
+            POSITION: {
+                LENGTH: 100,
+                WIDTH: 75,
+                ASPECT: -1.2,
+                X: 21
             },
-            PROPERTIES: {
+PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic, g.sniper, g.hunter, g.sidewinder]),
                 TYPE: 'snake',
                 STAT_CALCULATOR: 'sustained'
             }
-        }
+        },
     ]
 }
 Class.single = {
