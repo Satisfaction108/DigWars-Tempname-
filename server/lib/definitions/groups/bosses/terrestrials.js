@@ -1,7 +1,6 @@
 const {combineStats, LayeredBoss, makeMenu, setTurretProjectileRecoil} = require('../../facilitators.js')
 const {base} = require('../../constants.js')
 const g = require('../../gunvals.js')
-const preset = require('../../presets.js')
 
 Class.terrestrial = {
     PARENT: "miniboss",
@@ -19,7 +18,6 @@ Class.terrestrial = {
         SPEED: base.SPEED * 0.7,
         DAMAGE: 9,
     },
-    ON: [preset.on.retrograde_self_destruct]
 }
 
 Class.menu_terrestrials = makeMenu("Terrestrials", {upgrades: [

@@ -26,7 +26,6 @@ Class.celestial = {
         SPEED: base.SPEED * 0.5,
         DAMAGE: 12,
     },
-    ON: [preset.on.retrograde_self_destruct]
 }
 Class.rogueCelestial = {
     PARENT: "celestial",

@@ -123,6 +123,7 @@ let initializeFilter = () => {
             tdm: [],
             minigames: [],
             sandbox: [],
+            armsRace: [],
         }
     }
     let nvmText = document.createElement("td");
@@ -175,12 +176,16 @@ let initializeFilter = () => {
         // Sandbox
         if (s.gameMode.includes("Sandbox")) global.filters.gamemodeFilters.sandbox.push(s);
 
+        // Arms Race
+        if (s.gameMode.includes("Arms Race")) global.filters.gamemodeFilters.armsRace.push(s);
+
         // Minigames
         if (
             !global.filters.gamemodeFilters.ffa.includes(s) &&
             !global.filters.gamemodeFilters.squads.includes(s) &&
             !global.filters.gamemodeFilters.tdm.includes(s) &&
-            !global.filters.gamemodeFilters.sandbox.includes(s)
+            !global.filters.gamemodeFilters.sandbox.includes(s) &&
+            !global.filters.gamemodeFilters.armsRace.includes(s)
         ) {
             global.filters.gamemodeFilters.minigames.push(s);
         }
@@ -267,6 +272,10 @@ let initializeFilter = () => {
         } },
         { name: "Sandbox", filter: (h) => {
             let e = checkFilter(h, global.filters.gamemodeFilters.sandbox);
+            return e;
+        } },
+        { name: "Arms Race", filter: (h) => {
+            let e = checkFilter(h, global.filters.gamemodeFilters.armsRace);
             return e;
         } },
     ]);

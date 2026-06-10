@@ -3,7 +3,7 @@ const {base} = require('../../constants.js')
 const g = require('../../gunvals.js')
 
 Class.menu_addons.UPGRADES_TIER_0.push("arrasMenu")
-Class.arrasMenu = makeMenu("Arras Menus", {upgrades: ["arrasMenu_special", "arrasMenu_youtuber", "arrasMenu_retrograde"]})
+Class.arrasMenu = makeMenu("Arras Menus", {upgrades: ["arrasMenu_special", "arrasMenu_youtuber"]})
 
 // Presets
 const healerMenuGuns = [
@@ -72,8 +72,6 @@ Class.arrasMenu_special = makeMenu("Special Menu", {upgrades: [Config.spawn_clas
     Class.arrasMenu_shinyMember = makeMenu("Shiny Member Menu", {upgrades: ["eggGen", "arrasMenu_specialTanks", "arrasMenu_bosses", "arrasMenu_nostalgia", "arrasMenu_scrapped", "arrasMenu_diep", dreadnoughts, "tracker3", "meOnMyWayToDoYourMom", "meDoingYourMom", "rapture", "bigBalls", "tetraGunner", "worstTank", "machineShot"]})
 
 // linked boss menus below are placeholders until we get the arras'd version of them (celestial/elite/strange bosses)
-Class.arrasMenu_retrograde = makeMenu("Retrograde", {upgrades: ["arrasMenu_diep", "arrasMenu_digdig", "menu_celestials", "menu_elites", "menu_mysticals", "arrasMenu_nostalgia", "arrasMenu_scrapped", "arrasMenu_miscRetrograde"]})
-Class.arrasMenu_miscRetrograde = makeMenu("Misc Retrograde", {upgrades: ["tracker3", "tetraGunner", "worstTank"]})
 
 // YouTuber
 Class.arrasMenu_youtuber = {

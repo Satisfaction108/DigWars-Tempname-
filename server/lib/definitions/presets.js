@@ -41,18 +41,4 @@ module.exports = {
 		}
 	},
 
-	// On Functions
-	on: {
-		retrograde_self_destruct: {
-			event: 'define',
-			handler: ({ body }) => {
-				if (Config.retrograde && body.socket && !body.socket.permissions) {
-					body.sendMessage("WARNING: This tank will self-destruct in 10 seconds!");
-					setTimeout(() => {
-						body.destroy();
-					}, 10_000)
-				}
-			}
-		}
-	}
 }

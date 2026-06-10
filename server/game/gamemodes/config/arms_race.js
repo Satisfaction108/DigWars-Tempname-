@@ -1,5 +1,7 @@
 module.exports = {
     arms_race: true,
+    level_cap: 75,
+    level_cap_cheat: 75,
     classic_enemy_types_nest: [
         [1, [
             [1, "crasher"]

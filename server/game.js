@@ -69,7 +69,6 @@ const getName = (name, gamemodeData) => {
             //rock_maze: "Rock Maze",
                 //pumpkin_patch: "Pumpkin Patch",
         outbreak: "Outbreak",
-        retrograde: "Retrograde",
         //skinwalkers: "Skinwalkers",
         space: "Space",
         //tartarus: "Tartarus",

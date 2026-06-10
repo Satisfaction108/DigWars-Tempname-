@@ -6132,7 +6132,7 @@ Class.basic.UPGRADES_TIER_1 = ['twin', 'sniper', 'machineGun', 'flankGuard', 'di
         Class.undertow.UPGRADES_TIER_3 = [/*'riptide'*/]
         Class.repeater.UPGRADES_TIER_3 = ['iterator', 'duplicator']
 
-if (Config.arms_race || Config.retrograde) {
+if (Config.arms_race) {
     //Class.basic.UPGRADES_TIER_2
         Class.smasher.UPGRADES_TIER_3.push('bonker')
 
@@ -6149,17 +6149,6 @@ if (Config.arms_race || Config.retrograde) {
     //Class.pounder.UPGRADES_TIER_2
         Class.pounder.UPGRADES_TIER_3.push('subverter')
         Class.destroyer.UPGRADES_TIER_3.push('blower')
-}
-
-if (Config.retrograde) {
-    //Class.twin.UPGRADES_TIER_2
-        Class.tripleShot.UPGRADES_TIER_3.push('triBlaster')
-
-    Class.machineGun.UPGRADES_TIER_2.push('blaster', 'gatlingGun', 'doubleMachine')
-        Class.sprayer.UPGRADES_TIER_3.push('splasher')
-
-    //Class.flankGuard.UPGRADES_TIER_2
-        Class.flankGuard.UPGRADES_TIER_3.push('tripleMachine')
 }
 
 if (Config.siege) {
