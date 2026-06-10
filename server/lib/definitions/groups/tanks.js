@@ -34,7 +34,7 @@ Class.basic = {
             },
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic]), // Gun/projectile stats
-                TYPE: 'drone', // What the gun shoots
+                TYPE: 'bullet', // What the gun shoots
                 COLOR: 'grey', // Gun colour
                 LABEL: "", // Gun label (shows up in death messages)
                 STAT_CALCULATOR: 0,
