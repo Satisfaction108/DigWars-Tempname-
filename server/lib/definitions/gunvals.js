@@ -24,7 +24,7 @@ module.exports = {
         spray: 15
     },
     drone: {
-        reload: 3,
+        reload: 33,
         recoil: 0.25,
         shudder: 0.1,
         size: 0.6,
@@ -78,9 +78,9 @@ module.exports = {
         recoil: 0.5,
         reload: 1,
         shudder: 0.9,
-        health: 9,
+        health: 1,
         speed: 0.5,
-        damage: 7,
+        damage: 1,
         spray: 1.2
     },
     doubleTwin: {
@@ -413,11 +413,11 @@ module.exports = {
         range: 0.6
     },
     triAngleFront: {
-        recoil: 0.2,
-        speed: 2,
-        reload: 0.05,
-        damage: 5,
-        health: 10,
+        recoil: 1,
+        speed: 1,
+        reload: 1,
+        damage: 1,
+        health: 1,
         maxSpeed: 2.5,
         range: 1.5
     },
@@ -524,9 +524,9 @@ module.exports = {
         spray: 2
     },
     bigCheese: {
-        reload: 0.1,
-        size: 1.8,
-        health: 2.5,
+        reload: 1,
+        size: 4,
+        health: 20,
         speed: 1.25
     },
     mothership: {
@@ -553,8 +553,8 @@ module.exports = {
     pounder: {
         reload: 2,
         recoil: 1.6,
-        damage: 2.5,
-        health: 5,
+        damage: 0.25,
+        health: 0.5,
         speed: 1.5,
         maxSpeed: 0.8,
         density: 1.5,
@@ -600,10 +600,10 @@ module.exports = {
         maxSpeed: 0.8
     },
     shotgun: {
-        reload: 16,
-        recoil: 8,
+        reload: 8,
+        recoil: 10,
         size: 1.5,
-        damage: 4,
+        damage: 16,
         pen: 8,
         speed: 3,
         maxSpeed: 0.6,
@@ -625,13 +625,13 @@ module.exports = {
     // Missiles
     launcher: {
         reload: 1.5,
-        recoil: 1.5,
+        recoil: 5,
         shudder: 0.1,
         size: 0.72,
-        health: 1.05,
-        damage: 0.925,
-        speed: 0.9,
-        maxSpeed: 1.2,
+        health: 4,
+        damage: 8,
+        speed: 1.5,
+        maxSpeed: 2,
         range: 1.1,
         resist: 1.5
     },

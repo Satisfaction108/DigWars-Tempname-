@@ -1684,7 +1684,7 @@ Class.bigCheese = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: 'drone',
-                MAX_CHILDREN: 10,
+                MAX_CHILDREN: 2,
                 WAIT_TO_CYCLE: true,
             },
         },
@@ -4638,6 +4638,9 @@ Class.shotgun = {
     PARENT: 'genericTank',
     LABEL: "Shotgun",
     DANGER: 7,
+    BODY: {
+        FOV: 2 * base.FOV
+    },
     GUNS: [
         ...weaponMirror([{
             POSITION: {
