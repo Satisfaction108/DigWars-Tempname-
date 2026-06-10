@@ -148,14 +148,16 @@ module.exports = {
 
     // Snipers
     sniper: {
-        reload: 1.35,
+        reload: 1,
         shudder: 0.25,
-        damage: 10,
-        pen: 10,
-        speed: 10,
+        health: 0.25,
+        damage: 20,
+        pen: 0.25,
+        speed: 2,
         maxSpeed: 1.5,
         density: 1.5,
         spray: 0.2,
+        size: 0.375,
         resist: 1.15
     },
     crossbow: {
@@ -658,12 +660,14 @@ module.exports = {
         spray: 5
     },
     sidewinder: {
-        reload: 0.1,
-        recoil: 2,
-        health: 1.5,
-        damage: 0.9,
-        speed: 0.15,
-        maxSpeed: 0.5
+        reload: 7,
+        recoil: 60,
+        health: 60,
+        damage: 40,
+        size: 8,
+        speed: 0.05,
+        maxSpeed: 5,
+        spray: 1,
     },
     rocketeer: {
         reload: 1.4,
@@ -699,14 +703,15 @@ module.exports = {
 
     // Traps and blocks
     setTrap: {
-        reload: 1.1,
-        recoil: 2,
+        reload: 1,
+        recoil: 4,
         shudder: 0.1,
-        size: 1.5,
-        health: 2,
+        size: 3,
+        health: 100,
+        damage: 0.15,
         pen: 1.25,
-        speed: 2.2,
-        maxSpeed: 2.15,
+        speed: 0.5,
+        maxSpeed: 1,
         range: 1.25,
         resist: 1.25
     },
