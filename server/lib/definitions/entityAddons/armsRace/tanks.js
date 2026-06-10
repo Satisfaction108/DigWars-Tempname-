@@ -1,4 +1,4 @@
-const {combineStats, deleteUpgrades, dereference, makeAuto, makeAutoArray, makeBird, makeDrive, makeFlank, makeGuard, makeHat, makeMenu, makeOver, makeRadialAuto, makeSnake, makeGunner, makeTurret, makeWhirlwind, weaponArray, weaponMirror, weaponStack} = require('../../facilitators.js')
+const {combineStats, deleteUpgrades, dereference, makeAuto, makeBird, makeDrive, makeFlank, makeGuard, makeHat, makeMenu, makeOver, makeRadialAuto, makeSnake, makeGunner, makeTurret, makeWhirlwind, weaponArray, weaponMirror, weaponStack} = require('../../facilitators.js')
 const {base, statnames} = require('../../constants.js')
 const g = require('../../gunvals.js')
 const preset = require('../../presets.js')
@@ -39,7 +39,7 @@ g.quint = {
 const integrate_healers = false
 const use_original_tree = false // Set to true to enable the original arras.io Arms Race tree and level cap, with some minor bugfixes.
 const todo_placeholder_guns = {
-    UPGRADE_COLOR: "pureBlack",
+    UPGRADE_COLOR: "black",
     UPGRADE_TOOLTIP: "The guns of this tank have not had their SHOOT_SETTINGS defined yet and will not shoot."
 }
 
@@ -165,7 +165,7 @@ const makeFore = (type, name = -1, options = {}) => { // PLACEHOLDER FUNCTION!!!
         output.UPGRADE_LABEL = output.LABEL;
     }
 
-    output.UPGRADE_COLOR = "pureBlack";
+    output.UPGRADE_COLOR = "black";
     output.UPGRADE_TOOLTIP = "The guns of this tank have not had their SHOOT_SETTINGS defined yet and will not shoot.";
     return output
 }
@@ -554,10 +554,20 @@ Class.vortexSquare_AR = {
 
 // Projectiles
 Class.mechTrap_AR = makeAuto("trap", {type: "droneAutoTurret"})
+Class.angleseerSunchip_AR = {
+    PARENT: "sunchip",
+    NECRO: [3],
+    SHAPE: 3
+}
 Class.pentaseerSunchip_AR = {
     PARENT: "sunchip",
     NECRO: [5],
     SHAPE: 5
+}
+Class.hexaseerSunchip_AR = {
+    PARENT: "sunchip",
+    NECRO: [6],
+    SHAPE: 6
 }
 Class.betaSunchip_AR = {
     PARENT: "sunchip",
@@ -889,6 +899,38 @@ Class.analyzer_AR = {
             }
         }
     ]
+}
+Class.angleseer_AR = {
+    PARENT: "genericTank",
+    LABEL: "Angleseer",
+    DANGER: 7,
+    NECRO: [3],
+    STAT_NAMES: statnames.drone,
+    BODY: {
+        SPEED: base.SPEED * 0.9,
+        FOV: base.FOV * 1.1,
+    },
+    SHAPE: 3,
+    //...todo_placeholder_guns,
+    GUNS: weaponMirror({
+        POSITION: {
+            LENGTH: 6,
+            WIDTH: 11,
+            ASPECT: 1.2,
+            X: 7.4,
+            ANGLE: 60
+        },
+        PROPERTIES: {
+            SHOOT_SETTINGS: combineStats([g.drone, g.sunchip, {reload: 0.8, size: 0.875}]),
+            TYPE: "angleseerSunchip_AR",
+            AUTOFIRE: true,
+            SYNCS_SKILLS: true,
+            STAT_CALCULATOR: "necro",
+            WAIT_TO_CYCLE: true,
+            DELAY_SPAWN: false,
+            MAX_CHILDREN: 6
+        }
+    }, {delayIncrement: 0.5})
 }
 Class.baltimore_AR = {
     PARENT: "genericTank",
@@ -1257,6 +1299,48 @@ Class.crowbar_AR = {
             LAYER: 1
         }
     }, 3, {xPosOffset: 10.25})
+}
+Class.dealer_AR = {
+    PARENT: 'genericTank',
+    LABEL: "Dealer",
+    DANGER: 7,
+    NECRO: [4],
+    STAT_NAMES: statnames.necro,
+    BODY: {
+        SPEED: base.SPEED * 0.9,
+        FOV: base.FOV * 1.1,
+    },
+    SHAPE: 4,
+    MAX_CHILDREN: 15,
+    GUNS: weaponArray([
+        {
+            POSITION: {
+                LENGTH: 6,
+                WIDTH: 12,
+                ASPECT: 1.2,
+                X: 7.4,
+                ANGLE: 90
+            },
+            PROPERTIES: {
+                SHOOT_SETTINGS: combineStats([g.drone, g.sunchip, {reload: 0.8, speed: 2}]),
+                TYPE: 'sunchip',
+                AUTOFIRE: true,
+                SYNCS_SKILLS: true,
+                STAT_CALCULATOR: 'necro',
+                WAIT_TO_CYCLE: true,
+                DELAY_SPAWN: false
+            },
+        },
+        {
+            POSITION: {
+                LENGTH: 6,
+                WIDTH: 1,
+                ASPECT: -5,
+                X: 9,
+                ANGLE: 90
+            }
+        }
+    ], 2)
 }
 Class.dieselTrapper_AR = {
     PARENT: "genericTank",
@@ -1830,6 +1914,38 @@ Class.helicopter_AR = {
         }
         return output
     })()
+}
+Class.hexaseer_AR = {
+    PARENT: "genericTank",
+    LABEL: "Hexaseer",
+    DANGER: 7,
+    NECRO: [6],
+    STAT_NAMES: statnames.drone,
+    BODY: {
+        SPEED: base.SPEED * 0.9,
+        FOV: base.FOV * 1.1,
+    },
+    SHAPE: 6.5,
+    //...todo_placeholder_guns,
+    GUNS: weaponMirror({
+        POSITION: {
+            LENGTH: 6,
+            WIDTH: 11,
+            ASPECT: 1.2,
+            X: 7.4,
+            ANGLE: 90
+        },
+        PROPERTIES: {
+            SHOOT_SETTINGS: combineStats([g.drone, g.sunchip, {reload: 0.8, size: 2.125}]),
+            TYPE: "hexaseerSunchip_AR",
+            AUTOFIRE: true,
+            SYNCS_SKILLS: true,
+            STAT_CALCULATOR: "necro",
+            WAIT_TO_CYCLE: true,
+            DELAY_SPAWN: false,
+            MAX_CHILDREN: 4
+        }
+    }, {delayIncrement: 0.5})
 }
 Class.hurler_AR = {
     PARENT: "genericTank",
@@ -3512,7 +3628,6 @@ Class.autoDoubleFlank_AR = makeAuto("doubleFlankTwin_AR", "Auto-Double Flank")
 Class.autoHexaTrapper_AR = makeAuto(makeFlank('trapper', 6, "", {extraStats: [g.hexaTrapper], delayIncrement: 0.5, danger: 7}), "Auto-Hexa-Trapper", preset.makeAuto.triple)
 Class.autoHexaWhirl_AR = makeWhirlwind(makeAuto("hexaTank", "", preset.makeAuto.blank), {label: "Auto-Hexa Whirl"})
 Class.autoMunition_AR = makeWhirlwind(makeAuto("artillery", "", preset.makeAuto.blank), {label: "Auto-Munition"})
-Class.autoOverdrive_AR = makeAuto("overdrive", "Auto-Overdrive", preset.makeAuto.drive)
 Class.autoProphet_AR = makeWhirlwind(makeAuto("underseer", "", preset.makeAuto.blank), {label: "Auto-Prophet"})
 Class.autoTriple_AR = makeAuto("tripleTwin", "Auto-Triple")
 Class.autoVortex_AR = makeWhirlwind(makeAuto("launcher", "", preset.makeAuto.blank), {label: "Auto-Vortex"})
@@ -6855,6 +6970,10 @@ Class.custodian_AR = makeGuard('single', "Custodian")
 // Quick Defining
 const quickMake = (type, options = {}) => {
     name = ensureIsClass(type)
+    if (options.autoDrive) {
+        let classLabel = options.autoDrive.charAt(0).toLowerCase() + options.autoDrive.slice(1).replaceAll(' ', '').replaceAll('-', '')
+        Class[classLabel + "_AR"] = makeAuto(type, options.autoDrive, preset.makeAuto.drive)
+    }
     if (options.bird) {
         let classLabel = options.bird.charAt(0).toLowerCase() + options.bird.slice(1).replaceAll(' ', '').replaceAll('-', '')
         Class[classLabel + "_AR"] = makeBird(type, options.bird)
@@ -6949,17 +7068,29 @@ const quickMake = (type, options = {}) => {
         Class[options.cap.charAt(0).toLowerCase() + options.cap.slice(1) + "_AR"] = makeCap(type, options.cap)
     }
 }
-quickMake("accurator", {hybrid: "Accugator"})
-quickMake("annihilator", {hybrid: "Compound"})
-quickMake("artillery", {hybrid: "Force", over: "Overartillery", synth: "Mixer", under: "Underartillery"})
-quickMake("assassin", {hybrid: "Hitman", over: "Overassassin", under: "Underassassin"})
-quickMake("banshee", {drive: "Bansheedrive"})
-quickMake("barricade", {hybrid: "Rampart"})
-quickMake("bentGunner_AR", {bird: "Donkey", hybrid: "Spambrid"})
-quickMake("bentHybrid", {hybrid: "Bent Hybriddrive"})
-quickMake("bentMinigun_AR", {hybrid: "Junker"})
-quickMake("blaster", {hybrid: "Ripoff", over: "Overblaster", under: "Underblaster"})
-quickMake("blower", {hybrid: "Puffer"})
+
+Class.accugator_AR = makeOver('accurator', "Accugator", preset.makeOver.hybrid)
+Class.bansheedrive_AR = makeDrive('banshee')
+Class.bentHybriddrive_AR = makeDrive('bentHybrid')
+Class.compound_AR = makeOver('annihilator', "Compound", preset.makeOver.hybrid)
+Class.donkey_AR = makeOver('bentGunner_AR', "Donkey")
+Class.force_AR = makeOver('artillery', "Force", preset.makeOver.hybrid)
+Class.hitman_AR = makeOver('assassin', "Hitman", preset.makeOver.hybrid)
+Class.junker_AR = makeOver('bentMinigun_AR', "Junker", preset.makeOver.hybrid)
+Class.mixer_AR = makeBattle('artillery', "Mixer", preset.makeOver.hybrid)
+Class.nacho_AR = makeOver('nimrod', "Nacho", preset.makeOver.hybrid)
+Class.overartillery_AR = makeOver('artillery')
+Class.overassassin_AR = makeOver('assassin')
+Class.overblaster_AR = makeOver('blaster')
+Class.puffer_AR = makeOver('blower', "Puffer", preset.makeOver.hybrid)
+Class.rampart_AR = makeOver('barricade', "Rampart", preset.makeOver.hybrid)
+Class.ripoff_AR = makeOver('blaster', "Ripoff", preset.makeOver.hybrid)
+Class.spambrid_AR = makeBattle('bentGunner_AR', "Spambrid", preset.makeOver.hybrid)
+Class.underartillery_AR = makeUnder('artillery')
+Class.underassassin_AR = makeUnder('assassin')
+Class.underblaster_AR = makeUnder('blaster')
+Class.xPoacher_AR = makeOver('xHunter', "X-Poacher", preset.makeOver.hybrid)
+
 quickMake("booster", {hybrid2: "Hightailer"})
 quickMake("builder", {hybrid: "Fashioner", over: "Overbuilder", under: "Underbuilder"})
 quickMake("buttbuttin", {hybrid: "Mercenary"})
@@ -7028,8 +7159,8 @@ quickMake("megaTrapper_AR", {hybrid: "Catcher", bird: "Shoebill"})
 quickMake("musket", {hybrid: "Matchlock"})
 quickMake("nailgun", {over: "Overnailer", under: "Undernailer"})
 quickMake("necromancer", {driveSunchip: "Necrodrive"})
-quickMake("nimrod", {hybrid: "Nacho"})
 quickMake("operator_AR", {hybrid: "Utilizer"})
+quickMake("overdrive", {autoDrive: "Auto-Overdrive"})
 quickMake("overgunner", {drive: "Overgunnerdrive"})
 quickMake("overlord", {drive: "Tyrant"})
 quickMake("overseer", {storm: "Overstorm"})
@@ -7037,6 +7168,7 @@ quickMake("overtrapper", {drive: "Overtrapperdrive"})
 quickMake("pen_AR", {bird: "Cockatiel", hybrid: "Interner", over: "Overpen", under: "Underpen"})
 quickMake("pentaShot", {bird: "Deficiency", hybrid: "Flexed Hybrid"})
 quickMake("pentaseer_AR", {drivePenta: "Pentadrive"})
+quickMake("prodigy", {driveSunchip: "Prodigydrive"})
 quickMake("queller_AR", {hybrid: "Cross"})
 quickMake("railgun_AR", {bird: "Raven"})
 quickMake("ranger", {bird: "Peregrine", hybrid: "Doorman"})
@@ -7046,6 +7178,7 @@ quickMake("rotaryGun_AR", {hybrid: "Rotator"})
 quickMake("single", {bird: "Avian", hybrid: "Assistant"})
 quickMake("slinker_AR", {hybrid: "Amalgam"})
 quickMake("spawner", {driveMinion: "Spawnerdrive", stormMinion: "Spawnerstorm"})
+quickMake("spawnerdrive_AR", {autoDrive: "Auto-Spawnerdrive"})
 quickMake("splitShot_AR", {bird: "Dork", hybrid: "Split Hybrid"})
 quickMake("splasher", {hybrid: "Bargain"})
 quickMake("sprayer", {hybrid: "Shower", over: "Oversprayer", under: "Undersprayer"})
@@ -7090,176 +7223,245 @@ quickMake("tripleShot", {bird: "Defect", crossbreed: "Bent Crossbreed", over: "O
 quickMake("triplet", {bird: "Nitwit", hybrid: "Triprid"})
 quickMake("triplex", {bird: "Nitwix", hybrid: "Triprix"})
 quickMake("underseer", {driveSunchip: "Underdrive", stormSunchip: "Understorm"})
+quickMake("underdrive_AR", {autoDrive: "Auto-Underdrive"})
+quickMake("undergunner_AR", {driveSunchip: "Undergunnerdrive"})
+quickMake("undertrapper_AR", {driveSunchip: "Undertrapperdrive"})
 quickMake("volley_AR", {hybrid: "Volley Hybrid"})
 quickMake("waarrk_AR", {bird: "Fault", hybrid: "Bent Catcher"})
 quickMake("wark_AR", {hybrid: "Coalesce", over: "Overwark", under: "Underwark"})
-quickMake("xHunter", {hybrid: "X-Poacher"})
 
-makeAutoArray([
-    "artillery",
-    "assassin",
-    "auto3",
-    "blaster",
-    "builder",
-    "cog_AR",
-    "cruiser",
-    "destroyer",
-    "diesel_AR",
-    "doper_AR",
-    "doubleMachine",
-    "gatlingGun",
-    "gunner",
-    "halfNHalf",
-    "helix",
-    "hexaTank",
-    "honcho_AR",
-    "hunter",
-    "launcher",
-    "machineTrapper_AR",
-    "marksman",
-    "mech_AR",
-    "minigun",
-    "overseer",
-    "pen_AR",
-    "repeater",
-    "rifle",
-    "spawner",
-    "spiral",
-    "sprayer",
-    "trapGuard",
-    "triAngle",
-    "tripleShot",
-    "underseer",
-    'undertow',
-    "volute",
-    "wark_AR"
-], {tier: 1, suffix: "_AR"})
-makeAutoArray([
-    "accurator",
-    "annihilator",
-    "armsman",
-    "atomizer",
-    "auto4",
-    "auto5",
-    "barricade",
-    "battery",
-    "bentDouble",
-    "bentGunner_AR",
-    "bentHybrid",
-    "bentMinigun_AR",
-    "blower",
-    "bomber",
-    "booster",
-    "bulwark",
-    "bushwhacker",
-    "buttbuttin",
-    "coalesce_AR",
-    "cobbler_AR",
-    "cockatiel_AR",
-    "coil",
-    "combo_AR",
-    "courser_AR",
-    "cropDuster",
-    "crossbow",
-    "cyclone",
-    "deadeye",
-    "deathStar",
-    "defect_AR",
-    "deviation_AR",
-    "doubleArtillery_AR",
-    "doubleBlaster_AR",
-    "doubleDiesel_AR",
-    "doubleGatling_AR",
-    "doubleGunner_AR",
-    "doubleHelix_AR",
-    "doubleMinigun_AR",
-    "doubleSprayer_AR",
-    "dual",
-    "duplicator",
-    "eagle",
-    "enforcer_AR",
-    "equalizer_AR",
-    "expeller_AR",
-    "falcon",
-    "faucet_AR",
-    "fighter",
-    "flamethrower",
-    "foamer_AR",
-    "focal",
-    "fork",
-    "frother_AR",
-    "gunnerTrapper",
-    "hewnDouble",
-    "hitman_AR",
-    "hutch_AR",
-    "hybrid",
-    "hybridMarksman_AR",
-    "infestor",
-    "integrator_AR",
-    "iterator",
-    "machineGunner",
-    "maleficitor",
-    "manager",
-    "megaHunter_AR",
-    "mingler_AR",
-    "mortar",
-    "mummifier_AR",
-    "musket",
-    "nailgun",
-    "necromancer",
-    "nimrod",
-    "octoTank",
-    "ordnance",
-    "overlord",
-    "overgunner",
-    "overtrapper",
-    "pentaShot",
-    "pentaseer_AR",
-    "phoenix",
-    "poacher",
-    "predator",
-    "prober_AR",
-    "prodigy",
-    "python",
-    "quadAngle_AR",
-    "quadruplex",
-    "railgun_AR",
-    "ranger",
-    "redistributor",
-    "revolver",
-    "rimfire_AR",
-    "ripoff_AR",
-    "shower_AR",
-    "single",
-    "sniper3_AR",
-    "splasher",
-    "splitShot_AR",
-    "spreadshot",
-    "stalker",
-    "stormer_AR",
-    "streamliner",
-    "subverter",
-    "surfer",
-    "triBlaster",
-    "tripleMachine",
-    "triplet",
-    "triplex",
-    "undergunner_AR",
-    "undertrapper_AR",
-    "volley_AR",
-    "vulture",
-    "waarrk_AR",
-    "warkwark_AR",
-    "widget_AR",
-    "xHunter",
-    "zipper_AR"
-], {suffix: "_AR"})
+Class.autoArtillery_AR = makeAuto('artillery')
+Class.autoAuto3_AR = makeAuto('auto3')
+Class.autoBlaster_AR = makeAuto('blaster')
+Class.autoCog_AR = makeAuto('cog_AR')
+Class.autoDestroyer_AR = makeAuto('destroyer')
+Class.autoDiesel_AR = makeAuto('diesel_AR')
+Class.autoDoper_AR = makeAuto('doper_AR')
+Class.autoDoubleMachine_AR = makeAuto('doubleMachine')
+Class.autoGatlingGun_AR = makeAuto('gatlingGun')
+Class.autoHalfNHalf_AR = makeAuto('halfNHalf')
+Class.autoHelix_AR = makeAuto('helix')
+Class.autoHexaTank_AR = makeAuto('hexaTank')
+Class.autoHoncho_AR = makeAuto('honcho_AR')
+Class.autoHunter_AR = makeAuto('hunter')
+Class.autoLauncher_AR = makeAuto('launcher')
+Class.autoMachineTrapper_AR = makeAuto('machineTrapper_AR')
+Class.autoMarksman_AR = makeAuto('marksman')
+Class.autoMech_AR = makeAuto('mech_AR')
+Class.autoMinigun_AR = makeAuto('minigun')
+Class.autoPen_AR = makeAuto('pen_AR')
+Class.autoRepeater_AR = makeAuto('repeater')
+Class.autoRifle_AR = makeAuto('rifle')
+Class.autoSpiral_AR = makeAuto('spiral')
+Class.autoSprayer_AR = makeAuto('sprayer')
+Class.autoTrapGuard_AR = makeAuto('trapGuard')
+Class.autoTripleShot_AR = makeAuto('tripleShot')
+Class.autoUnderseer_AR = makeAuto('underseer')
+Class.autoUndertow_AR = makeAuto('undertow')
+Class.autoVolute_AR = makeAuto('volute')
+Class.autoWark_AR = makeAuto('wark_AR')
+
+Class.megaAutoArtillery_AR = makeAuto('artillery', "Mega Auto-Artillery", preset.makeAuto.mega)
+Class.megaAutoAssassin_AR = makeAuto('assassin', "Mega Auto-Assassin", preset.makeAuto.mega)
+Class.megaAutoAuto3_AR = makeAuto('auto3', "Mega Auto-Auto-3", preset.makeAuto.mega)
+Class.megaAutoBlaster_AR = makeAuto('blaster', "Mega Auto-Blaster", preset.makeAuto.mega)
+Class.megaAutoBuilder_AR = makeAuto('builder', "Mega Auto-Builder", preset.makeAuto.mega)
+Class.megaAutoCog_AR = makeAuto('cog_AR', "Mega Auto-Cog", preset.makeAuto.mega)
+Class.megaAutoCruiser_AR = makeAuto('cruiser', "Mega Auto-Cruiser", preset.makeAuto.mega)
+Class.megaAutoDestroyer_AR = makeAuto('destroyer', "Mega Auto-Destroyer", preset.makeAuto.mega)
+Class.megaAutoDiesel_AR = makeAuto('diesel_AR', "Mega Auto-Diesel", preset.makeAuto.mega)
+Class.megaAutoDoper_AR = makeAuto('doper_AR', "Mega Auto-Doper", preset.makeAuto.mega)
+Class.megaAutoDoubleMachine_AR = makeAuto('doubleMachine', "Mega Auto-Double Machine", preset.makeAuto.mega)
+Class.megaAutoGatlingGun_AR = makeAuto('gatlingGun', "Mega Auto-Gatling Gun", preset.makeAuto.mega)
+Class.megaAutoGunner_AR = makeAuto('gunner', "Mega Auto-Gunner", preset.makeAuto.mega)
+Class.megaAutoHalfNHalf_AR = makeAuto('halfNHalf', "Mega Auto-Half 'n Half", preset.makeAuto.mega)
+Class.megaAutoHelix_AR = makeAuto('helix', "Mega Auto-Helix", preset.makeAuto.mega)
+Class.megaAutoHexaTank_AR = makeAuto('hexaTank', "Mega Auto-Hexa Tank", preset.makeAuto.mega)
+Class.megaAutoHoncho_AR = makeAuto('honcho_AR', "Mega Auto-Honcho", preset.makeAuto.mega)
+Class.megaAutoHunter_AR = makeAuto('hunter', "Mega Auto-Hunter", preset.makeAuto.mega)
+Class.megaAutoLauncher_AR = makeAuto('launcher', "Mega Auto-Launcher", preset.makeAuto.mega)
+Class.megaAutoMachineTrapper_AR = makeAuto('machineTrapper_AR', "Mega Auto-Machine Trapper", preset.makeAuto.mega)
+Class.megaAutoMarksman_AR = makeAuto('marksman', "Mega Auto-Marksman", preset.makeAuto.mega)
+Class.megaAutoMech_AR = makeAuto('mech_AR', "Mega Auto-Mech", preset.makeAuto.mega)
+Class.megaAutoMinigun_AR = makeAuto('minigun', "Mega Auto-Minigun", preset.makeAuto.mega)
+Class.megaAutoOverseer_AR = makeAuto('overseer', "Mega Auto-Overseer", preset.makeAuto.mega)
+Class.megaAutoPen_AR = makeAuto('pen_AR', "Mega Auto-Pen", preset.makeAuto.mega)
+Class.megaAutoRepeater_AR = makeAuto('repeater', "Mega Auto-Repeater", preset.makeAuto.mega)
+Class.megaAutoRifle_AR = makeAuto('rifle', "Mega Auto-Rifle", preset.makeAuto.mega)
+Class.megaAutoSpawner_AR = makeAuto('spawner', "Mega Auto-Spawner", preset.makeAuto.mega)
+Class.megaAutoSpiral_AR = makeAuto('spiral', "Mega Auto-Spiral", preset.makeAuto.mega)
+Class.megaAutoSprayer_AR = makeAuto('sprayer', "Mega Auto-Sprayer", preset.makeAuto.mega)
+Class.megaAutoTrapGuard_AR = makeAuto('trapGuard', "Mega Auto-Trap Guard", preset.makeAuto.mega)
+Class.megaAutoTriAngle_AR = makeAuto('triAngle', "Mega Auto-Tri-Angle", preset.makeAuto.mega)
+Class.megaAutoTripleShot_AR = makeAuto('tripleShot', "Mega Auto-Triple Shot", preset.makeAuto.mega)
+Class.megaAutoUnderseer_AR = makeAuto('underseer', "Mega Auto-Underseer", preset.makeAuto.mega)
+Class.megaAutoUndertow_AR = makeAuto('undertow', "Mega Auto-Undertow", preset.makeAuto.mega)
+Class.megaAutoVolute_AR = makeAuto('volute', "Mega Auto-Volute", preset.makeAuto.mega)
+Class.megaAutoWark_AR = makeAuto('wark_AR', "Mega Auto-Wark", preset.makeAuto.mega)
+
+Class.tripleAutoArtillery_AR = makeAuto('artillery', "Triple Auto-Artillery", preset.makeAuto.triple)
+Class.tripleAutoAssassin_AR = makeAuto('assassin', "Triple Auto-Assassin", preset.makeAuto.triple)
+Class.tripleAutoAuto3_AR = makeAuto('auto3', "Triple Auto-Auto-3", preset.makeAuto.triple)
+Class.tripleAutoBlaster_AR = makeAuto('blaster', "Triple Auto-Blaster", preset.makeAuto.triple)
+Class.tripleAutoBuilder_AR = makeAuto('builder', "Triple Auto-Builder", preset.makeAuto.triple)
+Class.tripleAutoCog_AR = makeAuto('cog_AR', "Triple Auto-Cog", preset.makeAuto.triple)
+Class.tripleAutoCruiser_AR = makeAuto('cruiser', "Triple Auto-Cruiser", preset.makeAuto.triple)
+Class.tripleAutoDestroyer_AR = makeAuto('destroyer', "Triple Auto-Destroyer", preset.makeAuto.triple)
+Class.tripleAutoDiesel_AR = makeAuto('diesel_AR', "Triple Auto-Diesel", preset.makeAuto.triple)
+Class.tripleAutoDoper_AR = makeAuto('doper_AR', "Triple Auto-Doper", preset.makeAuto.triple)
+Class.tripleAutoDoubleMachine_AR = makeAuto('doubleMachine', "Triple Auto-Double Machine", preset.makeAuto.triple)
+Class.tripleAutoGatlingGun_AR = makeAuto('gatlingGun', "Triple Auto-Gatling Gun", preset.makeAuto.triple)
+Class.tripleAutoGunner_AR = makeAuto('gunner', "Triple Auto-Gunner", preset.makeAuto.triple)
+Class.tripleAutoHalfNHalf_AR = makeAuto('halfNHalf', "Triple Auto-Half 'n Half", preset.makeAuto.triple)
+Class.tripleAutoHelix_AR = makeAuto('helix', "Triple Auto-Helix", preset.makeAuto.triple)
+Class.tripleAutoHexaTank_AR = makeAuto('hexaTank', "Triple Auto-Hexa Tank", preset.makeAuto.triple)
+Class.tripleAutoHoncho_AR = makeAuto('honcho_AR', "Triple Auto-Honcho", preset.makeAuto.triple)
+Class.tripleAutoHunter_AR = makeAuto('hunter', "Triple Auto-Hunter", preset.makeAuto.triple)
+Class.tripleAutoLauncher_AR = makeAuto('launcher', "Triple Auto-Launcher", preset.makeAuto.triple)
+Class.tripleAutoMachineTrapper_AR = makeAuto('machineTrapper_AR', "Triple Auto-Machine Trapper", preset.makeAuto.triple)
+Class.tripleAutoMarksman_AR = makeAuto('marksman', "Triple Auto-Marksman", preset.makeAuto.triple)
+Class.tripleAutoMech_AR = makeAuto('mech_AR', "Triple Auto-Mech", preset.makeAuto.triple)
+Class.tripleAutoMinigun_AR = makeAuto('minigun', "Triple Auto-Minigun", preset.makeAuto.triple)
+Class.tripleAutoOverseer_AR = makeAuto('overseer', "Triple Auto-Overseer", preset.makeAuto.triple)
+Class.tripleAutoPen_AR = makeAuto('pen_AR', "Triple Auto-Pen", preset.makeAuto.triple)
+Class.tripleAutoRepeater_AR = makeAuto('repeater', "Triple Auto-Repeater", preset.makeAuto.triple)
+Class.tripleAutoRifle_AR = makeAuto('rifle', "Triple Auto-Rifle", preset.makeAuto.triple)
+Class.tripleAutoSpawner_AR = makeAuto('spawner', "Triple Auto-Spawner", preset.makeAuto.triple)
+Class.tripleAutoSpiral_AR = makeAuto('spiral', "Triple Auto-Spiral", preset.makeAuto.triple)
+Class.tripleAutoSprayer_AR = makeAuto('sprayer', "Triple Auto-Sprayer", preset.makeAuto.triple)
+Class.tripleAutoTrapGuard_AR = makeAuto('trapGuard', "Triple Auto-Trap Guard", preset.makeAuto.triple)
+Class.tripleAutoTriAngle_AR = makeAuto('triAngle', "Triple Auto-Tri-Angle", preset.makeAuto.triple)
+Class.tripleAutoTripleShot_AR = makeAuto('tripleShot', "Triple Auto-Triple Shot", preset.makeAuto.triple)
+Class.tripleAutoUnderseer_AR = makeAuto('underseer', "Triple Auto-Underseer", preset.makeAuto.triple)
+Class.tripleAutoUndertow_AR = makeAuto('undertow', "Triple Auto-Undertow", preset.makeAuto.triple)
+Class.tripleAutoVolute_AR = makeAuto('volute', "Triple Auto-Volute", preset.makeAuto.triple)
+Class.tripleAutoWark_AR = makeAuto('wark_AR', "Triple Auto-Wark", preset.makeAuto.triple)
+
+Class.autoAccurator_AR = makeAuto('accurator')
+Class.autoAngleseer_AR = makeAuto('angleseer_AR')
+Class.autoAnnihilator_AR = makeAuto('annihilator')
+Class.autoArmsman_AR = makeAuto('armsman')
+Class.autoAtomizer_AR = makeAuto('atomizer')
+Class.autoAuto4_AR = makeAuto('auto4')
+Class.autoAuto5_AR = makeAuto('auto5')
+Class.autoBarricade_AR = makeAuto('barricade')
+Class.autoBattery_AR = makeAuto('battery')
+Class.autoBentDouble_AR = makeAuto('bentDouble')
+Class.autoBentGunner_AR = makeAuto('bentGunner_AR')
+Class.autoBentHybrid_AR = makeAuto('bentHybrid')
+Class.autoBentMinigun_AR = makeAuto('bentMinigun_AR')
+Class.autoBlower_AR = makeAuto('blower')
+Class.autoBomber_AR = makeAuto('bomber')
+Class.autoBooster_AR = makeAuto('booster')
+Class.autoBulwark_AR = makeAuto('bulwark')
+Class.autoBushwhacker_AR = makeAuto('bushwhacker')
+Class.autoButtbuttin_AR = makeAuto('buttbuttin')
+Class.autoCoalesce_AR = makeAuto('coalesce_AR')
+Class.autoCobbler_AR = makeAuto('cobbler_AR')
+Class.autoCockatiel_AR = makeAuto('cockatiel_AR')
+Class.autoCoil_AR = makeAuto('coil')
+Class.autoCombo_AR = makeAuto('combo_AR')
+Class.autoCourser_AR = makeAuto('courser_AR')
+Class.autoCropDuster_AR = makeAuto('cropDuster')
+Class.autoCrossbow_AR = makeAuto('crossbow')
+Class.autoCyclone_AR = makeAuto('cyclone')
+Class.autoDeadeye_AR = makeAuto('deadeye')
+Class.autoDealer_AR = makeAuto('dealer_AR')
+Class.autoDeathStar_AR = makeAuto('deathStar')
+Class.autoDefect_AR = makeAuto('defect_AR')
+Class.autoDeviation_AR = makeAuto('deviation_AR')
+Class.autoDoubleArtillery_AR = makeAuto('doubleArtillery_AR')
+Class.autoDoubleBlaster_AR = makeAuto('doubleBlaster_AR')
+Class.autoDoubleDiesel_AR = makeAuto('doubleDiesel_AR')
+Class.autoDoubleGatling_AR = makeAuto('doubleGatling_AR')
+Class.autoDoubleGunner_AR = makeAuto('doubleGunner_AR')
+Class.autoDoubleHelix_AR = makeAuto('doubleHelix_AR')
+Class.autoDoubleMinigun_AR = makeAuto('doubleMinigun_AR')
+Class.autoDoubleSprayer_AR = makeAuto('doubleSprayer_AR')
+Class.autoDual_AR = makeAuto('dual')
+Class.autoDuplicator_AR = makeAuto('duplicator')
+Class.autoEagle_AR = makeAuto('eagle')
+Class.autoEnforcer_AR = makeAuto('enforcer_AR')
+Class.autoEqualizer_AR = makeAuto('equalizer_AR')
+Class.autoExpeller_AR = makeAuto('expeller_AR')
+Class.autoFalcon_AR = makeAuto('falcon')
+Class.autoFaucet_AR = makeAuto('faucet_AR')
+Class.autoFighter_AR = makeAuto('fighter')
+Class.autoFlamethrower_AR = makeAuto('flamethrower')
+Class.autoFoamer_AR = makeAuto('foamer_AR')
+Class.autoFocal_AR = makeAuto('focal')
+Class.autoFork_AR = makeAuto('fork')
+Class.autoFrother_AR = makeAuto('frother_AR')
+Class.autoGunnerTrapper_AR = makeAuto('gunnerTrapper')
+Class.autoHewnDouble_AR = makeAuto('hewnDouble')
+Class.autoHexaseer_AR = makeAuto('hexaseer_AR')
+Class.autoHitman_AR = makeAuto('hitman_AR')
+Class.autoHutch_AR = makeAuto('hutch_AR')
+Class.autoHybrid_AR = makeAuto('hybrid')
+Class.autoHybridMarksman_AR = makeAuto('hybridMarksman_AR')
+Class.autoInfestor_AR = makeAuto('infestor')
+Class.autoIntegrator_AR = makeAuto('integrator_AR')
+Class.autoIterator_AR = makeAuto('iterator')
+Class.autoMachineGunner_AR = makeAuto('machineGunner')
+Class.autoMaleficitor_AR = makeAuto('maleficitor')
+Class.autoManager_AR = makeAuto('manager')
+Class.autoMegaHunter_AR = makeAuto('megaHunter_AR')
+Class.autoMingler_AR = makeAuto('mingler_AR')
+Class.autoMortar_AR = makeAuto('mortar')
+Class.autoMummifier_AR = makeAuto('mummifier_AR')
+Class.autoMusket_AR = makeAuto('musket')
+Class.autoNailgun_AR = makeAuto('nailgun')
+Class.autoNecromancer_AR = makeAuto('necromancer')
+Class.autoNimrod_AR = makeAuto('nimrod')
+Class.autoOctoTank_AR = makeAuto('octoTank')
+Class.autoOrdnance_AR = makeAuto('ordnance')
+Class.autoOverlord_AR = makeAuto('overlord')
+Class.autoOvergunner_AR = makeAuto('overgunner')
+Class.autoOvertrapper_AR = makeAuto('overtrapper')
+Class.autoPentaShot_AR = makeAuto('pentaShot')
+Class.autoPentaseer_AR = makeAuto('pentaseer_AR')
+Class.autoPhoenix_AR = makeAuto('phoenix')
+Class.autoPoacher_AR = makeAuto('poacher')
+Class.autoPredator_AR = makeAuto('predator')
+Class.autoProber_AR = makeAuto('prober_AR')
+Class.autoProdigy_AR = makeAuto('prodigy')
+Class.autoPython_AR = makeAuto('python')
+Class.autoQuadAngle_AR = makeAuto('quadAngle_AR')
+Class.autoQuadruplex_AR = makeAuto('quadruplex')
+Class.autoRailgun_AR = makeAuto('railgun_AR')
+Class.autoRanger_AR = makeAuto('ranger')
+Class.autoRedistributor_AR = makeAuto('redistributor')
+Class.autoRevolver_AR = makeAuto('revolver')
+Class.autoRimfire_AR = makeAuto('rimfire_AR')
+Class.autoRipoff_AR = makeAuto('ripoff_AR')
+Class.autoShower_AR = makeAuto('shower_AR')
+Class.autoSingle_AR = makeAuto('single')
+Class.autoSniper3_AR = makeAuto('sniper3_AR')
+Class.autoSplasher_AR = makeAuto('splasher')
+Class.autoSplitShot_AR = makeAuto('splitShot_AR')
+Class.autoSpreadshot_AR = makeAuto('spreadshot')
+Class.autoStalker_AR = makeAuto('stalker')
+Class.autoStormer_AR = makeAuto('stormer_AR')
+Class.autoStreamliner_AR = makeAuto('streamliner')
+Class.autoSubverter_AR = makeAuto('subverter')
+Class.autoSurfer_AR = makeAuto('surfer')
+Class.autoTriBlaster_AR = makeAuto('triBlaster')
+Class.autoTripleMachine_AR = makeAuto('tripleMachine')
+Class.autoTriplet_AR = makeAuto('triplet')
+Class.autoTriplex_AR = makeAuto('triplex')
+Class.autoUndergunner_AR = makeAuto('undergunner_AR')
+Class.autoUndertrapper_AR = makeAuto('undertrapper_AR')
+Class.autoVolley_AR = makeAuto('volley_AR')
+Class.autoVulture_AR = makeAuto('vulture')
+Class.autoWaarrk_AR = makeAuto('waarrk_AR')
+Class.autoWarkwark_AR = makeAuto('warkwark_AR')
+Class.autoWidget_AR = makeAuto('widget_AR')
+Class.autoXHunter_AR = makeAuto('xHunter')
+Class.autoZipper_AR = makeAuto('zipper_AR')
 
 // autodrives
 Class.autoDirectordrive_AR = makeAuto("directordrive_AR", "Auto-Directordrive", preset.makeAuto.drive)
 Class.autoDirectorstorm_AR = makeAuto("directorstorm_AR", "Auto-Directorstorm", preset.makeAuto.storm)
-Class.autoUnderdrive_AR = makeAuto("underdrive_AR", "Auto-Underdrive", preset.makeAuto.drive)
-Class.autoSpawnerdrive_AR = makeAuto("spawnerdrive_AR", "Auto-Spawnerdrive", preset.makeAuto.drive)
 
 // UNSORTED
 Class.schwartz_AR = makeWhirlwind("force_AR", {label: "Schwartz"})
@@ -7276,8 +7478,8 @@ if (!use_original_tree) {
 
 const increased_level_cap = true
 if (increased_level_cap) {
-    Config.level_cap = 75
-    Config.level_cap_cheat = 75
+    Config.level_cap = 60
+    Config.level_cap_cheat = 60
 }
 
 const upgradesAR = (type, tier, upgrades = [], options = {}) => {
@@ -7291,7 +7493,7 @@ const upgradesAR = (type, tier, upgrades = [], options = {}) => {
     }
 
     let max_tier_AR = tier
-    if (tier > 3 && Config.level_cap < (tier * 15)) {
+    if (tier > 3 && Config.level_cap <= (tier * 15)) {
         max_tier_AR = 3
     }
 
@@ -7343,15 +7545,31 @@ Class.menu_unused2_AR = makeMenu("Unused (Tier 5)", {upgrades: ["custodian_AR"],
             upgradesAR('spreadshot', 4, ['doubleSpreadshot', 'smearer', 'autoSpreadshot', 'dauber', 'ballista', 'bozo', 'fungus'])
             upgradesAR('bentHybrid', 4, ['overshot', 'bentSynthesis', 'undershot', 'hatcher', 'bentHybriddrive', 'bentCrossbreed', 'flexedHybrid', 'smearer', 'triprix', 'splitHybrid', 'autoBentHybrid', 'spambrid', 'junker', 'triprid', 'bentCatcher'])
             //upgradesAR('bentDouble', 4, [])
-            upgradesAR('triplet', 4, [])
-            upgradesAR('splitShot_AR', 4, [])
-            upgradesAR('autoTripleShot_AR', 4, [])
-            upgradesAR('bentGunner_AR', 4, [])
-            upgradesAR('bentMinigun_AR', 4, [])
+            upgradesAR('triplet', 4, ['autoTriplet'])
+            upgradesAR('splitShot_AR', 4, ['autoSplitShot'])
+            upgradesAR('autoTripleShot_AR', 4, ['megaAutoTripleShot', 'tripleAutoTripleShot'])
+            upgradesAR('bentGunner_AR', 4, ['autoBentGunner'])
+            upgradesAR('bentMinigun_AR', 4, ['autoBentMinigun'])
             upgradesAR('defect_AR', 4, ['deficiency', 'bozo', 'nitwit', 'nitwix', 'dork', 'donkey'/*, 'mangle', 'loon', 'klutz', 'jerker'*/, 'fault', 'autoDefect'])
             upgradesAR('waarrk_AR', 4, ['waarrkwaarrk'])
 
         upgradesAR('gunner', 3, ['rimfire', 'volley', 'doubleGunner', 'bentGunner', 'equalizer', 'undergunner'])
+            upgradesAR('autoGunner', 4, ['megaAutoGunner', 'tripleAutoGunner'])
+            upgradesAR('nailgun', 4, ['autoNailgun'])
+            upgradesAR('auto4', 4, ['autoAuto4'])
+            upgradesAR('machineGunner', 4, ['autoMachineGunner'])
+            upgradesAR('gunnerTrapper', 4, ['autoGunnerTrapper'])
+            upgradesAR('cyclone', 4, ['autoCyclone'])
+            upgradesAR('overgunner', 4, ['autoOvergunner', 'overgunnerdrive'])
+            upgradesAR('battery', 4, ['autoBattery'])
+            upgradesAR('buttbuttin', 4, ['autoButtbuttin'])
+            upgradesAR('blower', 4, ['autoBlower'])
+            upgradesAR('rimfire_AR', 4, ['autoRimfire'])
+            upgradesAR('volley_AR', 4, ['autoVolley'])
+            //upgradesAR('doubleGunner_AR', 4, [])
+            //upgradesAR('bentGunner_AR', 4, [])
+            upgradesAR('equalizer_AR', 4, ['autoEqualizer'])
+            upgradesAR('undergunner_AR', 4, ['autoUndergunner', 'undergunnerdrive'])
 
         upgradesAR('hexaTank', 3, ['autoHexaTank', 'mingler', 'combo'])
 
@@ -7412,15 +7630,28 @@ Class.menu_unused2_AR = makeMenu("Unused (Tier 5)", {upgrades: ["custodian_AR"],
 
         upgradesAR('cruiser', 3, ['productionist', 'cruiserdrive', 'hangar', 'zipper', 'faucet', 'baltimore', 'mosey'])
 
-        upgradesAR('underseer', 3, [/*'prodigy', */'autoUnderseer_AR', 'underdrive_AR', 'pentaseer_AR', 'undertrapper_AR', 'undergunner_AR', 'mummifier_AR'], {noSuffix: true})
+        upgradesAR('underseer', 3, ['angleseer_AR', 'pentaseer_AR', 'hexaseer_AR', 'undertrapper_AR', 'undergunner_AR', 'mummifier_AR', 'prodigy', 'autoUnderseer_AR', 'underdrive_AR', 'dealer_AR'], {noSuffix: true})
+            upgradesAR('necromancer', 4, ['autoNecromancer'])
+            upgradesAR('maleficitor', 4, ['autoMaleficitor'])
+            upgradesAR('infestor', 4, ['autoInfestor'])
+            upgradesAR('angleseer_AR', 4, ['autoAngleseer'])
+            upgradesAR('pentaseer_AR', 4, ['autoPentaseer'])
+            upgradesAR('hexaseer_AR', 4, ['autoHexaseer'])
+            upgradesAR('undertrapper_AR', 4, ['autoUndertrapper', 'undertrapperdrive'])
+            //upgradesAR('undergunner_AR', 4, [])
+            upgradesAR('mummifier_AR', 4, ['autoMummifier'])
+            upgradesAR('prodigy', 4, ['autoProdigy', 'prodigydrive'])
+            upgradesAR('autoUnderseer_AR', 4, ['megaAutoUnderseer', 'tripleAutoUnderseer', 'autoNecromancer', 'autoMaleficitor', 'autoInfestor', 'autoAngleseer', 'autoPentaseer', 'autoHexaseer', 'autoUndertrapper', 'autoUndergunner', 'autoMummifier', 'autoProdigy', 'autoUnderdrive', 'autoDealer'])
+            upgradesAR('underdrive_AR', 4, ['autoUnderdrive'])
+            upgradesAR('dealer_AR', 4, ['autoDealer'])
 
         upgradesAR('spawner', 3, ['megaSpawner', 'productionist', 'spawnerdrive', 'captain', 'hangar', 'laborer', 'foundry', 'issuer'])
 
         upgradesAR('directordrive_AR', 3, ['directorstorm_AR', 'overdrive', 'cruiserdrive_AR', 'underdrive_AR', 'spawnerdrive_AR', 'autoDirectordrive_AR', 'honchodrive_AR', 'doperdrive_AR'], {noSuffix: true})
 
-        upgradesAR('honcho_AR', 3, ['foreman_AR', 'baltimore_AR', 'foundry_AR', 'bigCheese', 'autoHoncho_AR', 'honchodrive_AR', 'junkie_AR'], {noSuffix: true})
+        upgradesAR('honcho_AR', 3, ['foreman_AR', 'baltimore_AR', 'mummifier_AR', 'foundry_AR', 'bigCheese', 'autoHoncho_AR', 'honchodrive_AR', 'junkie_AR'], {noSuffix: true})
 
-        upgradesAR('doper_AR', 3, ['brisker', 'dopeseer', 'mosey', 'issuer', 'junkie', 'doperdrive', 'autoDoper'])
+        upgradesAR('doper_AR', 3, ['brisker', 'dopeseer', 'mosey', 'dealer', 'issuer', 'junkie', 'doperdrive', 'autoDoper'])
 
     upgradesAR('pounder', 2, ['volute'], {noSuffix: true})
         //upgradesAR('pounder', 3, [])
@@ -7848,6 +8079,64 @@ Class.menu_unused2_AR = makeMenu("Unused (Tier 5)", {upgrades: ["custodian_AR"],
             //Class.duplicator.UPGRADES_TIER_4 = ["doubleDuplicator_AR", "autoDuplicator_AR"]
             //Class.autoRepeater_AR.UPGRADES_TIER_4 = ["autoIterator_AR", "autoDuplicator_AR"]
 
+if (Config.retrograde) {
+    //Class.twin.UPGRADES_TIER_2
+        //Class.tripleShot.UPGRADES_TIER_3
+            Class.pentaShot.UPGRADES_TIER_4.push("pentaBlaster_AR")
+            Class.bentHybrid.UPGRADES_TIER_4.push("bootleg_AR")
+            Class.bentDouble.UPGRADES_TIER_4.push("doubleTriBlaster_AR")
+            Class.defect_AR.UPGRADES_TIER_4.push("leak_AR")
+    //Class.machineGun.UPGRADES_TIER_2
+        Class.artillery.UPGRADES_TIER_3.push("doubleArtillery_AR")
+            Class.munition.UPGRADES_TIER_4.push("doubleMunition_AR")
+            Class.autoArtillery_AR.UPGRADES_TIER_4.push("autoDoubleArtillery_AR")
+        Class.minigun.UPGRADES_TIER_3.push("doubleMinigun_AR")
+            Class.subverter.UPGRADES_TIER_4.push("doubleSubverter_AR")
+            Class.autoMinigun_AR.UPGRADES_TIER_4.push("autoDoubleMinigun_AR")
+        Class.sprayer.UPGRADES_TIER_3.push("doubleSprayer_AR")
+            Class.redistributor.UPGRADES_TIER_4.push("doubleRedistributor_AR")
+            Class.atomizer.UPGRADES_TIER_4.push("doubleAtomizer_AR")
+            Class.focal.UPGRADES_TIER_4.push("sprayNSpray_AR", "doubleFocal_AR")
+            Class.frother_AR.UPGRADES_TIER_4.push("doubleFrother_AR")
+            Class.foamer_AR.UPGRADES_TIER_4.push("doubleFoamer_AR")
+            Class.faucet_AR.UPGRADES_TIER_4.push("doubleFaucet_AR")
+            Class.shower_AR.UPGRADES_TIER_4.push("bargain_AR")
+            Class.autoSprayer_AR.UPGRADES_TIER_4.push("autoSplasher_AR", "autoDoubleSprayer_AR")
+            Class.stormer_AR.UPGRADES_TIER_4.push("doubleStormer_AR")
+        Class.diesel_AR.UPGRADES_TIER_3.push("doubleDiesel_AR")
+            Class.autoDiesel_AR.UPGRADES_TIER_4.push("autoDoubleDiesel_AR")
+        Class.blaster.UPGRADES_TIER_3.push("volley_AR", "doubleBlaster_AR", "ripoff_AR", "autoBlaster_AR")
+            Class.triBlaster.UPGRADES_TIER_4 = ["pentaBlaster", "triSplasher", "bentSubverter", "doubleTriBlaster", "bootleg", "autoTriBlaster", "leak"].map(x => x + "_AR")
+            Class.splasher.UPGRADES_TIER_4 = ["triSplasher", "combustor", "sprayNSpray", "doubleSplasher", "bargain", "autoSplasher"].map(x => x + "_AR")
+            Class.flamethrower.UPGRADES_TIER_4 = ["combustor", "doubleFlamethrower", "imitation", "autoFlamethrower"].map(x => x + "_AR")
+            Class.ripoff_AR.UPGRADES_TIER_4 = ["overblaster", "underblaster", "bootleg", "bargain", "imitation", "deposer", "volleyHybrid", "autoRipoff"].map(x => x + "_AR")
+            Class.autoBlaster_AR.UPGRADES_TIER_4 = ["megaAutoBlaster", "tripleAutoBlaster", "autoTriBlaster", "autoSplasher", "autoFlamethrower", "autoHalfNHalf", "autoSubverter", "autoVolley", "autoDoubleBlaster", "autoRipoff"].map(x => x + "_AR")
+        Class.gatlingGun.UPGRADES_TIER_3.push("rotaryGun_AR", "doubleGatling_AR", "gator_AR", "autoGatlingGun_AR")
+            Class.accurator.UPGRADES_TIER_4 = ["accugator"].map(x => x + "_AR")
+            Class.rotaryGun_AR.UPGRADES_TIER_4 = ["concentrator", "rotator"].map(x => x + "_AR")
+            Class.gator_AR.UPGRADES_TIER_4 = ["overgatling", "undergatling", "accugator", "rotator"].map(x => x + "_AR")
+            Class.autoGatlingGun_AR.UPGRADES_TIER_4 = ["megaAutoGatlingGun", "tripleAutoGatlingGun", "autoFocal", "autoAccurator", "autoHalfNHalf"].map(x => x + "_AR")
+        Class.doubleMachine.UPGRADES_TIER_3.push("doubleArtillery_AR", "doubleMinigun_AR", "doubleGunner_AR", "doubleSprayer_AR", "doubleDiesel_AR", "doubleBlaster_AR", "doubleGatling_AR", "autoDoubleMachine_AR")
+            Class.doubleMachine.UPGRADES_TIER_4 = ["overdoubleMachine", "underdoubleMachine"].map(x => x + "_AR")
+            Class.tripleMachine.UPGRADES_TIER_4 = ["quadMachine", "tripleArtillery", "tripleMinigun", "tripleGunner", "tripleSprayer", "tripleDiesel", "tripleBlaster", "tripleGatling", "autoTripleMachine"].map(x => x + "_AR")
+            Class.halfNHalf.UPGRADES_TIER_4 = ["quarterNQuarter", "slabNSlab", "sprayNSpray", "autoHalfNHalf"].map(x => x + "_AR")
+            Class.doubleArtillery_AR.UPGRADES_TIER_4 = ["tripleArtillery", "autoDoubleArtillery"].map(x => x + "_AR")
+            Class.doubleMinigun_AR.UPGRADES_TIER_4 = ["tripleMinigun", "doubleSubverter", "autoDoubleMinigun"].map(x => x + "_AR")
+            Class.doubleSprayer_AR.UPGRADES_TIER_4 = ["tripleSprayer", "sprayNSpray", "doubleRedistributor", "doubleAtomizer", "doubleFocal", "doubleSplasher", "doubleFrother", "doubleFoamer", "doubleFaucet", "autoDoubleSprayer", "doubleStormer"].map(x => x + "_AR")
+            Class.doubleDiesel_AR.UPGRADES_TIER_4 = ["tripleDiesel", "autoDoubleDiesel"].map(x => x + "_AR")
+            Class.doubleBlaster_AR.UPGRADES_TIER_4 = ["tripleBlaster", "doubleTriBlaster", "doubleSplasher", "doubleFlamethrower", "slabNSlab", "doubleSubverter", "doubleVolley", "autoDoubleBlaster"].map(x => x + "_AR")
+            Class.doubleGatling_AR.UPGRADES_TIER_4 = ["tripleGatling", "doubleFocal", "quarterNQuarter", "slabNSlab", "autoDoubleGatling"].map(x => x + "_AR")
+            Class.autoDoubleMachine_AR.UPGRADES_TIER_4 = ["megaAutoDoubleMachine", "tripleAutoDoubleMachine", "autoTripleMachine", "autoHalfNHalf", "autoDoubleArtillery", "autoDoubleMinigun", "autoDoubleGunner", "autoDoubleSprayer", "autoDoubleDiesel", "autoDoubleBlaster", "autoDoubleGatling"].map(x => x + "_AR")
+    //Class.director.UPGRADES_TIER_2
+        //Class.overseer.UPGRADES_TIER_3
+            Class.overseer.UPGRADES_TIER_4.splice(10, 0, "overblaster_AR", "overgatling_AR", "overdoubleMachine_AR")
+        //Class.cruiser.UPGRADES_TIER_3
+            Class.battleship.UPGRADES_TIER_4.push("doubleFaucet_AR")
+    if (!Config.daily_tank == undefined && Config.daily_tank.tank == "whirlwind") {
+        Class.doubleArtillery_AR.UPGRADES_TIER_4.push("doubleMunition_AR") //.splice(4, 0, "doubleMunition_AR")
+    }
+}
+
 if (!Config.daily_tank == undefined && Config.daily_tank.tank == "whirlwind") {
 Class.vortex_AR.LABEL = "Directive"
 
@@ -7933,8 +8222,6 @@ if (integrate_healers) {
 Class.autoDoubleFlank_AR.LABEL = "Auto-Double Flank Twin"
 Class.autoTriple_AR.LABEL = "Auto-Triple Twin"
 Class.dopedrive_AR.LABEL = "Dopeseerdrive"
-Class.infestor.SHAPE = 4
-Class.infestordrive_AR.SHAPE = 4
 Class.renovator_AR.LABEL = "Renovater"
 Class.vulture.LABEL = "Taser"
 //Class.genericEntity.LABEL = "Deadeye"

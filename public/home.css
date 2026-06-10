@@ -1,0 +1,255 @@
+/* home.css — OSA Homepage
+   Dark = neon  |  Light = pastel  |  No gradients */
+
+:root, [data-theme="dark"] {
+    --bg:#0d0d14; --surface:#14142a; --surface2:#1c1c38;
+    --border:#2a2a4a; --border-hl:#7c5cbf;
+    --accent:#7c5cbf; --accent2:#5cc8ff; --play:#5cc8ff;
+    --text:#e0e0f0; --text2:#8080b0; --heading:#fff;
+    --input-bg:#1c1c38; --input-bd:#2a2a4a; --input-fg:#e0e0f0;
+    --tab-bg:#7c5cbf; --tab-fg:#fff;
+    --sel:#5cc8ff; --check:#7c5cbf;
+    --snow:rgba(160,160,255,0.45);
+    --panel-bg:rgba(14,14,26,0.97); --shadow:rgba(0,0,0,0.45);
+    --kb-bg:#1c1c38; --kb-bd:#2a2a4a; --kb-hl:#5cc8ff;
+    --link:#5cc8ff;
+    --credit1:#5cc8ff; --credit2:#c77dff;
+    --scroll-t:#2a2a4a;
+}
+[data-theme="light"] {
+    --bg:#f0ecf6; --surface:#fff; --surface2:#ede8f5;
+    --border:#d0c4e4; --border-hl:#a07ad8;
+    --accent:#a07ad8; --accent2:#6db8d8; --play:#a07ad8;
+    --text:#3a3050; --text2:#8878a8; --heading:#221840;
+    --input-bg:#fff; --input-bd:#d0c4e4; --input-fg:#3a3050;
+    --tab-bg:#a07ad8; --tab-fg:#fff;
+    --sel:#a07ad8; --check:#a07ad8;
+    --snow:rgba(160,140,210,0.35);
+    --panel-bg:rgba(240,236,246,0.98); --shadow:rgba(60,40,100,0.12);
+    --kb-bg:#ede8f5; --kb-bd:#d0c4e4; --kb-hl:#a07ad8;
+    --link:#6838b0;
+    --credit1:#6db8d8; --credit2:#a07ad8;
+    --scroll-t:#c4b8d8;
+}
+
+/* ── Snow ── */
+#snowCanvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0}
+
+/* ── Body ── */
+body{background-color:var(--bg)!important;color:var(--text);transition:background-color .25s,color .25s}
+
+/* ── Theme toggle (top-right) ── */
+#themeToggleBtn{
+    position:fixed;top:14px;right:14px;z-index:200;
+    width:38px;height:38px;border-radius:10px;
+    border:1px solid var(--border);background:var(--surface2);
+    color:var(--text);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;transition:border-color .15s,background .15s;
+}
+#themeToggleBtn:hover{border-color:var(--border-hl);background:var(--surface)}
+
+/* ── Settings button (top-left) ── */
+#homeSettingsBtn{
+    position:fixed;top:14px;left:14px;z-index:200;
+    width:38px;height:38px;border-radius:10px;
+    border:1px solid var(--border);background:var(--surface2);
+    color:var(--text);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .15s,background .15s;
+}
+#homeSettingsBtn:hover{border-color:var(--border-hl);background:var(--surface)}
+
+/* ── Settings panel (floating centered) ── */
+#homeSettingsPanel{
+    position:fixed;top:50%;left:50%;width:360px;max-height:88vh;
+    background:var(--panel-bg);border:1px solid var(--border);border-radius:16px;
+    z-index:300;display:flex;flex-direction:column;
+    transform:translate(-50%,-50%) scale(0.95);opacity:0;pointer-events:none;
+    transition:transform .2s ease,opacity .2s ease;
+    box-shadow:0 12px 40px var(--shadow);
+}
+#homeSettingsPanel.open{transform:translate(-50%,-50%) scale(1);opacity:1;pointer-events:auto}
+#homeSettingsOverlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:299;display:none}
+#homeSettingsOverlay.visible{display:block}
+
+.sp-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--border);flex-shrink:0;border-radius:14px 14px 0 0}
+.sp-header span{font:700 14px Ubuntu;color:var(--heading);letter-spacing:.03em}
+#homeSettingsClose{background:0 0;border:0;color:var(--text2);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:4px}
+#homeSettingsClose:hover{color:var(--text);background:var(--surface2)}
+
+.sp-tabs{display:flex;padding:6px 10px 0;gap:3px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sp-tab{padding:5px 11px;font:600 11px Ubuntu;color:var(--text2);cursor:pointer;border-radius:5px 5px 0 0;transition:color .12s}
+.sp-tab:hover{color:var(--text)}
+.sp-tab.active{background:var(--tab-bg);color:var(--tab-fg)}
+
+.sp-body{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--scroll-t) transparent}
+.sp-body::-webkit-scrollbar{width:3px}
+.sp-body::-webkit-scrollbar-thumb{background:var(--scroll-t);border-radius:2px}
+.sp-pane{display:none;padding:12px 16px 20px}
+.sp-pane.active{display:block}
+
+.sp-label{font:700 10px Ubuntu;letter-spacing:.09em;text-transform:uppercase;color:var(--text2);margin:12px 0 5px}
+.sp-label:first-child{margin-top:2px}
+
+.sp-checks{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;margin-bottom:6px}
+.sp-checks .container{min-height:16px;line-height:15px;display:block;overflow:visible}
+
+/* selects */
+#homeSettingsPanel select{
+    display:block;width:100%;height:auto;min-height:32px;margin:4px 0 10px;
+    background:var(--surface2);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:7px 10px;font:600 12px Ubuntu;line-height:1.3;
+    -webkit-appearance:none;appearance:none;transition:border-color .12s;
+    background-image:none;box-sizing:border-box;
+}
+#homeSettingsPanel select:hover{border-color:var(--border-hl)}
+#homeSettingsPanel #optCustom{margin:3px 0}
+
+/* mobile */
+.mobile-only{display:none}
+body.mobile .mobile-only{display:grid}
+body.mobile .sp-desktop-only{display:none}
+body.mobile #homeSettingsPanel{width:90%;max-width:340px}
+
+/* ── Keybinds ── */
+.kb-header{display:flex;align-items:center;gap:6px;font:700 10px Ubuntu;letter-spacing:.08em;text-transform:uppercase;color:var(--text2);margin-bottom:8px}
+.kb-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}
+.kb-section{font:700 9px Ubuntu;letter-spacing:.08em;text-transform:uppercase;color:var(--text2);margin-top:8px;padding-top:5px;border-top:1px solid var(--border)}
+.kb-row{display:flex;align-items:center;gap:8px;background:var(--kb-bg);border:1px solid var(--kb-bd);border-radius:6px;padding:6px 9px;transition:border-color .12s}
+.kb-row:hover{border-color:var(--border-hl)}
+.kb-row b{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;border-radius:4px;background:var(--surface);border:1px solid var(--kb-bd);font:700 11px Ubuntu;color:var(--kb-hl);cursor:pointer;flex-shrink:0;transition:background .12s,color .12s}
+.kb-row b:hover{background:var(--kb-hl);color:#fff;border-color:var(--kb-hl)}
+.kb-row span{font:500 11px Ubuntu;color:var(--text2)}
+.kb-note{font:500 10px Ubuntu;color:var(--text2);margin-top:8px;text-align:center}
+
+/* ── Main wrapper ── */
+.mainWrapper{padding:50px 20px 0;position:relative;z-index:10}
+body.mobile .mainWrapper{padding:10px 10px 0}
+
+/* ── Start menu card ── */
+.startMenu{
+    display:flex;max-height:440px;padding:14px;border-radius:12px;
+    background:var(--surface);border:1px solid var(--border);overflow:hidden;
+    box-shadow:0 6px 28px var(--shadow);transition:background-color .25s,border-color .25s;
+}
+
+.startMenuHolder{position:relative;width:350px;height:390px;margin:6px 10px;overflow:hidden}
+.startMenuHolder.mainHolder{flex-shrink:0}
+.startMenuHolder.changelogHolder{width:calc(100% - 780px);display:flex;flex-direction:column}
+body.mobile .startMenuHolder.linkHolder{display:none}
+body.mobile .startMenuHolder.changelogHolder{width:calc(100% - 390px)}
+
+/* ── Credits panel ── */
+.credits-panel{padding:16px 12px;text-align:center}
+.credits-title{font:700 16px Ubuntu;color:var(--heading);margin-bottom:16px;letter-spacing:.04em}
+.credit-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 12px;margin-bottom:10px;transition:border-color .15s}
+.credit-card:hover{border-color:var(--border-hl)}
+.credit-name{font:700 16px Ubuntu;margin-bottom:4px}
+.credit-name.zyrox{color:var(--credit1)}
+.credit-name.shrew{color:var(--credit2)}
+.credit-info{font:500 12px Ubuntu;color:var(--text2);margin-bottom:3px}
+.credit-info::before{content:"Discord: ";font-weight:600;color:var(--text2)}
+.credit-role{font:600 11px Ubuntu;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-top:2px}
+
+.social-buttons{display:flex;justify-content:center;gap:8px;margin-top:12px}
+.social-btn{width:36px;height:36px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .12s,color .12s}
+.social-btn:hover{border-color:var(--border-hl);color:var(--accent2)}
+
+/* ── Header ── */
+.header{display:flex;justify-content:center;align-items:center;padding:2px 0 6px}
+.icon{width:48px;height:48px;border-radius:50%;border:2px solid var(--border)}
+.icon>img{width:100%;height:100%;border-radius:50%}
+.placeholder-logo{width:100%;height:100%;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font:700 24px Ubuntu;color:#fff;letter-spacing:-1px}
+h1{padding:0 10px;margin:0;font:700 34px/1.3 Ubuntu;color:var(--heading);letter-spacing:-.5px}
+body.mobile h1{font-size:26px}
+
+/* ── Server selector ── */
+.serverSelector{height:150px;text-align:center;font:600 12px Ubuntu;line-height:10px;padding:0 4px;background:transparent!important}
+.serverSelector tr{color:var(--text2);cursor:pointer;transition:color .12s}
+.serverSelector tr:hover{color:var(--text)}
+.serverSelector tr.featured{color:#e8ae00}
+.serverSelector tr.message{color:var(--text2);cursor:default;font-style:italic}
+.serverSelector tr.selected{color:var(--sel);cursor:default}
+
+/* shadowScroll override */
+.shadowScroll{overflow-y:scroll;background:transparent;scrollbar-width:thin;scrollbar-color:var(--scroll-t) transparent}
+.shadowScroll::-webkit-scrollbar{width:3px}
+.shadowScroll::-webkit-scrollbar-thumb{background:var(--scroll-t);border-radius:2px}
+
+/* ── Input spacer (push name/token near play button) ── */
+.input-spacer{flex:1;min-height:40px}
+
+/* ── Inputs ── */
+input{text-align:center;width:100%;padding:9px;border:1px solid var(--input-bd);color:var(--input-fg);background:var(--input-bg);box-sizing:border-box;border-radius:7px;margin-top:4px;margin-bottom:3px;outline:0;font:600 13px Ubuntu;transition:border-color .15s}
+input:focus{border-color:var(--border-hl)}
+#playerNameInput{font-size:14px;color:var(--text)}
+#playerKeyInput{font-size:12px;color:var(--text2);padding:6px}
+
+/* ── Filter tabs ── */
+.horizontalSelector{padding:3px 0;margin-bottom:3px;font:700 11px Ubuntu;text-align:center;overflow:auto hidden;scrollbar-width:none;scroll-behavior:smooth}
+.horizontalSelector span{padding:3px 9px;color:var(--text2);cursor:pointer;border-radius:4px;transition:color .12s}
+.horizontalSelector span:hover{color:var(--text)}
+.horizontalSelector span.active{background:var(--tab-bg);color:var(--tab-fg);border-radius:5px;cursor:default}
+
+/* ── Play button ── */
+.startButtonHolder{margin-top:6px}
+#startButton{width:100%;height:38px;border:0;border-radius:8px;background:var(--play);color:#fff;font:700 14px/1 Ubuntu;cursor:pointer;letter-spacing:.06em;transition:opacity .15s,transform .08s}
+#startButton:hover{opacity:.88;transform:translateY(-1px)}
+#startButton:active{opacity:1;transform:none}
+#startButton:disabled{opacity:.3;cursor:not-allowed;transform:none}
+
+/* ── Changelog ── */
+#patchNotes{max-width:330px;height:calc(100% - 38px);padding:8px 14px 10px;background:transparent;color:var(--text);font-size:12px;text-align:center}
+#patchNotes div{text-align:left}
+#patchNotes ul{padding-left:14px;margin-left:8px}
+#patchNotes div{transition:max-height 500ms,opacity 500ms,line-height 500ms;max-height:1500px;opacity:1;line-height:1.2}
+#patchNotes div:nth-last-child(n+2)::after{content:'';display:block;border:.5px solid var(--border);margin:14px 0;transition:margin 500ms}
+#patchNotes.default div.balance,#patchNotes.default div.patch,#patchNotes.updates div.announcement,#patchNotes.updates div.poll,#patchNotes.updates div.event,#patchNotes.updates div.balance,#patchNotes.updates div.patch,#patchNotes.balance div.update,#patchNotes.balance div.announcement,#patchNotes.balance div.poll,#patchNotes.balance div.event,#patchNotes.balance div.patch{max-height:0;opacity:0;line-height:0;pointer-events:none}
+#patchNotes.default div.balance::after,#patchNotes.default div.patch::after,#patchNotes.updates div.announcement::after,#patchNotes.updates div.poll::after,#patchNotes.updates div.event::after,#patchNotes.updates div.balance::after,#patchNotes.updates div.patch::after,#patchNotes.balance div.update::after,#patchNotes.balance div.announcement::after,#patchNotes.balance div.poll::after,#patchNotes.balance div.event::after,#patchNotes.balance div.patch::after{margin:0}
+
+/* ── Checkboxes ── */
+.container{position:relative;padding-left:18px;cursor:pointer;user-select:none;font:500 12px Ubuntu;color:var(--text)}
+.container input{position:absolute;visibility:hidden;width:0;height:0}
+.checkmark{position:absolute;top:1px;left:0;height:13px;width:13px;border-radius:3px;background:var(--surface2);border:1px solid var(--border);transition:background .12s,border-color .12s}
+.container:hover input~.checkmark{border-color:var(--border-hl)}
+.container input:checked~.checkmark{background:var(--check);border-color:var(--check)}
+.container .checkmark:after{content:"";position:absolute;display:none;left:4px;top:1px;width:3px;height:7px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.container input:checked~.checkmark:after{display:block}
+
+/* ── optionsHeader compat ── */
+div.optionsHeader{display:block;margin:8px 0 3px;font:700 12px/1 Ubuntu;color:var(--text2);text-align:center}
+
+/* ── Links ── */
+a:link,a:visited{color:var(--link)}
+a:link:hover,a:visited:hover{opacity:.8}
+
+/* ── menuTabs ── */
+.menuTabs{height:28px;margin:0 8px}
+.menuTab{font:13px/28px Ubuntu;padding:6px 11px;border-radius:5px 5px 0 0;color:#fff!important;margin:0 6px}
+.menuTab.warning{background:#e90}.menuTab.critical{background:#f00}.menuTab.discord{padding:6px 12px 6px 36px;background:#7289da url(/img/discord.png) 8px 4px/23px no-repeat}.menuTab.achieve{background:var(--accent)}
+.menuTab>a{color:#fff!important;text-decoration:none}
+
+/* slider compat */
+.sliderHolder{width:350px;height:330px;overflow:hidden}
+body.mobile .sliderHolder{height:260px}
+.slider{position:relative;top:0;opacity:1;width:100%;transition:top 500ms,opacity 500ms}
+.slided .slider{top:-280px}
+.startMenuSlidingContent{height:320px;display:flex;flex-direction:column}
+body.mobile .startMenuSlidingContent{height:245px}
+
+/* scrollbar global */
+::-webkit-scrollbar{width:3px;height:0}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{border-radius:2px;background:var(--scroll-t)}
+
+/* misc compat */
+i{transition:transform 500ms}
+i.arrow{border:solid var(--text2);border-width:0 2px 2px 0;display:inline-block;padding:3px}
+i.reset{display:inline-block;width:8px;height:8px;border:var(--text2) 2px solid;border-right-color:transparent;border-radius:50%;position:relative;top:3px;opacity:0;transition:opacity 1s,margin 1s;margin:0 -6px}
+i.reset.active{opacity:1;margin:0 5px;cursor:pointer}
+.resetControls.spin{transition:transform 500ms,opacity 1s 150ms,margin 1s 150ms;transform:rotate(360deg)}
+i.reset::after{content:"";display:inline-block;border:3px solid;border-color:transparent var(--text2) var(--text2) transparent;position:relative;left:3px;bottom:8px}
+
+.tdCenter{width:350px}
+h3{font-size:14px;line-height:16px;color:var(--text2);text-align:center;padding:0;margin:9px 0 0}

@@ -453,6 +453,17 @@ class Canvas {
                     if (doc) util.submitToLocalStorage(box.id);
                     break;
                 }
+                let optionsMenu_themeClick = (global.optionsMenu_Anim.isOpened && global.optionsMenu_Anim.activeTab === 1 && global.optionsMenu_Anim.themeClickables) ? global.optionsMenu_Anim.themeClickables.check(mpos) : -1;
+                if (optionsMenu_themeClick !== -1) {
+                    const themeValues = ["normal","dark","classic","classicDark","natural","discord","midnight","solarizedDark","retro","snow","navigator","coralReef","gruvbox","eggplant","wrSheetTheme","lyric","bleach","nebula","forest","pastel","descent","badlands","pumpkinSkeleton","blindness"];
+                    let sel = document.getElementById("optColors");
+                    if (sel && themeValues[optionsMenu_themeClick]) {
+                        sel.value = themeValues[optionsMenu_themeClick];
+                        sel.dispatchEvent(new Event("change"));
+                        util.submitToLocalStorage("optColors");
+                    }
+                    break;
+                }
                 // Stop dragging class tree
                 if (global.classTreeDrag.isDragging) {
                     global.classTreeDrag.isDragging = false;

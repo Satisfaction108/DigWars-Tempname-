@@ -4597,39 +4597,90 @@ import * as socketStuff from "./socketinit.js";
 
         for (const cb of global.optionsCheckboxes) drawToolip(cb);
 
+        if (fadeTheme < 0.5 && global.optionsMenu_Anim.themeClickables) global.optionsMenu_Anim.themeClickables.hide();
         ctx[2].save();
         ctx[2].globalAlpha *= fadeTheme;
-        if (fadeTheme > 0.01) {
-            // THEME TAB
-        
-            const CONTENT_Y = PANEL_Y + 50;
-            const CONTENT_X = panelX + 30;
+        ctx[2].beginPath();
+        ctx[2].rect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT - 15);
+        ctx[2].clip();
+        if (fadeTheme > 0.5) {
+            drawText("Game Theme", panelX + PANEL_WIDTH / 2, PANEL_Y + 30, 15.5, color.guiwhite, "center");
 
-            ctx[2].fillStyle = color.guiwhite;
-            ctx[2].font = "bold 20px Ubuntu";
-            ctx[2].textAlign = "left";
-            ctx[2].textBaseline = "middle";
+            const themeNames = ["Light","Dark","Classic","Classic Dark","Natural","Discord","Midnight","Solarized Dark","Retro","Snow","Navigator","Coral Reef","Gruvbox","Eggplant","WR Sheet","Lyric","Bleach","Nebula","Forest","Pastel","Descent","Badlands","Pumpkin Skeleton","Blindness"];
+            const themeValues = ["normal","dark","classic","classicDark","natural","discord","midnight","solarizedDark","retro","snow","navigator","coralReef","gruvbox","eggplant","wrSheetTheme","lyric","bleach","nebula","forest","pastel","descent","badlands","pumpkinSkeleton","blindness"];
+            const currentTheme = document.getElementById("optColors") ? document.getElementById("optColors").value : "normal";
+            const COLS = 2;
+            const ITEM_W = (PANEL_WIDTH - 60) / COLS;
+            const ITEM_H = 30;
+            const GAP = 6;
+            const startX = panelX + 20;
+            const startY = PANEL_Y + 55;
 
-            drawText("Theme", panelX + PANEL_WIDTH / 2, PANEL_Y + 30, 15.5, color.guiwhite, "center");
-            drawText("Coming soon™", CONTENT_X, CONTENT_Y, 20, color.guiwhite, "left");
+            for (let i = 0; i < themeNames.length; i++) {
+                const col = i % COLS;
+                const row = Math.floor(i / COLS);
+                const x = startX + col * (ITEM_W + GAP);
+                const y = startY + row * (ITEM_H + GAP);
+                const isSelected = themeValues[i] === currentTheme;
+
+                global.optionsMenu_Anim.themeClickables.place(i, x * clickableRatio, y * clickableRatio, ITEM_W * clickableRatio, ITEM_H * clickableRatio);
+                const hovered = global.optionsMenu_Anim.themeClickables.check(mpos) === i;
+
+                ctx[2].lineWidth = 2;
+                gameDraw.setColor(ctx[2], isSelected ? color.green : gameDraw.mixColors(color.grey, color.black, 0.25));
+                drawGuiRect(x, y, ITEM_W, ITEM_H);
+                if (hovered && !isSelected) {
+                    gameDraw.setColor(ctx[2], color.lgrey);
+                    ctx[2].globalAlpha = 0.5 * fadeTheme;
+                    drawGuiRect(x, y, ITEM_W, ITEM_H);
+                    ctx[2].globalAlpha = fadeTheme;
+                }
+                gameDraw.setColor(ctx[2], color.black);
+                drawGuiRect(x, y, ITEM_W, ITEM_H, true);
+                drawText(themeNames[i], x + ITEM_W / 2, y + ITEM_H / 2 + 5, 11, isSelected ? "#ffffff" : color.guiwhite, "center");
+            }
         }
         ctx[2].restore();
 
         ctx[2].save();
         ctx[2].globalAlpha *= fadeKeybinds;
+        ctx[2].beginPath();
+        ctx[2].rect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT - 15);
+        ctx[2].clip();
         if (fadeKeybinds > 0.01) {
-            // KEYBINDS TAB
-        
-            const CONTENT_Y = PANEL_Y + 50;
-            const CONTENT_X = panelX + 30;
-
-            ctx[2].fillStyle = color.guiwhite;
-            ctx[2].font = "bold 20px Ubuntu";
-            ctx[2].textAlign = "left";
-            ctx[2].textBaseline = "middle";
-
             drawText("Keybinds", panelX + PANEL_WIDTH / 2, PANEL_Y + 30, 15.5, color.guiwhite, "center");
-            drawText("Coming soon™", CONTENT_X, CONTENT_Y, 20, color.guiwhite, "left");
+
+            const keybindList = [
+                ["W","Move Up"],["S","Move Down"],["A","Move Left"],["D","Move Right"],
+                ["E","Auto-Fire"],["C","Auto-Spin"],["R","Disable AI"],["V","Reverse Tank"],
+                ["B","Reverse Mouse"],["G","Auto-Alt"],["F","Use Action"],["O","Self-Destruct"],
+                ["X","Spin Lock"],["N","Level Up"],["M","Maximize Stat"],["T","Class Tree"],
+                ["Y","Upgrade 1"],["U","Upgrade 2"],["I","Upgrade 3"],
+                ["H","Upgrade 4"],["J","Upgrade 5"],["K","Upgrade 6"],
+                ["1","ATK"],["2","HTL"],["3","SPD"],["4","STR"],["5","PEN"],
+                ["6","DAM"],["7","RLD"],["8","MOB"],["9","RGN"],["0","SHI"],
+                ["P","Token Tank"],["Z","Record"],["Q","Screenshot"]
+            ];
+            const COLS = 2;
+            const ROW_H = 26;
+            const COL_W = (PANEL_WIDTH - 60) / COLS;
+            const kStartX = panelX + 20;
+            const kStartY = PANEL_Y + 55;
+            const KEY_BOX = 22;
+
+            for (let i = 0; i < keybindList.length; i++) {
+                const col = i % COLS;
+                const row = Math.floor(i / COLS);
+                const x = kStartX + col * (COL_W + 10);
+                const y = kStartY + row * ROW_H;
+
+                gameDraw.setColor(ctx[2], gameDraw.mixColors(color.grey, color.black, 0.2));
+                drawGuiRect(x, y, KEY_BOX, KEY_BOX);
+                gameDraw.setColor(ctx[2], color.black);
+                drawGuiRect(x, y, KEY_BOX, KEY_BOX, true);
+                drawText(keybindList[i][0], x + KEY_BOX / 2, y + KEY_BOX / 2 + 5, 11, "#5cc8ff", "center");
+                drawText(keybindList[i][1], x + KEY_BOX + 8, y + KEY_BOX / 2 + 5, 11, color.guiwhite, "left");
+            }
         }
         ctx[2].restore();
 
