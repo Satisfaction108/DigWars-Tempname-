@@ -159,7 +159,8 @@ Class.sniper = {
     PARENT: 'genericTank',
     LABEL: "Sniper",
     BODY: {
-        FOV: 4 * base.FOV
+        FOV: 1.2 * base.FOV,
+        SPEED: 2 * base.SPEED
     },
     GUNS: [
         {
@@ -4723,23 +4724,23 @@ Class.sidewinder = {
     LABEL: "Sidewinder",
     DANGER: 7,
     BODY: {
-        SPEED: 0.8 * base.SPEED,
-        FOV: 1.3 * base.FOV
+        SPEED: 0.5 * base.SPEED,
+        FOV: 1.3 * base.FOV  
     },
     GUNS: [
         {
             POSITION: {
                 LENGTH: 10,
-                WIDTH: 11,
-                ASPECT: -0.5,
+                WIDTH: 15,
+                ASPECT: 5,
                 X: 14
             }
         },
         {
             POSITION: {
                 LENGTH: 21,
-                WIDTH: 12,
-                ASPECT: -1.1
+                WIDTH: 20,
+                ASPECT: 4.5
             },
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic, g.sniper, g.hunter, g.sidewinder]),
