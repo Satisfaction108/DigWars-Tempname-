@@ -717,7 +717,7 @@ Class.doper_AR = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: "drone",
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }
         },
@@ -928,7 +928,7 @@ Class.angleseer_AR = {
             STAT_CALCULATOR: "necro",
             WAIT_TO_CYCLE: true,
             DELAY_SPAWN: false,
-            MAX_CHILDREN: 6
+            MAX_CHILDREN: 60
         }
     }, {delayIncrement: 0.5})
 }
@@ -1060,7 +1060,7 @@ Class.brisker_AR = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: "drone",
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }
         },
@@ -1105,7 +1105,7 @@ Class.captain_AR = {
                 STAT_CALCULATOR: "drone",
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
-                MAX_CHILDREN: 4,
+                MAX_CHILDREN: 40,
             },
         },
         {
@@ -1311,7 +1311,7 @@ Class.dealer_AR = {
         FOV: base.FOV * 1.1,
     },
     SHAPE: 4,
-    MAX_CHILDREN: 15,
+    MAX_CHILDREN: 150,
     GUNS: weaponArray([
         {
             POSITION: {
@@ -1670,7 +1670,7 @@ Class.foreman_AR = {
         SPEED: 0.9 * base.SPEED,
         FOV: 1.1 * base.FOV,
     },
-    MAX_CHILDREN: 6,
+    MAX_CHILDREN: 60,
     ...todo_placeholder_guns,
     GUNS: weaponArray({
         POSITION: {
@@ -1905,7 +1905,7 @@ Class.helicopter_AR = {
                 PROPERTIES: {
                     SHOOT_SETTINGS: combineStats([g.satellite, g.healer]), 
                     TYPE: ["healerSatellite", {ANGLE: i * 60}], 
-                    MAX_CHILDREN: 1,   
+                    MAX_CHILDREN: 10,   
                     AUTOFIRE: true,  
                     SYNCS_SKILLS: false,
                     WAIT_TO_CYCLE: true
@@ -1943,7 +1943,7 @@ Class.hexaseer_AR = {
             STAT_CALCULATOR: "necro",
             WAIT_TO_CYCLE: true,
             DELAY_SPAWN: false,
-            MAX_CHILDREN: 4
+            MAX_CHILDREN: 40
         }
     }, {delayIncrement: 0.5})
 }
@@ -2342,7 +2342,7 @@ Class.megaSpawner_AR = {
                 X: 15
             },
             PROPERTIES: {
-                MAX_CHILDREN: 4,
+                MAX_CHILDREN: 40,
                 SHOOT_SETTINGS: combineStats([g.minion, g.spawner, {size: 0.8 }]),
                 TYPE: "megaMinion",
                 STAT_CALCULATOR: "drone",
@@ -2446,7 +2446,7 @@ Class.mummifier_AR = {
         FOV: base.FOV * 1.1,
     },
     SHAPE: 4,
-    MAX_CHILDREN: 6,
+    MAX_CHILDREN: 60,
     //...todo_placeholder_guns,
     GUNS: weaponArray({
         POSITION: {
@@ -2584,7 +2584,7 @@ Class.pentaseer_AR = {
             STAT_CALCULATOR: "necro",
             WAIT_TO_CYCLE: true,
             DELAY_SPAWN: false,
-            MAX_CHILDREN: 5
+            MAX_CHILDREN: 50
         }
     }, {delayIncrement: 0.5})
 }
@@ -3430,7 +3430,7 @@ Class.PLACEHOLDER_healerUnderseer_AR = {
         FOV: base.FOV * 1.1,
     },
     SHAPE: 4,
-    MAX_CHILDREN: 14,
+    MAX_CHILDREN: 140,
     ...todo_placeholder_guns,
     GUNS: weaponArray({
         POSITION: {
@@ -3582,7 +3582,7 @@ Class.adderall_AR = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: "drone",
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }
         },
@@ -3777,7 +3777,7 @@ Class.bigChip_AR = {
             STAT_CALCULATOR: "necro",
             WAIT_TO_CYCLE: true,
             DELAY_SPAWN: false,
-            MAX_CHILDREN: 1
+            MAX_CHILDREN: 10
         }
     }, 2),
     PROPS: Class.alphaSunchip_AR.PROPS
@@ -4058,7 +4058,7 @@ Class.coordinator_AR = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: "drone",
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }
         },
@@ -5126,7 +5126,7 @@ Class.leader_AR = {
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: "drone",
                 WAIT_TO_CYCLE: true,
-                MAX_CHILDREN: 8
+                MAX_CHILDREN: 80
             }
         }
     ]
@@ -5255,7 +5255,7 @@ Class.omen_AR = {
                 STAT_CALCULATOR: "necro",
                 WAIT_TO_CYCLE: true,
                 DELAY_SPAWN: false,
-                MAX_CHILDREN: 2
+                MAX_CHILDREN: 20
             },
         }, 4, {delayIncrement: 0.25}),
         ...weaponArray([{
@@ -5916,7 +5916,7 @@ Class.sootherdrive_AR = {
                 AUTOFIRE: true,
                 SYNCS_SKILLS: true,
                 STAT_CALCULATOR: "drone",
-                MAX_CHILDREN: 6,
+                MAX_CHILDREN: 60,
                 WAIT_TO_CYCLE: true
             }*/
         }
@@ -6404,7 +6404,7 @@ Class.ultraTornado_AR = {
                 PROPERTIES: {
                     SHOOT_SETTINGS: combineStats([g.satellite, g.pounder, g.destroyer, g.annihilator]), 
                     TYPE: ["satellite", {ANGLE: i * 180}], 
-                    MAX_CHILDREN: 1,   
+                    MAX_CHILDREN: 10,   
                     AUTOFIRE: true,  
                     SYNCS_SKILLS: false,
                     WAIT_TO_CYCLE: true
@@ -6728,7 +6728,7 @@ Class.warlock_AR = {
                 STAT_CALCULATOR: "necro",
                 WAIT_TO_CYCLE: true,
                 DELAY_SPAWN: false,
-                MAX_CHILDREN: 5
+                MAX_CHILDREN: 50
             }
         }
     ]
@@ -6766,7 +6766,7 @@ Class.witch_AR = {
                 STAT_CALCULATOR: "necro",
                 WAIT_TO_CYCLE: true,
                 DELAY_SPAWN: false,
-                MAX_CHILDREN: 10
+                MAX_CHILDREN: 100
             }
         }
     ]

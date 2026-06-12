@@ -341,7 +341,7 @@ Class.builder = {
     DANGER: 6,
     STAT_NAMES: statnames.trap,
     BODY: {
-        SPEED: 0.8 * base.SPEED,
+        SPEED: 0.5 * base.SPEED,
         FOV: 1.15 * base.FOV
     },
     GUNS: [
@@ -1358,7 +1358,7 @@ Class.assembler = {
     DANGER: 7,
     STAT_NAMES: statnames.trap,
     BODY: {
-        SPEED: 0.8 * base.SPEED,
+        SPEED: 0.5 * base.SPEED,
         FOV: 1.15 * base.FOV,
     },
     GUNS: [
