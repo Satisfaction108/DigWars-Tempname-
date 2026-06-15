@@ -16,13 +16,11 @@
     document.addEventListener('DOMContentLoaded', function () {
         applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 
-        // Theme toggle
         var tb = document.getElementById('themeToggleBtn');
         if (tb) tb.onclick = function () {
             applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
         };
 
-        // Settings panel
         var panel = document.getElementById('homeSettingsPanel');
         var overlay = document.getElementById('homeSettingsOverlay');
         var openBtn = document.getElementById('homeSettingsBtn');
@@ -35,7 +33,6 @@
         if (closeBtn) closeBtn.onclick = closeP;
         if (overlay) overlay.onclick = closeP;
 
-        // Settings tabs
         var tabs = document.querySelectorAll('.sp-tab');
         tabs.forEach(function (tab) {
             tab.onclick = function () {
@@ -47,7 +44,30 @@
             };
         });
 
-        // Snowfall — lightweight, 60 particles
+        var clPanel = document.getElementById('homeChangelogPanel');
+        var clOverlay = document.getElementById('homeChangelogOverlay');
+        var clOpenBtn = document.getElementById('homeChangelogBtn');
+        var clCloseBtn = document.getElementById('homeChangelogClose');
+
+        function openCL() { clPanel.classList.add('open'); clOverlay.classList.add('visible'); }
+        function closeCL() { clPanel.classList.remove('open'); clOverlay.classList.remove('visible'); }
+
+        if (clOpenBtn) clOpenBtn.onclick = openCL;
+        if (clCloseBtn) clCloseBtn.onclick = closeCL;
+        if (clOverlay) clOverlay.onclick = closeCL;
+
+        var clTabs = document.querySelectorAll('.cl-tab');
+        var patchNotes = document.getElementById('patchNotes');
+        clTabs.forEach(function (tab) {
+            tab.onclick = function () {
+                clTabs.forEach(function (t) { t.classList.remove('active'); });
+                tab.classList.add('active');
+                if (patchNotes) {
+                    patchNotes.className = 'shadowScroll ' + tab.getAttribute('data-type');
+                }
+            };
+        });
+
         var canvas = document.getElementById('snowCanvas');
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
@@ -92,10 +112,10 @@
         }
         draw();
 
-        // Hide home UI buttons when game starts
         var homeUI = [
             document.getElementById('themeToggleBtn'),
             document.getElementById('homeSettingsBtn'),
+            document.getElementById('homeChangelogBtn'),
             document.getElementById('snowCanvas')
         ];
         var smw = document.getElementById('startMenuWrapper');
@@ -103,10 +123,10 @@
             new MutationObserver(function () {
                 var hidden = smw.style.display === 'none' || parseInt(smw.style.top) < -100;
                 homeUI.forEach(function (el) { if (el) el.style.display = hidden ? 'none' : ''; });
+                if (hidden) { closeCL(); closeP(); }
             }).observe(smw, { attributes: true, attributeFilter: ['style'] });
         }
 
-        // Keybind sync
         var grid = document.getElementById('homeKeybindGrid');
         var hidden = document.getElementById('controlSettings');
         if (!grid || !hidden) return;

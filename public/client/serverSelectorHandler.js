@@ -34,7 +34,6 @@ global.loadServerSelector = (serverData, text) => {
       },
     };
 
-    // If you dont want have a server filter, just dont run this function.
     initializeFilter();
 
     servers.forEach(async (server) => {
@@ -54,7 +53,7 @@ global.loadServerSelector = (serverData, text) => {
             tr.appendChild(td1);
             tr.appendChild(td2);
             tr.appendChild(td3);
-            server.featured && tr.classList.add("featured"); // make the text yellow if its featured.
+            server.featured && tr.classList.add("featured");
             tr.onclick = () => {
                 if (myServer.classList.contains("selected")) {
                     myServer.classList.remove("selected");
@@ -83,7 +82,6 @@ global.loadServerSelector = (serverData, text) => {
         serverMap[id].onclick();
     });
 }
-
 
 let loadEmptyServerSelector = (text) => {
     let serverSelector = document.getElementById("serverSelector"),
@@ -136,22 +134,17 @@ let initializeFilter = () => {
     tbody.appendChild(noServerMatches);
 
     for (let s of servers) {
-        // Regions
+
         global.filters.regions.all.push(s);
 
-        // USA
         if (s.region.toLowerCase() == "usa" || s.region.toLowerCase() == "us west" || s.region.toLowerCase() == "us central" || s.region.toLowerCase() == "us east") global.filters.regions.america.push(s);
 
-        // Europe
         if (s.region.toLowerCase() == "europe") global.filters.regions.europe.push(s);
 
-        // Asia
         if (s.region.toLowerCase() == "asia") global.filters.regions.asia.push(s);
 
-        // Oceania
         if (s.region.toLowerCase() == "oceania") global.filters.regions.oceania.push(s);
 
-        // Other
         if (
             !global.filters.regions.america.includes(s) &&
             !global.filters.regions.europe.includes(s) &&
@@ -160,19 +153,14 @@ let initializeFilter = () => {
             global.filters.regions.other.push(s);
         }
 
-        // Gamemodes
         global.filters.gamemodeFilters.all.push(s);
 
-        // Arms Race
         if (s.gameMode.includes("Arms Race")) global.filters.gamemodeFilters.armsRace.push(s);
 
-        // Growth
         else if (s.gameMode.toLowerCase().includes("growth")) global.filters.gamemodeFilters.growth.push(s);
 
-        // Sandbox
         else if (s.gameMode.includes("Sandbox")) global.filters.gamemodeFilters.sandbox.push(s);
 
-        // Normal — FFA, TDM, no special modifier
         else if (
             s.gameMode.includes("FFA") ||
             s.gameMode.includes("TDM") ||
@@ -184,7 +172,6 @@ let initializeFilter = () => {
             global.filters.gamemodeFilters.normal.push(s);
         }
 
-        // Other — minigames, siege, etc.
         else {
             global.filters.gamemodeFilters.other.push(s);
         }
@@ -194,7 +181,7 @@ let initializeFilter = () => {
         let r = l.length;
         l.push(data[0].filter);
         let e = document.getElementsByClassName("serverSelector");
-        e[0].style.height = "140px";
+        e[0].style.height = "170px";
         let v = null;
         for (let { name: textContent, filter: y } of data) {
             let Q = document.createElement("span");
@@ -234,15 +221,15 @@ let initializeFilter = () => {
             let e = checkFilter(h, global.filters.regions.america);
             return e;
         } },
-        { name: "Europe", filter: (h) => { 
+        { name: "Europe", filter: (h) => {
             let e = checkFilter(h, global.filters.regions.europe);
             return e;
         } },
-        { name: "Asia", filter: (h) => { 
+        { name: "Asia", filter: (h) => {
             let e = checkFilter(h, global.filters.regions.asia);
             return e;
         } },
-        { name: "Oceania", filter: (h) => { 
+        { name: "Oceania", filter: (h) => {
             let e = checkFilter(h, global.filters.regions.oceania);
             return e;
         } },

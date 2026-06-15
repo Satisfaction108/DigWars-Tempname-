@@ -9,6 +9,7 @@ const { Maze } = require("./gamemodes/scripts/maze.js");
 const { Outbreak } = require("./gamemodes/scripts/outbreak.js");
 const { ClanWars } = require("./gamemodes/scripts/clan_wars.js");
 const { GroupHandler } = require("./gamemodes/scripts/groups.js");
+const { DigWars } = require("./gamemodes/scripts/dig_wars.js");
 
 class gamemodeManager {
     constructor() {
@@ -23,6 +24,7 @@ class gamemodeManager {
         this.gameOutbreak = new Outbreak(global.gameManager);
         this.gameClanwars = new ClanWars(global.gameManager);
         this.gameGroups = new GroupHandler(global.gameManager);
+        this.gameDigWars = new DigWars(global.gameManager);
     }
 
     request(type) {
@@ -34,6 +36,7 @@ class gamemodeManager {
             if (Config.mothership) this.gameMothership.start();
             if (Config.maze_type !== undefined && !Config.siege) this.gameMaze.generate();
             if (Config.outbreak) this.gameOutbreak.start();
+            if (Config.dig_wars) this.gameDigWars.start();
         }
         if (type == "loop") {
             global.gameManager.lagLogger.set();
@@ -47,7 +50,7 @@ class gamemodeManager {
                 console.log(global.gameManager.lagLogger.sum.map(entry => `Run at: ${entry.at}. Time: ${entry.time}.`).join("\n"));
             }
         }
-        if (type == "quickloop") { // Mainly for sandbox and trainwars only, but you can also put your own gamemode loop here incase the regular loop doesnt fit.
+        if (type == "quickloop") {
             if (Config.sandbox) this.gameSandbox.update();
             if (Config.train) this.gameTrain.loop();
         }
@@ -60,6 +63,7 @@ class gamemodeManager {
         if (Config.domination) this.gameDomination.reset();
         if (Config.mothership) this.gameMothership.reset();
         if (Config.clan_wars) this.gameClanwars.reset();
+        if (Config.dig_wars) this.gameDigWars.reset();
     }
 
     redefine(theshit) {
@@ -70,6 +74,7 @@ class gamemodeManager {
         this.gameMaze.redefine(Config.maze_type);
         this.gameClanwars.redefine(theshit);
         this.gameGroups.redefine(theshit);
+        this.gameDigWars.redefine(theshit);
     }
 }
 

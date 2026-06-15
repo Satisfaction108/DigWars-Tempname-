@@ -18,6 +18,7 @@ class TerrainRenderer {
         this._silFull    = null;
         this._silOuter   = null;
         this._lineRocks   = null;
+        this.useVoronoi  = true;
     }
 
     _h(x, y, s) {
@@ -688,29 +689,34 @@ class TerrainRenderer {
             [[-1.95, 1.70],[-0.70, 2.35],[ 0.45, 2.45],[ 1.45, 2.05],[ 2.25, 1.35]],
         ];
 
-        const order = [1, 2, 3, 0, 4, 5];
-        const drawList = order.map(i => {
-            const rock = this._lineRocks[pick[i]];
-            return { rcx: cx + hex[i][0], rcy: cy + hex[i][1], G: rock.G, seed: rock.seed };
-        });
-        drawList.push({ rcx: cx, rcy: cy, G: centerG, isCenter: true });
+        if (this.useVoronoi) {
+            const tileSize = 8;
+            ctx.drawImage(this._noiseTile, cx - tileSize / 2, cy - tileSize / 2, tileSize, tileSize);
+        } else {
+            const order = [1, 2, 3, 0, 4, 5];
+            const drawList = order.map(i => {
+                const rock = this._lineRocks[pick[i]];
+                return { rcx: cx + hex[i][0], rcy: cy + hex[i][1], G: rock.G, seed: rock.seed };
+            });
+            drawList.push({ rcx: cx, rcy: cy, G: centerG, isCenter: true });
 
-        for (let idx = 0; idx < drawList.length; idx++) {
-            const item = drawList[idx];
-            ctx.save();
-            for (let t = idx + 1; t < drawList.length; t++) {
-                const top = drawList[t];
-                ctx.beginPath();
-                ctx.rect(-1000, -1000, 2000, 2000);
-                this._rockOutlinePath(ctx, top.rcx, top.rcy, s, top.G);
-                ctx.clip('evenodd');
+            for (let idx = 0; idx < drawList.length; idx++) {
+                const item = drawList[idx];
+                ctx.save();
+                for (let t = idx + 1; t < drawList.length; t++) {
+                    const top = drawList[t];
+                    ctx.beginPath();
+                    ctx.rect(-1000, -1000, 2000, 2000);
+                    this._rockOutlinePath(ctx, top.rcx, top.rcy, s, top.G);
+                    ctx.clip('evenodd');
+                }
+                if (item.isCenter) {
+                    this._drawSingleRock(ctx, item.rcx, item.rcy, s);
+                } else {
+                    this._drawRockFromGrid(ctx, item.rcx, item.rcy, s, item.G, item.seed);
+                }
+                ctx.restore();
             }
-            if (item.isCenter) {
-                this._drawSingleRock(ctx, item.rcx, item.rcy, s);
-            } else {
-                this._drawRockFromGrid(ctx, item.rcx, item.rcy, s, item.G, item.seed);
-            }
-            ctx.restore();
         }
 
         ctx.restore();

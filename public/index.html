@@ -8,7 +8,7 @@
     <meta property="og:image" content="/img/round.png">
     <meta property="og:image:width" content="54">
     <meta property="og:image:height" content="54">
-    <title>Open Source Arras</title>
+    <title>arras.io — Open Source</title>
     <link rel="stylesheet" href="./font.css"/>
     <link rel="stylesheet" href="./main.css"/>
     <link rel="stylesheet" href="./home.css"/>
@@ -27,17 +27,18 @@
         <canvas id="gameCanvas-gui" tabindex="4"></canvas>
     </div>
 
-    <!-- Theme toggle top-right -->
     <button id="themeToggleBtn" title="Toggle theme">
         <span id="themeIcon">&#9790;</span>
     </button>
 
-    <!-- Settings button top-left -->
     <button id="homeSettingsBtn" title="Settings">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
 
-    <!-- Settings panel -->
+    <button id="homeChangelogBtn" title="Updates">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    </button>
+
     <div id="homeSettingsPanel">
         <div class="sp-header">
             <span>Settings</span>
@@ -49,12 +50,12 @@
             <span class="sp-tab sp-desktop-only" data-tab="sp-keybinds">Keybinds</span>
         </div>
         <div class="sp-body">
-            <!-- Theme tab -->
+
             <div id="sp-theme" class="sp-pane">
                 <div class="sp-label">Game Theme</div>
                 <select id="optColors" tabindex="-1" onchange="document.getElementById('optCustom').style.display = this.value === 'custom' ? 'block' : 'none'" onfocus="document.getElementById('optCustom').style.display = this.value === 'custom' ? 'block' : 'none'">
                     <option value="normal">Light (by Neph/CX)</option>
-                    <option value="dark">Dark (by Neph/CX)</option>
+                    <option value="dark" selected>Dark (by Neph/CX)</option>
                     <option value="classic">Classic (by Neph/CX)</option>
                     <option value="classicDark">Classic Dark (by Neph)</option>
                     <option value="natural">Natural (by Neph)</option>
@@ -100,7 +101,6 @@
                 </div>
             </div>
 
-            <!-- Options tab (mirrors ingame options) -->
             <div id="sp-options" class="sp-pane active">
                 <div class="sp-label">Game Appearance</div>
                 <div class="sp-checks">
@@ -159,7 +159,6 @@
                 </div>
             </div>
 
-            <!-- Keybinds tab -->
             <div id="sp-keybinds" class="sp-pane">
                 <div class="kb-header"><span>Keybinds</span><i id="resetControls" class="reset resetControls" title="Reset controls"></i></div>
                 <div class="kb-grid" id="homeKeybindGrid">
@@ -210,12 +209,33 @@
     </div>
     <div id="homeSettingsOverlay"></div>
 
+    <div id="changelogTabs" style="display:none;">
+        <span class="active" data-type="default">Bulletin Board</span>
+        <span data-type="updates">Updates</span>
+        <span data-type="balance">Balance</span>
+        <span data-type="changelog">Changelog</span>
+    </div>
+
+    <div id="homeChangelogPanel">
+        <div class="cl-header">
+            <span>Updates</span>
+            <button id="homeChangelogClose">&#10005;</button>
+        </div>
+        <div class="cl-tabs">
+            <span class="cl-tab active" data-type="default">Bulletin Board</span>
+            <span class="cl-tab" data-type="updates">Updates</span>
+            <span class="cl-tab" data-type="balance">Balance</span>
+            <span class="cl-tab" data-type="changelog">Changelog</span>
+        </div>
+        <div id="patchNotes" class="shadowScroll default"></div>
+    </div>
+    <div id="homeChangelogOverlay"></div>
+
     <div class="mainWrapper">
         <div id="startMenuWrapper">
             <div id="menuTabs" class="menuTabs" style="text-align: right;"></div>
             <div class="startMenu">
 
-                <!-- Left: Credits -->
                 <div class="startMenuHolder linkHolder">
                     <div class="credits-panel">
                         <div class="credits-title">Developers</div>
@@ -237,7 +257,6 @@
                     </div>
                 </div>
 
-                <!-- Center: main play panel -->
                 <div class="startMenuHolder mainHolder">
                     <div class="sliderHolder">
                         <div class="slider startMenuSlidingContent">
@@ -254,7 +273,7 @@
                             <input type="text" autofocus tabindex="1" spellcheck="false" placeholder="Enter name..." id="playerNameInput" maxlength="24">
                             <input type="text" class="conceal" tabindex="3" placeholder="Token (optional)" id="playerKeyInput" maxlength="64" />
                         </div>
-                        <!-- Hidden compat for app.js -->
+
                         <div class="slider" id="startMenuSlidingTrigger" style="display:none;">
                             <h3><span id="viewOptionText">view options</span><i class="arrow" id="optionArrow" style="transform:rotate(-45deg);"></i></h3>
                         </div>
@@ -290,17 +309,6 @@
                     <div class="startButtonHolder">
                         <button id="startButton" tabindex="2"><b>Play</b></button>
                     </div>
-                </div>
-
-                <!-- Right: changelog -->
-                <div class="startMenuHolder changelogHolder">
-                    <div class="horizontalSelector" id="changelogTabs">
-                        <span class="active" title="Updates, events, polls, and announcements" data-type="default">Bulletin&nbsp;Board</span>
-                        <span title="All major updates" data-type="updates">Updates</span>
-                        <span title="Every balance update" data-type="balance">Balance</span>
-                        <span title="Every single update" data-type="changelog">Changelog</span>
-                    </div>
-                    <div id="patchNotes" class="shadowScroll default"></div>
                 </div>
 
             </div>

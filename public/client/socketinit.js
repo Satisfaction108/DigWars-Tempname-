@@ -65,7 +65,7 @@ gui = {
                 deduction -= levelscore - deduction * d;
                 level--
             }
-        },  
+        },
         getProgress: () => levelscore ? Math.min(1, Math.max(0, (sscore.get() - deduction) / levelscore)) : 0,
         getScore: () => sscore.get(),
         getLevel: () => level,
@@ -104,12 +104,12 @@ var moveCompensation = {
     },
     iterate: (g) => {
         if (global.died || global.gameStart) return 0;
-        // Add motion
+
         let damp = gui.accel / gui.topSpeed,
             len = Math.sqrt(g.x * g.x + g.y * g.y);
         _vx += gui.accel * g.x / len;
         _vy += gui.accel * g.y / len;
-        // Dampen motion
+
         let motion = Math.sqrt(_vx * _vx + _vy * _vy);
         if (motion > 0 && damp) {
             let finalvelocity = motion / (damp / config.roomSpeed + 1);
@@ -212,7 +212,7 @@ const Minimap = class {
         })
     }
 }
-// Build the leaderboard object
+
 const Entry = class {
     constructor(to) {
         this.score = util.Smoothbar(0, 10, 3, .03);
@@ -296,9 +296,9 @@ var lag = {
         }
     }
 };
-// Inital setup stuff
+
 window.WebSocket = window.WebSocket || window.MozWebSocket;
-// Make a data crawler
+
 let crawlIndex = 0,
     crawlData = [];
 const get = {
@@ -341,7 +341,7 @@ function physics(g) {
         }
     }
 }
-// Some status manager constructors
+
 const GunContainer = n => {
     let a = [];
     for (let i = 0; i < n; i++) {
@@ -351,8 +351,8 @@ const GunContainer = n => {
             isUpdated: true,
             configLoaded: false,
             color: "",
-            borderless: false, 
-            drawFill: true, 
+            borderless: false,
+            drawFill: true,
             drawAbove: false,
             length: 0,
             width: 0,
@@ -387,7 +387,7 @@ const GunContainer = n => {
             if (!g.configLoaded) {
                 g.configLoaded = true;
                 g.color = c.color;
-                g.borderless = c.borderless; 
+                g.borderless = c.borderless;
                 g.alpha = c.alpha;
                 g.strokeWidth = c.strokeWidth;
                 g.drawFill = c.drawFill;
@@ -438,13 +438,13 @@ function Status() {
         }
     };
 }
-// Make a converter
+
 const process = (z = {}) => {
-    let isNew = z.facing == null; // For whatever reason arguments.length is uglified poorly...
-    // Figure out what kind of data we're looking at
+    let isNew = z.facing == null;
+
     let type = get.next();
-    // Handle it appropiately
-    if (type & 0x01) { // issa turret
+
+    if (type & 0x01) {
         z.facing = get.next();
         z.layer = get.next();
         z.index = get.next();
@@ -456,18 +456,18 @@ const process = (z = {}) => {
         z.direction = get.next();
         z.offset = get.next();
         z.mirrorMasterAngle = get.next();
-    } else { // issa something real
+    } else {
         z.interval = global.metrics.rendergap;
         z.id = get.next();
-        // Determine if this is an new entity or if we already know about it
+
         let i = global.entities.findIndex(x => x.id === z.id);
         if (i !== -1) {
-            // remove it if needed (this way we'll only be left with the dead/unused entities)
+
             z = global.entities.splice(i, 1)[0];
         }
-        // Change the use of the variable
+
         isNew = i === -1;
-        // If it's not new, save the memory data
+
         if (!isNew) {
             z.render.lastx = z.x;
             z.render.lasty = z.y;
@@ -476,8 +476,7 @@ const process = (z = {}) => {
             z.render.lastf = z.facing;
             z.render.lastRender = global.player.time;
         }
-        // Either way, keep pulling information
-        // For limited entities only by only pulling their limited information.
+
         if (type & 0x10) {
             z.index = get.next();
             z.x = get.next();
@@ -491,7 +490,7 @@ const process = (z = {}) => {
             z.vfacing = get.next();
             z.layer = get.next();
             z.color = get.next();
-        } else { // Else pull all information.
+        } else {
             z.index = get.next();
             z.x = get.next();
             z.y = get.next();
@@ -510,7 +509,7 @@ const process = (z = {}) => {
         }
         let invuln = type & 0x10 ? 0 : get.next();
         z.invuln = invuln ? z.invuln || Date.now() : 0;
-        // Update health, flagging as injured if needed
+
         if (isNew) {
             z.health = get.next() / 65535;
             z.shield = get.next() / 65535;
@@ -519,23 +518,23 @@ const process = (z = {}) => {
                 ss = z.shield;
             z.health = get.next() / 65535;
             z.shield = get.next() / 65535;
-            // Update stuff
+
             if (z.health < hh || z.shield < ss) {
                 z.render.status.set('injured');
             } else if (z.render.status.getFade() !== 1) {
-                // If it turns out that we thought it was dead and it wasn't
+
                 z.render.status.set('normal');
             }
         }
         z.alpha = get.next() / 255;
-        z.drawsHealth = !!(type & 0x02); // force to boolean
-        // Nameplates
-        if (type & 0x04) { // has a nameplate
+        z.drawsHealth = !!(type & 0x02);
+
+        if (type & 0x04) {
             z.name = get.next();
             z.score = get.next();
         }
         z.nameplate = type & 0x04;
-        // If it's new, give it rendering information
+
         if (isNew) {
             z.render = {
                 draws: true,
@@ -567,25 +566,25 @@ const process = (z = {}) => {
         } else if (z.render.status.getState() === 'invuln') {
             z.render.status.set('normal');
         }
-        // Update the rendering healthbars and size
+
         z.render.health.set(z.health);
         z.render.shield.set(z.shield);
         z.render.size.add(z.size);
         z.render.xAnim.add(z.x);
         z.render.yAnim.add(z.y);
         z.render.faceAnim.add(z.facing);
-        // Figure out if the class changed (and if so, refresh the guns and turrets)
+
         if (!isNew && z.oldIndex !== z.index) isNew = true;
         z.oldIndex = z.index;
     }
-    // If it needs to have a gun container made, make one
+
     let gunnumb = get.next();
     if (isNew) {
         z.guns = GunContainer(gunnumb);
     } else if (gunnumb !== z.guns.length) {
         throw new Error('Mismatch between data gun number and remembered gun number!');
     }
-    // Decide if guns need to be fired one by one
+
     for (let i = 0; i < gunnumb; i++) {
         let time = get.next(),
             power = get.next(),
@@ -601,10 +600,10 @@ const process = (z = {}) => {
             angle = get.next(),
             direction = get.next(),
             offset = get.next();
-        z.guns.setConfig(i, {color, alpha, strokeWidth, borderless, drawFill, drawAbove, length, width, aspect, angle, direction, offset}); // Load gun config into container
-        if (time > global.player.lastUpdate - global.metrics.rendergap) z.guns.fire(i, power); // Shoot it
+        z.guns.setConfig(i, {color, alpha, strokeWidth, borderless, drawFill, drawAbove, length, width, aspect, angle, direction, offset});
+        if (time > global.player.lastUpdate - global.metrics.rendergap) z.guns.fire(i, power);
     }
-    // Update turrets
+
     let turnumb = get.next();
     if (isNew || z.turrets.length !== turnumb) {
         z.turrets = [];
@@ -619,33 +618,33 @@ const process = (z = {}) => {
             tur = process(tur);
         }
     }
-    // Return our monsterous creation
+
     return z;
 };
-// This is what we use to figure out what the hell the server is telling us to look at
+
 const convert = {
     begin: data => get.set(data),
-    // Make a data convertor
+
     data: () => {
-        // Set up the output thingy+
+
         let output = [];
-        // Get the number of entities and work through them
+
         for (let i = 0, len = get.next(); i < len; i++) {
             output.push(process());
         }
-        // Handle the dead/leftover entities
+
         for (let e of global.entities) {
-            // Kill them
+
             e.render.status.set(e.health === 1 ? 'dying' : 'killed');
-            // And only push them if they're not entirely dead and still visible
+
             if (e.render.status.getFade() !== 0 && util.isInView(e.render.x - global.player.renderx, e.render.y - global.player.rendery, e.size, true)) {
                 output.push(e);
             } else {
                 if (global.chats[e.id]) {
                     for (let o of global.chats[e.id]) {
-                        util.remove(global.chats[e.id], global.chats[e.id].indexOf(o)); // Remove it properly
+                        util.remove(global.chats[e.id], global.chats[e.id].indexOf(o));
                     };
-                    delete global.chats[e.id]; // Now we can delete it entirely
+                    delete global.chats[e.id];
                 };
                 if (e.render.textobjs != null) {
                     for (let o of e.render.textobjs) {
@@ -654,7 +653,7 @@ const convert = {
                 }
             }
         }
-        // Save the new entities list
+
         global.entities = output;
         global.entities.sort((a, b) => {
             let sort = a.layer - b.layer;
@@ -663,10 +662,10 @@ const convert = {
             return sort;
         });
     },
-    // Define our gui convertor
+
     gui: () => {
         let index = get.next(),
-            // Translate the encoded index
+
             indices = {
                 dailyTank: index & 0x1000,
                 visibleName: index & 0x0800,
@@ -682,7 +681,7 @@ const convert = {
                 label: index & 0x0002,
                 fps: index & 0x0001,
             };
-        // Operate only on the values provided
+
         if (indices.fps) {
             gui.fps = get.next();
         }
@@ -806,24 +805,24 @@ const convert = {
 };
 
 const protocols = {
-    "http:": "ws://",
-    "https:": "wss://"
+    "http:": "ws:
+    "https:": "wss:
 };
 let incoming = async function(message, socket) {
     await new Promise(Resolve => setTimeout(Resolve, window.fakeLagMS));
-    // Make sure it looks legit.
+
     global.bandwidth.currentFa += message.data.byteLength;
     let m = protocol.decode(message.data);
     if (m === -1) {
         throw new Error('Malformed packet.');
     }
-    // Decide how to interpret it
+
     switch (m.shift()) {
         case 'W': {
             if (m[0]) {
                 global.message = '';
                 socket.talk('k', global.playerKey);
-                // define a pinging function
+
                 socket.ping = (payload) => {
                     socket.talk('p', payload);
                 };
@@ -833,13 +832,12 @@ let incoming = async function(message, socket) {
             }
         }; break;
 
-
-            case 'w': { // welcome to the game
-                if (m[0]) { // Ask to get the room data first
+            case 'w': {
+                if (m[0]) {
                     socket.talk('s', "", 1, 0, false, 0);
                 }
             }; break;
-            case 'R': { // room setup
+            case 'R': {
                 global.gameWidth = m[0];
                 global.gameHeight = m[1];
                 global.player.roomAnim.x.add(m[0]);
@@ -852,7 +850,7 @@ let incoming = async function(message, socket) {
                 global.advanced.blackout.active = blackoutData.active;
                 global.advanced.blackout.color = blackoutData.color;
                 global.advanced.roundMap = m[6] == "circle" ? true : false;
-                // Start syncing
+
                 socket.talk('S', getNow());
             } break;
             case "r": {
@@ -862,6 +860,11 @@ let incoming = async function(message, socket) {
                 global.player.roomAnim.y.add(m[1]);
                 global.roomSetup = JSON.parse(m[2]);
             } break;
+            case 'TG': {
+                const cols = m[0], rows = m[1];
+                const cells = JSON.parse(m[2]);
+                if (window.terrainRenderer) window.terrainRenderer.init(cells, cols, rows);
+            } break;
             case "temporaryban": {
                 global.message = "You have been temporarily banned from the game. You will be able to rejoin after a server restart.";
             } break;
@@ -869,7 +872,7 @@ let incoming = async function(message, socket) {
                 global.message = "You have been banned from the game.";
             } break;
             case "svInfo": {
-                // For debugging.
+
                 global.serverStats.serverGamemodeName = m[0];
                 global.serverStats.mspt = m[1];
                 if (global.showDebug) console.log(`mspt: ${global.serverStats.mspt} total entities on screen: ${global.entities.length} Player X: ${(global.player.renderx).toFixed(1)} Player Y: ${(global.player.rendery).toFixed(1)}`);
@@ -877,31 +880,31 @@ let incoming = async function(message, socket) {
             case "gSvInfo": {
                 global.serverStats.players = m[1];
             } break;
-            case 'c': { // force camera move
+            case 'c': {
                 global.player.renderx = global.player.cx.x = m[0];
                 global.player.rendery = global.player.cy.y = m[1];
                 global.player.renderv = global.player.view = m[2];
                 global.player.animX.add(m[0]);
                 global.player.animY.add(m[1]);
             } break;
-            case 'S': { // clock syncing
+            case 'S': {
                 let clientTime = m[0],
                     serverTime = m[1],
                     laten = (getNow() - clientTime) / 2,
                     delta = getNow() - laten - serverTime;
-                // Add the datapoint to the syncing data
+
                 sync.push({
                     delta: delta,
                     latency: laten,
                 });
-                // Do it again a couple times
+
                 if (sync.length < 10) {
-                    // Erase entities if resync is needed.
+
                     if (startSettings.neededtoresync) global.entities = [];
-                    // Wait a bit just to space things out
+
                     setTimeout(() => socket.talk('S', getNow()), 10);
                 } else {
-                    // Calculate the clock error
+
                     sync.sort((e, f) => e.latency - f.latency);
                     let median = sync[Math.floor(sync.length / 2)].latency;
                     let sd = 0,
@@ -923,17 +926,17 @@ let incoming = async function(message, socket) {
                         startSettings.allowtostartgame = true;
                         global.pullSkillBar = false;
                         global.pullUpgradeMenu = false;
-                        socket.talk("NWB"); // Ask for new broadcast.
+                        socket.talk("NWB");
                     }
                     global.metrics.rendertimes = 1;
                     util.pullTotalPlayers();
                     global.gameUpdate = true;
-                    // Now we can ask for spawn.
+
                     socket.talk('s', global.playerName, 0, 1 * config.game.autoLevelUp, global.bodyID ? global.bodyID : false, 1 * config.game.incognitoMode);
                     global.bodyID = undefined;
                 }
             } break;
-        case 'm': { // message
+        case 'm': {
             global.createMessage(m[1], m[0]);
         } break;
         case "Em": {
@@ -950,9 +953,9 @@ let incoming = async function(message, socket) {
             if (!m[1]) return;
             global.mockups[m[0]] = JSON.parse(m[1]);
         } break;
-        case 'u': { // uplink
-            // Pull the camera info
-            if (m[0] == true) { // Update camera only if we want to.
+        case 'u': {
+
+            if (m[0] == true) {
                 let camx = m[1],
                     camy = m[2];
                 global.player.cx.x = camx;
@@ -969,19 +972,19 @@ let incoming = async function(message, socket) {
                 camvx = m[4],
                 camvy = m[5],
                 camscoping = m[6],
-                // We'll have to do protocol decoding on the remaining data
+
                 theshit = m.slice(7);
-                // More stuff
+
                 let defaultFov = 2000;
             if (!global.gameStart && startSettings.allowtostartgame) {
-                // Start the game
+
                 global.gameStart = true;
                 global.gameConnecting = false;
             };
-            // Process the data
-            if (camtime > global.player.lastUpdate) { // Don't accept out-of-date information.
-                if (startSettings.neededtoresync) return; // Do not update anything when the client is out of sync.
-                // Time shenanigans
+
+            if (camtime > global.player.lastUpdate) {
+                if (startSettings.neededtoresync) return;
+
                 lag.add(getNow() - camtime);
                 global.player.time = camtime + lag.get();
                 global.metrics.rendergap = camtime - global.player.lastUpdate;
@@ -989,11 +992,11 @@ let incoming = async function(message, socket) {
                     console.log('yo some bullshit is up wtf');
                 }
                 global.player.lastUpdate = camtime;
-                // Convert the gui and entities
+
                 convert.begin(theshit);
                 convert.gui();
                 convert.data();
-                // Save old physics values
+
                 global.player.lastx = global.player.cx.x;
                 global.player.lasty = global.player.cy.y;
                 global.player.lastvx = global.player.vx;
@@ -1003,35 +1006,35 @@ let incoming = async function(message, socket) {
                 global.player.loc = { x: camx, y: camy };
                 global.player.vx = global.died ? 0 : camvx;
                 global.player.vy = global.died ? 0 : camvy;
-                // For centered camera
+
                 global.player.isScoping = camscoping;
                 moveCompensation.reset();
-                // Animation stuff
+
                 global.player.animX.add(m[1]);
                 global.player.animY.add(m[2]);
-                // Fov stuff
+
                 global.player.view = camfov;
                 global.player.animv.add(global.player.view);
                 if (isNaN(global.player.renderv) || global.player.renderv === 0) {
                     global.player.renderv = defaultFov;
                 }
-                // Metrics
+
                 global.metrics.lastlag = global.metrics.lag;
                 global.metrics.lastuplink = getNow();
             } else {
                 console.log("Old data! Last given time: " + global.player.time + "; offered packet timestamp: " + camtime + ".");
             }
-            // Send the downlink and the target
+
             socket.talk('d', Math.max(global.player.lastUpdate, camtime));
             socket.cmd.talk();
-            global.updateTimes++; // metrics
+            global.updateTimes++;
         } break;
         case "b": {
             if (startSettings.neededtoresync) return;
             convert.begin(m);
             convert.broadcast();
         } break;
-        case 'p': { // ping
+        case 'p': {
             setTimeout(() => {
                 try {
                     global.socket.ping(Date.now() - clockDiff - serverStart);
@@ -1041,7 +1044,7 @@ let incoming = async function(message, socket) {
             let c = Date.now() - clockDiff - serverStart - m[0];
             0 < c && global.metrics.latency.push(c);
         } break;
-        case 'F': { // to pay respects
+        case 'F': {
             global.deathAnimation = util.AdvancedSmoothBar(0, 4, 1);
             global.deathAnimation.set(4);
             global.finalScore = util.AdvancedSmoothBar(0, 1.5);
@@ -1061,7 +1064,7 @@ let incoming = async function(message, socket) {
                         } else {
                             global.respawnTimeout--;
                         }
-                    }, 1000); // One second.
+                    }, 1000);
                 }, 3000)
             }
             global.finalKills[0].set(m[3]);
@@ -1078,7 +1081,7 @@ let incoming = async function(message, socket) {
             global.syncingWithTank = false;
             global.clickables.mobileButtons.active = false;
         } break;
-        case 'I': { // sync with the tank
+        case 'I': {
             if (m[0]) {
                 global.syncingWithTank = true;
             } else {
@@ -1146,93 +1149,89 @@ let incoming = async function(message, socket) {
         } break;
         case 'SH': {
             let data = JSON.parse(m[0]);
-            if (data.type == "camera") { // If the server wants to shake our camera...
-                let set = config.graphical.shakeProperties.CameraShake; // Quick define
+            if (data.type == "camera") {
+                let set = config.graphical.shakeProperties.CameraShake;
                 if (data.push) {
-                    set.shakeDuration += data.duration; // add duration
-                    set.shakeAmount += data.amount; // Add amount the shake
+                    set.shakeDuration += data.duration;
+                    set.shakeAmount += data.amount;
                     setTimeout(() => {
                         set.shakeDuration -= data.duration;
                         set.shakeAmount -= data.amount;
                     }, 500);
                 } else {
-                    set.shakeDuration = data.duration; // Duration
-                    set.shakeAmount = data.amount; // Amount the shake
+                    set.shakeDuration = data.duration;
+                    set.shakeAmount = data.amount;
                 }
-                set.keepShake = data.keepShake; // Keep the shake so it never ends
-                // Now trigger it!
+                set.keepShake = data.keepShake;
+
                 set.shakeStartTime = Date.now();
             }
-            if (data.type == "gui") { // If the server wants to shake our GUI...
-                let set = config.graphical.shakeProperties.UIShake; // Quick define
+            if (data.type == "gui") {
+                let set = config.graphical.shakeProperties.UIShake;
                 if (data.push) {
-                    set.shakeDuration += data.duration; // add duration
-                    set.shakeAmount += data.amount; // Add amount the shake
+                    set.shakeDuration += data.duration;
+                    set.shakeAmount += data.amount;
                     setTimeout(() => {
                         set.shakeDuration -= data.duration;
                         set.shakeAmount -= data.amount;
                     }, 500);
                 } else {
-                    set.shakeDuration = data.duration; // Duration
-                    set.shakeAmount = data.amount; // Amount the shake
+                    set.shakeDuration = data.duration;
+                    set.shakeAmount = data.amount;
                 }
-                set.keepShake = data.keepShake; // Keep the shake so it never ends
-                // Now trigger it!
+                set.keepShake = data.keepShake;
+
                 set.shakeStartTime = Date.now();
             }
         } break;
         case "t": {
-            // Close the socket
+
             socket.onclose = () => { };
             socket.close();
             global.dailyTankAd.exit();
             socket.open = false;
             clearInterval(socket.commandCycle);
             global.gameStart = false;
-    
-            // Reset the player
+
             global.player = global.initPlayer();
-    
-            // Setup
+
             global.gameLoading = true;
             global.serverAdd = m[0];
             global.bodyID = m[1];
             if (global.serverMap[global.serverAdd]) global.serverMap[global.serverAdd].onclick();
 
-            // Update the location hash
             let server = global.servers.find(s => s.ip === m[0]);
             if (server) location.hash = "#" + server.id;
             global.locationHash = location.hash;
 
-            // Reconnect server
             global.reconnect();
         } break;
         case 'T': {
             global.generateTankTree = true;
             global.renderTankTree = true;
         } break;
-        
-        case 'K': { // kicked
-            // Put your code while being kicked from the server. 
+
+        case 'K': {
+
         } break;
-        case 'z': { // name color
+        case 'z': {
             global.nameColor = m[0];
         } break;
-        case 'RM': { // Reset minimap teams if needed
+        case 'RM': {
             minimapTeamInt.reset();
             minimapAllInt.elements = {};
         } break;
-        case 'RL': { // Reset leaderboard if needed
+        case 'RL': {
             leaderboardInt.reset();
         } break;
         case 'message': {
             global.message = m[0];
         } break;
-        case 'AS': { // Activating smooth camera if needed.
+        case 'AS': {
             config.graphical.smoothcamera2 = config.graphical.smoothcamera;
             config.graphical.smoothcamera = true;
         } break;
-        case 'DS': { // Deactivate smooth camera if needed.
+        case 'DS': {
             if (!config.graphical.smoothcamera2) config.graphical.smoothcamera = false;
             delete config.graphical.smoothcamera2;
         } break;
@@ -1267,19 +1266,19 @@ let incoming = async function(message, socket) {
 const socketInit = () => {
     window.resizeEvent();
     let socket = new WebSocket(protocols[location.protocol] + global.serverAdd);
-    // Set up our socket
+
     socket.binaryType = 'arraybuffer';
     socket.open = false;
-    // Handle commands
+
     let flag = false;
     let commands = [
-        false, // up
-        false, // down
-        false, // left
-        false, // right
-        false, // lmb
-        false, // mmb
-        false, // rmb
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
         false,
     ];
     socket.cmd = {
@@ -1308,27 +1307,24 @@ const socketInit = () => {
             return flag;
         }
     };
-    // Learn how to talk
+
     socket.talk = async (...message) => {
         await new Promise(Resolve => setTimeout(Resolve, window.fakeLagMS));
-        // Make sure the socket is open before we do anything
+
         if (!socket.open) return 1;
         message = protocol.encode(message)
         socket.send(message);
         global.bandwidth.currentHa += message.byteLength;
     };
-    // Websocket functions for when stuff happens
-    // This is for when the socket first opens
+
     socket.onopen = function socketOpen() {
         socket.open = true;
-        // define a pinging function
+
         socket.ping = payload => socket.talk('p', payload);
     };
-    
-    // Handle incoming messages
+
     socket.onmessage = (msg) => incoming(msg, socket);
 
-    // Handle closing
     socket.onclose = () => {
         if (!global.gameLoading) return;
         clearInterval(socket.commandCycle);
@@ -1337,13 +1333,13 @@ const socketInit = () => {
         socket.open = false;
         global.disconnected = true;
     };
-    // Notify about errors
+
     socket.onerror = error => {
         clearInterval(socket.commandCycle);
         clearInterval(global.socketMotionCycle);
         global.message = 'Socket error. Maybe another server will work.';
     };
-    // Gift it to the rest of the world
+
     return socket;
 };
 
