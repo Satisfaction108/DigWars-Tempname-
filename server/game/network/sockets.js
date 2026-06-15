@@ -1999,7 +1999,7 @@ class socketManager {
             }),
         }).then(async (r) => {
             if (r.status === 200) {
-                socket.talk("t", server.replace("http:
+                socket.talk("t", server.replace("http://", "").replace("https://", ""), id);
             }
         }).catch(e => {
             console.log(e);

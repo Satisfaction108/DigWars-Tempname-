@@ -805,8 +805,8 @@ const convert = {
 };
 
 const protocols = {
-    "http:": "ws:
-    "https:": "wss:
+    "http:": "ws://",
+    "https:": "wss://"
 };
 let incoming = async function(message, socket) {
     await new Promise(Resolve => setTimeout(Resolve, window.fakeLagMS));
