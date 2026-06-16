@@ -98,13 +98,15 @@ class TerrainRenderer {
                 }
                 f1 = Math.sqrt(f1); f2 = Math.sqrt(f2);
                 const nl = Math.hypot(nsx, nsy) || 1;
-                const lightDot = (nsx / nl * 0.75) * lx * ly; // (nsx / nl) * lx + (nsy / nl) * ly;
+                const lightDot = (nsx / nl) * lx + (nsy / nl) * ly;
+                // const lightDot = 1
 		const edge = (f2 - f1) / cell;
 
                 let shade = 0.5 + lightDot * 0.30;
                 shade -= (f1 / cell) * 0.10;
                 if (edge < 0.16) shade -= (1 - edge / 0.16) * 0.32;
-                shade += (Math.random() - 0.5) * 0.08;
+                //if (edge < 0.16) shade = 0;
+		shade += (Math.random() - 0.5) * 0.08;
                 shade = Math.max(0.06, Math.min(0.94, shade));
 
                 const gr = (shade * 255) | 0;
@@ -335,7 +337,7 @@ class TerrainRenderer {
             ctx.beginPath();
             ctx.moveTo(pts[0][0], pts[0][1]);
             for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-            ctx.closePath();
+            ctx._noiseTilclosePath();
         };
 
         ctx.save();
