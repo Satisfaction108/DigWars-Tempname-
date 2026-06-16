@@ -13,11 +13,20 @@ class TerrainRenderer {
         this._facets     = null;
         this._minerals   = null;
         this._crackPath  = null;
-        this._noiseTile  = null;
-        this._bbox       = null;
-        this._silFull    = null;
-        this._silOuter   = null;
-        this._lineRocks   = null;
+        this._noiseTile        = null;
+        this._noiseTileBuilding = false;
+        this._gl               = null;
+        this._glCanvas         = null;
+        this._glOriginU        = null;
+        this._glCellSzU        = null;
+        this._glShU            = null;
+        this._glRockSzU        = null;
+        this._bbox             = null;
+        this._silFull         = null;
+        this._silOuter        = null;
+        this._silClip         = null;
+        this._loopsSimplified = null;
+        this._lineRocks       = null;
         this.useVoronoi  = true;
     }
 
@@ -60,76 +69,113 @@ class TerrainRenderer {
         this._rows  = rows;
         this._cells = new Uint8Array(cells);
         this._lineRocks = null;
-        if (!this._noiseTile) this._buildNoiseTile();
+        if (!this._noiseTile && !this._noiseTileBuilding) this._buildNoiseTile();
         this._buildContours();
         this._buildFacets();
         this.ready = true;
     }
 
     _buildNoiseTile() {
-        const S = 2048;
-        const cv = document.createElement('canvas');
-        cv.width = cv.height = S;
-        const ctx = cv.getContext('2d');
-        const img = ctx.createImageData(S, S);
-        const d = img.data;
+        this._noiseTileBuilding = true;
 
-        const GS = 50, cell = S / GS;
-        const fx = [], fy = [];
-        for (let gy = 0; gy < GS; gy++) {
-            fx[gy] = []; fy[gy] = [];
-            for (let gx = 0; gx < GS; gx++) { fx[gy][gx] = Math.random() * cell; fy[gy][gx] = Math.random() * cell; }
+        let canvas, gl;
+        if (typeof OffscreenCanvas !== 'undefined') {
+            try {
+                canvas = new OffscreenCanvas(1, 1);
+                gl = canvas.getContext('webgl');
+            } catch(e) { gl = null; }
         }
-        const lx = -0.7, ly = -0.7;
-
-        for (let y = 0; y < S; y++) {
-            for (let x = 0; x < S; x++) {
-                const i = (y * S + x) * 4;
-
-                const gx0 = Math.floor(x / cell), gy0 = Math.floor(y / cell);
-                let f1 = 1e9, f2 = 1e9, nsx = 0, nsy = 0, bGx = 0, bGy = 0;
-                for (let dgy = -2; dgy <= 2; dgy++) {
-                    for (let dgx = -2; dgx <= 2; dgx++) {
-                        const nx = gx0 + dgx, ny = gy0 + dgy;
-                        if (nx < 0 || nx >= GS || ny < 0 || ny >= GS) continue;
-                        const sx = nx * cell + fx[ny][nx], sy = ny * cell + fy[ny][nx];
-                        const dx = x - sx, dy = y - sy, dd = dx * dx + dy * dy;
-                        if (dd < f1) { f2 = f1; f1 = dd; nsx = dx; nsy = dy; bGx = nx; bGy = ny; }
-                        else if (dd < f2) { f2 = dd; }
-                    }
-                }
-
-                const seedPx = bGx * cell + fx[bGy][bGx];
-                const seedPy = bGy * cell + fy[bGy][bGx];
-                const seedCol = (seedPx / S * this._cols) | 0;
-                const seedRow = (seedPy / S * this._rows) | 0;
-                const seedSolid = this._solid(seedCol, seedRow);
-
-                const pixCol = (x / S * this._cols) | 0;
-                const pixRow = (y / S * this._rows) | 0;
-                const pixSolid = this._solid(pixCol, pixRow);
-
-                if (!seedSolid && !pixSolid) { d[i+3] = 0; continue; }
-
-                f1 = Math.sqrt(f1); f2 = Math.sqrt(f2);
-                const nl = Math.hypot(nsx, nsy) || 1;
-                const lightDot = (nsx / nl) * lx + (nsy / nl) * ly;
-                const edge = (f2 - f1) / cell;
-
-                let shade = 0.5 + lightDot * 0.30;
-                shade -= (f1 / cell) * 0.10;
-                if (edge < 0.16) shade -= (1 - edge / 0.16) * 0.32;
-                shade += (Math.random() - 0.5) * 0.08;
-                shade = Math.max(0.06, Math.min(0.94, shade));
-
-                d[i]   = (24 + shade * 122) | 0;
-                d[i+1] = (22 + shade * 108) | 0;
-                d[i+2] = (30 + shade * 98)  | 0;
-                d[i+3] = 255;
-            }
+        if (!gl) {
+            canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            gl = canvas.getContext('webgl', { preserveDrawingBuffer: true })
+              || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true });
         }
-        ctx.putImageData(img, 0, 0);
-        this._noiseTile = cv;
+        if (!gl) { this._noiseTileBuilding = false; return; }
+
+        const VS = `attribute vec2 a_pos;
+void main(){gl_Position=vec4(a_pos,0.,1.);}`;
+
+        const FS = `precision highp float;
+uniform vec2  u_origin;
+uniform vec2  u_cellSz;
+uniform float u_sh;
+uniform float u_rockSz;
+
+vec2 hash2(vec2 p){
+    p=fract(p*vec2(5.3983,5.4427));
+    p+=dot(p.yx,p.xy+vec2(21.5351,14.3137));
+    return fract(vec2(p.x*p.y*95.4307,p.x*p.y*97.597));
+}
+float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+
+void main(){
+    vec2 sc=vec2(gl_FragCoord.x, u_sh-gl_FragCoord.y);
+    vec2 p=((sc-u_origin)/u_cellSz)/u_rockSz;
+    vec2 n=floor(p), f=fract(p);
+
+    float md=8.; vec2 mr=vec2(0.), mg=vec2(0.);
+    for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+        vec2 g=vec2(float(i),float(j));
+        vec2 r=g+hash2(n+g)-f;
+        float d=dot(r,r);
+        if(d<md){md=d;mr=r;mg=g;}
+    }
+
+    float bd=8.;
+    for(int j=-2;j<=2;j++) for(int i=-2;i<=2;i++){
+        vec2 g=mg+vec2(float(i),float(j));
+        vec2 r=g+hash2(n+g)-f;
+        if(dot(mr-r,mr-r)>1e-4)
+            bd=min(bd,dot(.5*(mr+r),normalize(r-mr)));
+    }
+
+    vec2 cell=n+mg;
+    float cv1=(hash1(cell+vec2(42.,3. ))-.5)*.22;
+    float cv2=(hash1(cell+vec2(17.,91.))-.5)*.08;
+    float nl=length(mr);
+    float lit=nl>1e-3?dot(mr/nl,normalize(vec2(-.7,-.7))):0.;
+    float en=max(0.,1.-bd/.10); float ed=en*en*.55;
+    float gr=(hash1(p*vec2(2719.,4357.))-.5)*.05;
+    float sh=clamp(.52+lit*.28+cv1+cv2-ed+gr,.04,.96);
+    gl_FragColor=vec4(
+        (24.+sh*122.)/255.,
+        (22.+sh*108.)/255.,
+        (30.+sh*98. )/255.,
+        1.);
+}`;
+
+        const mkSh = (type, src) => {
+            const s = gl.createShader(type);
+            gl.shaderSource(s, src); gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+                console.error('Voronoi shader:', gl.getShaderInfoLog(s));
+            return s;
+        };
+        const prog = gl.createProgram();
+        gl.attachShader(prog, mkSh(gl.VERTEX_SHADER,   VS));
+        gl.attachShader(prog, mkSh(gl.FRAGMENT_SHADER, FS));
+        gl.linkProgram(prog);
+        gl.useProgram(prog);
+
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER,
+            new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]),
+            gl.STATIC_DRAW);
+        const loc = gl.getAttribLocation(prog, 'a_pos');
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+        this._glCanvas  = canvas;
+        this._gl        = gl;
+        this._glOriginU = gl.getUniformLocation(prog, 'u_origin');
+        this._glCellSzU = gl.getUniformLocation(prog, 'u_cellSz');
+        this._glShU     = gl.getUniformLocation(prog, 'u_sh');
+        this._glRockSzU = gl.getUniformLocation(prog, 'u_rockSz');
+
+        this._noiseTile = true;
+        this._noiseTileBuilding = false;
     }
 
     updateCell(col, row, newType) {
@@ -257,6 +303,34 @@ class TerrainRenderer {
         return out.length >= 3 ? out : loop;
     }
 
+    _smoothClipLoop(loop) {
+        const cols = this._cols, rows = this._rows;
+        const onEdge = (x, y) => x <= 0 || x >= cols || y <= 0 || y >= rows;
+        const n = loop.length;
+        let pts = [];
+        for (let i = 0; i < n; i++) {
+            const A = loop[i], B = loop[(i + 1) % n];
+            const dx = B[0] - A[0], dy = B[1] - A[1];
+            const steps = Math.max(1, Math.round(Math.hypot(dx, dy)));
+            for (let k = 0; k < steps; k++)
+                pts.push([A[0] + dx * k / steps, A[1] + dy * k / steps]);
+        }
+        const pin = pts.map(p => onEdge(p[0], p[1]));
+        for (let pass = 0; pass < 6; pass++) {
+            const m = pts.length, np = pts.slice();
+            for (let i = 0; i < m; i++) {
+                if (pin[i]) continue;
+                const a = pts[(i - 1 + m) % m], b = pts[i], c = pts[(i + 1) % m];
+                np[i] = [a[0] * 0.25 + b[0] * 0.5 + c[0] * 0.25,
+                          a[1] * 0.25 + b[1] * 0.5 + c[1] * 0.25];
+            }
+            pts = np;
+        }
+        const out = [];
+        for (let i = 0; i < pts.length; i += 3) out.push(pts[i]);
+        return out.length >= 3 ? out : pts;
+    }
+
     _buildFacets() {
 
         const sf = new Path2D(), so = new Path2D();
@@ -276,10 +350,12 @@ class TerrainRenderer {
 
         const sc = new Path2D();
         for (let li = 0; li < this._loopsSimplified.length; li++) {
+            if (!this._loopOuter[li]) continue;
             const loop = this._loopsSimplified[li];
             if (loop.length < 3) continue;
-            sc.moveTo(loop[0][0], loop[0][1]);
-            for (let q = 1; q < loop.length; q++) sc.lineTo(loop[q][0], loop[q][1]);
+            const smooth = this._smoothClipLoop(loop);
+            sc.moveTo(smooth[0][0], smooth[0][1]);
+            for (let q = 1; q < smooth.length; q++) sc.lineTo(smooth[q][0], smooth[q][1]);
             sc.closePath();
         }
         this._silClip = sc;
@@ -715,14 +791,41 @@ class TerrainRenderer {
             [[-1.95, 1.70],[-0.70, 2.35],[ 0.45, 2.45],[ 1.45, 2.05],[ 2.25, 1.35]],
         ];
 
-        if (this.useVoronoi) {
+        if (this.useVoronoi && this._gl && this._silClip) {
+            const gl = this._gl;
+
+            if (this._glCanvas.width !== screenW || this._glCanvas.height !== screenH) {
+                this._glCanvas.width  = screenW;
+                this._glCanvas.height = screenH;
+                gl.viewport(0, 0, screenW, screenH);
+            }
+
+            gl.uniform2f(this._glOriginU, originX, originY);
+            gl.uniform2f(this._glCellSzU, cellW,   cellH);
+            gl.uniform1f(this._glShU,     screenH);
+            gl.uniform1f(this._glRockSzU, this._cols / 50.0);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+            // The GL canvas is in screen pixels. Convert to tile coords so we can
+            // drawImage inside the existing tile-space transform — no setTransform
+            // needed, so the silClip stays valid and the FOV system is unaffected.
+            const tlx = -originX / cellW;
+            const tly = -originY / cellH;
+            const tlw =  screenW  / cellW;
+            const tlh =  screenH  / cellH;
+
             ctx.save();
-            ctx.clip(this._silClip, 'evenodd');
-            ctx.fillStyle = 'rgb(85,76,79)';
+            ctx.clip(this._silClip);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = 'rgb(55,48,52)';
             ctx.fillRect(0, 0, this._cols, this._rows);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(this._noiseTile, 0, 0, this._cols, this._rows);
+            if (typeof this._glCanvas.transferToImageBitmap === 'function') {
+                const bm = this._glCanvas.transferToImageBitmap();
+                ctx.drawImage(bm, tlx, tly, tlw, tlh);
+                bm.close();
+            } else {
+                ctx.drawImage(this._glCanvas, tlx, tly, tlw, tlh);
+            }
             ctx.restore();
         } else {
             const order = [1, 2, 3, 0, 4, 5];

@@ -2340,6 +2340,7 @@ import './terrainRenderer.js';
         }
 
         if (window.terrainRenderer && window.terrainRenderer.ready) {
+            ctx[0].globalAlpha = 0.5;
             window.terrainRenderer.draw(ctx[0], px, py, ratio, gameWidth, gameHeight, global.screenWidth, global.screenHeight);
         }
     }
