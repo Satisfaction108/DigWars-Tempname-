@@ -67,14 +67,14 @@ class TerrainRenderer {
     }
 
     _buildNoiseTile() {
-        const S = 512;
+        const S = 2048;
         const cv = document.createElement('canvas');
         cv.width = cv.height = S;
         const ctx = cv.getContext('2d');
         const img = ctx.createImageData(S, S);
         const d = img.data;
 
-        const GS = 20, cell = S / GS;
+        const GS = 50, cell = S / GS;
         const fx = [], fy = [];
         for (let gy = 0; gy < GS; gy++) {
             fx[gy] = []; fy[gy] = [];
@@ -84,22 +84,37 @@ class TerrainRenderer {
 
         for (let y = 0; y < S; y++) {
             for (let x = 0; x < S; x++) {
+                const i = (y * S + x) * 4;
+
                 const gx0 = Math.floor(x / cell), gy0 = Math.floor(y / cell);
-                let f1 = 1e9, f2 = 1e9, nsx = 0, nsy = 0;
-                for (let dgy = -1; dgy <= 1; dgy++) {
-                    for (let dgx = -1; dgx <= 1; dgx++) {
+                let f1 = 1e9, f2 = 1e9, nsx = 0, nsy = 0, bGx = 0, bGy = 0;
+                for (let dgy = -2; dgy <= 2; dgy++) {
+                    for (let dgx = -2; dgx <= 2; dgx++) {
                         const nx = gx0 + dgx, ny = gy0 + dgy;
-                        const wx = ((nx % GS) + GS) % GS, wy = ((ny % GS) + GS) % GS;
-                        const sx = nx * cell + fx[wy][wx], sy = ny * cell + fy[wy][wx];
+                        if (nx < 0 || nx >= GS || ny < 0 || ny >= GS) continue;
+                        const sx = nx * cell + fx[ny][nx], sy = ny * cell + fy[ny][nx];
                         const dx = x - sx, dy = y - sy, dd = dx * dx + dy * dy;
-                        if (dd < f1) { f2 = f1; f1 = dd; nsx = dx; nsy = dy; }
+                        if (dd < f1) { f2 = f1; f1 = dd; nsx = dx; nsy = dy; bGx = nx; bGy = ny; }
                         else if (dd < f2) { f2 = dd; }
                     }
                 }
+
+                const seedPx = bGx * cell + fx[bGy][bGx];
+                const seedPy = bGy * cell + fy[bGy][bGx];
+                const seedCol = (seedPx / S * this._cols) | 0;
+                const seedRow = (seedPy / S * this._rows) | 0;
+                const seedSolid = this._solid(seedCol, seedRow);
+
+                const pixCol = (x / S * this._cols) | 0;
+                const pixRow = (y / S * this._rows) | 0;
+                const pixSolid = this._solid(pixCol, pixRow);
+
+                if (!seedSolid && !pixSolid) { d[i+3] = 0; continue; }
+
                 f1 = Math.sqrt(f1); f2 = Math.sqrt(f2);
                 const nl = Math.hypot(nsx, nsy) || 1;
-                const lightDot = (nsx / nl * 0.75) * lx * ly; // (nsx / nl) * lx + (nsy / nl) * ly;
-		const edge = (f2 - f1) / cell;
+                const lightDot = (nsx / nl) * lx + (nsy / nl) * ly;
+                const edge = (f2 - f1) / cell;
 
                 let shade = 0.5 + lightDot * 0.30;
                 shade -= (f1 / cell) * 0.10;
@@ -107,9 +122,9 @@ class TerrainRenderer {
                 shade += (Math.random() - 0.5) * 0.08;
                 shade = Math.max(0.06, Math.min(0.94, shade));
 
-                const gr = (shade * 255) | 0;
-                const i = (y * S + x) * 4;
-                d[i] = d[i+1] = d[i+2] = gr;
+                d[i]   = (24 + shade * 122) | 0;
+                d[i+1] = (22 + shade * 108) | 0;
+                d[i+2] = (30 + shade * 98)  | 0;
                 d[i+3] = 255;
             }
         }
@@ -189,6 +204,7 @@ class TerrainRenderer {
         let outerSign = 1, maxAbs = -1;
         for (const a of areas) { if (Math.abs(a) > maxAbs) { maxAbs = Math.abs(a); outerSign = Math.sign(a) || 1; } }
 
+        this._loopsSimplified = simplified;
         this._loops     = simplified.map(loop => this._jag(loop));
         this._loopOuter = areas.map(a => (Math.sign(a) || 1) === outerSign);
     }
@@ -257,6 +273,16 @@ class TerrainRenderer {
         }
         this._silFull = sf;
         this._silOuter = so;
+
+        const sc = new Path2D();
+        for (let li = 0; li < this._loopsSimplified.length; li++) {
+            const loop = this._loopsSimplified[li];
+            if (loop.length < 3) continue;
+            sc.moveTo(loop[0][0], loop[0][1]);
+            for (let q = 1; q < loop.length; q++) sc.lineTo(loop[q][0], loop[q][1]);
+            sc.closePath();
+        }
+        this._silClip = sc;
 
         let minc = this._cols, maxc = 0, minr = this._rows, maxr = 0, any = false;
         for (let r = 0; r < this._rows; r++)
@@ -690,8 +716,14 @@ class TerrainRenderer {
         ];
 
         if (this.useVoronoi) {
-            const tileSize = 8;
-            ctx.drawImage(this._noiseTile, cx - tileSize / 2, cy - tileSize / 2, tileSize, tileSize);
+            ctx.save();
+            ctx.clip(this._silClip, 'evenodd');
+            ctx.fillStyle = 'rgb(85,76,79)';
+            ctx.fillRect(0, 0, this._cols, this._rows);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(this._noiseTile, 0, 0, this._cols, this._rows);
+            ctx.restore();
         } else {
             const order = [1, 2, 3, 0, 4, 5];
             const drawList = order.map(i => {
