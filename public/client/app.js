@@ -2190,7 +2190,7 @@ import './terrainRenderer.js';
                 ctx[1].save();
 
                 ctx[1].globalAlpha = alphaFade;
-                ctx[1].imageSmoothingEnabled = false;
+                ctx[1].imageSmoothingEnabled = true;
 
                 ctx[1].drawImage(context.canvas, x - xx, y - yy);
                 ctx[1].restore();
