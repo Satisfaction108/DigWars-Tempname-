@@ -4732,7 +4732,7 @@ Class.sidewinder = {
         FOV: 1.3 * base.FOV  
     },
     GUNS: [
-{
+        {
             POSITION: {
                 LENGTH: 10,
                 WIDTH: 15,
@@ -4745,29 +4745,13 @@ Class.sidewinder = {
                 LENGTH: 21,
                 WIDTH: 20,
                 ASPECT: 4.5
-            }
-        },
-{ 
-            POSITION: {
-                LENGTH: 10,
-                WIDTH: 45,
-                ASPECT: 1.5,
-                X: 117
-            }
-        },
-{
-            POSITION: {
-                LENGTH: 100,
-                WIDTH: 75,
-                ASPECT: -1.2,
-                X: 21
             },
-PROPERTIES: {
+            PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic, g.sniper, g.hunter, g.sidewinder]),
                 TYPE: 'snake',
                 STAT_CALCULATOR: 'sustained'
             }
-        },
+        }
     ]
 }
 Class.single = {

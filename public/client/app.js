@@ -2189,7 +2189,7 @@ import './terrainRenderer.js';
             if (!assignedContext && context !== ctx[1] && context.canvas.width > 0 && context.canvas.height > 0) {
                 ctx[1].save();
 
-                ctx[1].globalAlpha = alphaFade * (gunLength > 0 ? 0.75 : 1);
+                ctx[1].globalAlpha = alphaFade;
                 ctx[1].imageSmoothingEnabled = false;
 
                 ctx[1].drawImage(context.canvas, x - xx, y - yy);
