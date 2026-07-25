@@ -46,7 +46,6 @@
         </div>
         <div class="sp-tabs">
             <span class="sp-tab active" data-tab="sp-options">Options</span>
-            <span class="sp-tab" data-tab="sp-theme">Theme</span>
             <span class="sp-tab sp-desktop-only" data-tab="sp-keybinds">Keybinds</span>
         </div>
         <div class="sp-body">
@@ -81,31 +80,13 @@
                     <option value="custom">Custom</option>
                 </select>
                 <input style="display: none;" placeholder="Paste custom theme JSON" id="optCustom" />
-
-                <div class="sp-label">Border Style</div>
-                <select id="optBorders" tabindex="-1">
-                    <option value="normal">Soft Borders</option>
-                    <option value="dark">Dark Borders</option>
-                    <option value="neon">Neon Mode</option>
-                    <option value="glass">Glass Mode</option>
-                </select>
-                <div class="sp-label">Device Mode</div>
-                <select id="optMobile" tabindex="-1">
-                    <option value="mobile">Mobile</option>
-                    <option value="mobileWithBigJoysticks">Mobile + Big joysticks</option>
-                    <option value="desktop">Desktop</option>
-                </select>
-                <div class="sp-label">Misc</div>
-                <div class="sp-checks">
-                    <label class="container"><input id="optPredictive" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>No Hyperactivity</label>
-                </div>
             </div>
 
             <div id="sp-options" class="sp-pane active">
                 <div class="sp-label">Game Appearance</div>
                 <div class="sp-checks">
                     <label class="container"><input id="optRenderNames" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Player Names</label>
-                    <label class="container"><input id="optChatMessages" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Chat Messages</label>
+                    <label class="container"><input id="optChatMessages" tabindex="-1" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Chat Messages</label>
                     <label class="container"><input id="optRenderScores" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Player Scores</label>
                     <label class="container"><input id="optRenderHealth" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Health Bars</label>
                     <label class="container"><input id="optNoGrid" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Hide Grid</label>
@@ -113,9 +94,6 @@
                     <label class="container"><input id="optPointy" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Sharp Traps</label>
                     <label class="container"><input id="optCurvyTraps" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Curvy Traps</label>
                     <label class="container"><input id="optSharpEdges" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Sharp Polygons</label>
-                    <label class="container"><input id="optTankSkins" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Tank Skins</label>
-                    <label class="container"><input id="coloredHealthbars" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Colored HP Bars</label>
-                    <label class="container"><input id="optColoredNest" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Colored Nest</label>
                 </div>
                 <div class="sp-label">UI Elements</div>
                 <div class="sp-checks">
@@ -126,13 +104,18 @@
                     <label class="container"><input id="optRenderKillbar" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Kill Bar</label>
                     <label class="container"><input id="optReducedInfo" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Reduced Info</label>
                     <label class="container"><input id="optRenderGui" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>GUI</label>
+                    <label class="container"><input id="optLeaderIndicators" tabindex="-1" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Leader Indicators</label>
+                    <label class="container"><input id="optWarBar" tabindex="-1" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Team Score Bar</label>
+                    <label class="container"><input id="optSatchelWarning" tabindex="-1" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Danger Alerts</label>
                 </div>
                 <div class="sp-label">Extra</div>
                 <div class="sp-checks">
                     <label class="container"><input id="smoothCamera" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Smooth Camera</label>
                     <label class="container"><input id="optFancy" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Fading Animation</label>
-                    <label class="container"><input id="autoLevelUp" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Auto-Level Up</label>
-                    <label class="container"><input id="optIncognitoMode" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Incognito Mode</label>
+                    <!-- Dig Wars: everyone auto-levels to 45 on spawn, so the toggle is hidden (not removed) -->
+                    <label class="container" style="display: none;"><input id="autoLevelUp" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Auto-Level Up</label>
+                    <!-- Dig Wars: incognito removed — wealth is public by design (element kept hidden for JS refs) -->
+                    <label class="container" style="display: none;"><input id="optIncognitoMode" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Incognito Mode</label>
                     <label class="container"><input id="optCenterMinimap" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Centered Minimap</label>
                     <label class="container"><input id="optSlowerFOV" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Slow FOV Anim</label>
                 </div>
@@ -146,12 +129,28 @@
                 </div>
                 <div class="sp-label">UI Scale</div>
                 <select id="optUiScale" tabindex="-1">
-                    <option value="auto">Auto</option>
                     <option value="small">Small</option>
                     <option value="normal">Normal</option>
                     <option value="large">Large</option>
                     <option value="mobile">Mobile</option>
                 </select>
+                <div class="sp-label">Border Style</div>
+                <select id="optBorders" tabindex="-1">
+                    <option value="normal">Soft Borders</option>
+                    <option value="dark">Dark Borders</option>
+                    <option value="neon">Neon Mode</option>
+                    <option value="glass">Glass Mode</option>
+                </select>
+                <!-- Device mode is auto-detected; hidden element kept for JS refs -->
+                <select id="optMobile" tabindex="-1" style="display: none;">
+                    <option value="mobile">Mobile</option>
+                    <option value="mobileWithBigJoysticks">Mobile + Big joysticks</option>
+                    <option value="desktop">Desktop</option>
+                </select>
+                <div class="sp-label">Network</div>
+                <div class="sp-checks">
+                    <label class="container"><input id="optPredictive" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>No Hyperactivity</label>
+                </div>
                 <div class="sp-label mobile-only">Mobile</div>
                 <div class="sp-checks mobile-only">
                     <label class="container"><input id="showCrosshair" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Show Crosshair</label>
@@ -170,14 +169,11 @@
                     <div class="kb-section" style="grid-column:span 2">Combat</div>
                     <div class="kb-row"><b data-key="KEY_AUTO_FIRE">E</b><span>Auto-Fire</span></div>
                     <div class="kb-row"><b data-key="KEY_AUTO_SPIN">C</b><span>Auto-Spin</span></div>
-                    <div class="kb-row"><b data-key="KEY_SPIN_LOCK">X</b><span>Spin Lock</span></div>
                     <div class="kb-row"><b data-key="KEY_REVERSE_TANK">V</b><span>Reverse Tank</span></div>
                     <div class="kb-row"><b data-key="KEY_REVERSE_MOUSE">B</b><span>Reverse Mouse</span></div>
-                    <div class="kb-row"><b data-key="KEY_OVER_RIDE">R</b><span>Disable AI</span></div>
-                    <div class="kb-row"><b data-key="KEY_AUTO_ALT">G</b><span>Auto-Alt</span></div>
-                    <div class="kb-row"><b data-key="KEY_BECOME">F</b><span>Use Action</span></div>
+                    <div class="kb-row"><b data-key="KEY_AUTO_ALT">G</b><span>Enemy Ping</span></div>
+                    <div class="kb-row"><b data-key="KEY_OVER_RIDE">R</b><span>AI Override</span></div>
                     <div class="kb-row"><b data-key="KEY_SUICIDE">O</b><span>Self-Destruct</span></div>
-                    <div class="kb-row"><b data-key="KEY_LEVEL_UP">N</b><span>Level Up</span></div>
                     <div class="kb-row"><b data-key="KEY_MAX_STAT">M</b><span>Maximize Stat</span></div>
                     <div class="kb-row"><b data-key="KEY_CLASS_TREE">T</b><span>Class Tree</span></div>
                     <div class="kb-section" style="grid-column:span 2">Upgrades</div>
@@ -201,6 +197,7 @@
                     <div class="kb-section" style="grid-column:span 2">Other</div>
                     <div class="kb-row"><b data-key="KEY_TOKEN">P</b><span>Token Tank*</span></div>
                     <div class="kb-row"><b data-key="KEY_RECORD">Z</b><span>Record</span></div>
+                    <div class="kb-row"><b data-key="KEY_TOGGLE_MAP">F</b><span>Full Map</span></div>
                     <div class="kb-row"><b data-key="KEY_SCREENSHOT">Q</b><span>Screenshot</span></div>
                 </div>
                 <p class="kb-note">* Requires token &middot; Click a key to rebind</p>
@@ -288,10 +285,10 @@
                                     <table class="controlTable" id="controlSettings"><tbody>
                                         <tr><td><div><b data-key="KEY_UP">W</b><span> - </span>move up</div></td><td><div><b data-key="KEY_DOWN">S</b><span> - </span>move down</div></td><td><div></div></td></tr>
                                         <tr><td><div><b data-key="KEY_LEFT">A</b><span> - </span>move left</div></td><td><div><b data-key="KEY_RIGHT">D</b><span> - </span>move right</div></td><td><div></div></td></tr>
-                                        <tr><td><div><b data-key="KEY_AUTO_FIRE">E</b><span> - </span>auto-fire</div></td><td><div><b data-key="KEY_AUTO_SPIN">C</b><span> - </span>auto-spin</div></td><td><div><b data-key="KEY_OVER_RIDE">R</b><span> - </span>disable AI</div></td></tr>
-                                        <tr><td><div><b data-key="KEY_LEVEL_UP">N</b><span> - </span>level up</div></td><td><div><b data-key="KEY_REVERSE_TANK">V</b><span> - </span>reverse tank</div></td><td><div><b data-key="KEY_REVERSE_MOUSE">B</b><span> - </span>reverse mouse</div></td></tr>
-                                        <tr><td><div><b data-key="KEY_AUTO_ALT">G</b><span> - </span>auto-alt</div></td><td><div><b data-key="KEY_SUICIDE">O</b><span> - </span>self-destruct</div></td><td><div><b data-key="KEY_CLASS_TREE">T</b><span> - </span>show class tree</div></td></tr>
-                                        <tr><td><div><b data-key="KEY_BECOME">F</b><span> - </span>use action</div></td><td><div><b data-key="KEY_MAX_STAT">M</b><span> - </span>maximize stat</div></td><td><div><b data-key="KEY_SPIN_LOCK">X</b><span> - </span>spin lock</div></td></tr>
+                                        <tr><td><div><b data-key="KEY_AUTO_FIRE">E</b><span> - </span>auto-fire</div></td><td><div><b data-key="KEY_AUTO_SPIN">C</b><span> - </span>auto-spin</div></td><td><div></div></td></tr>
+                                        <tr><td><div></div></td><td><div><b data-key="KEY_REVERSE_TANK">V</b><span> - </span>reverse tank</div></td><td><div><b data-key="KEY_REVERSE_MOUSE">B</b><span> - </span>reverse mouse</div></td></tr>
+                                        <tr><td><div><b data-key="KEY_AUTO_ALT">G</b><span> - </span>enemy ping</div></td><td><div><b data-key="KEY_SUICIDE">O</b><span> - </span>self-destruct</div></td><td><div><b data-key="KEY_CLASS_TREE">T</b><span> - </span>show class tree</div></td></tr>
+                                        <tr><td><div><b data-key="KEY_OVER_RIDE">R</b><span> - </span>AI override</div></td><td><div><b data-key="KEY_MAX_STAT">M</b><span> - </span>maximize stat</div></td><td><div><b data-key="KEY_TOGGLE_MAP">F</b><span> - </span>full map</div></td></tr>
                                         <tr><td><div><b data-key="KEY_TOKEN">P</b><span> - </span>token tank*</div></td><td><div><b data-key="KEY_RECORD">Z</b><span> - </span>record video</div></td><td><div><b data-key="KEY_SCREENSHOT">Q</b><span> - </span>screenshot</div></td></tr>
                                         <tr><td><div><b data-key="KEY_CHOOSE_1">Y</b><span> - </span>upgrade 1</div></td><td><div><b data-key="KEY_CHOOSE_2">U</b><span> - </span>upgrade 2</div></td><td><div><b data-key="KEY_CHOOSE_3">I</b><span> - </span>upgrade 3</div></td></tr>
                                         <tr><td><div><b data-key="KEY_CHOOSE_4">H</b><span> - </span>upgrade 4</div></td><td><div><b data-key="KEY_CHOOSE_5">J</b><span> - </span>upgrade 5</div></td><td><div><b data-key="KEY_CHOOSE_6">K</b><span> - </span>upgrade 6</div></td></tr>

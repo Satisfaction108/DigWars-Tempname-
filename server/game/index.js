@@ -1,3 +1,8 @@
+const gems = require('./terrain/gems.js');
+const mining = require('./terrain/mining.js');
+const vault = require('./terrain/vault.js');
+const { REGROW: TG_REGROW } = require('./terrain/terrainGrid.js');
+
 class gameHandler {
     constructor() {
         this.loopCounter = 0;
@@ -223,7 +228,7 @@ class gameHandler {
             }
 
             // Reset collision array once at the beginning
-            instance.collisionArray = []; 
+            instance.collisionArray = [];
 
             // Handle physics only if not bonded
             if (instance.bond == null) {
@@ -247,6 +252,8 @@ class gameHandler {
                 instance.friction();
                 instance.confinementToTheseEarthlyShackles();
             }
+
+            // Terrain collision handled by the dedicated terrain loop below
 
             // Update axis-aligned bounding box
             instance.updateAABB(instance.activation.active);
@@ -541,6 +548,221 @@ class gameHandler {
             if (!this.active) return clearInterval(healingLoop);
             this.regenHealthAndShield();
         }, Config.regenerate_tick);
+
+        // Mining budget: each player may remove at most ONE rock's worth of
+        // HP per second, no matter the build — an octo can't strip the wall.
+        // Overflow damage is discarded (bullets still die on the face), so
+        // damage just abruptly stops until the next second.
+        const mineBudget = new Map(); // ownerId -> { t: windowStart, left: hp }
+        // Emerald ticker: cracking one of the arena's three emerald cells is
+        // a server-wide event, just like a boss arrival.
+        const announceEmerald = (miner) => {
+            const who = miner && miner.name ? miner.name : "An unnamed player";
+            global.gameManager.socketManager.broadcast(`${who} has destroyed an emerald shard!`);
+        };
+        const rootMaster = (e) => {
+            let m = e, hops = 0;
+            while (m.master && m.master !== m && hops++ < 4) m = m.master;
+            return m;
+        };
+        // Being crushed: a body pinned by rising stone (or sealed inside a
+        // rock that finished growing around it) bleeds out slowly instead of
+        // being teleported anywhere. It keeps full control the whole time —
+        // walk out through a seam and the bleeding stops.
+        const crush = (instance, ms) => {
+            if (!instance.health || !(instance.health.max > 0)) return;
+            const dmg = instance.health.max * TG_REGROW.CRUSH_DPS_FRAC * (ms / 1000);
+            instance.health.amount -= dmg;
+            if (instance.health.amount <= 0 && !instance._crushedNoted) {
+                instance._crushedNoted = true;
+                instance.dontSendDeathMessage = true;
+                if (instance.sendMessage) instance.sendMessage("You were crushed by the living wall.");
+            }
+        };
+        let lastTerrainTick = Date.now();
+        let terrainLoop = setInterval(() => {
+            if (!this.active) return clearInterval(terrainLoop);
+            const _tg = global.gameManager.terrainGrid;
+            if (!_tg || !_tg._voronoiMap) return;
+            if (mineBudget.size > 256) mineBudget.clear(); // stale-id backstop
+            // THE LIVING WALL: timers, the frontier rubber band, completions
+            // and emerald reseeding — self-throttled to 2Hz inside.
+            const tickNow = Date.now();
+            const tickMs = Math.min(50, tickNow - lastTerrainTick) || 8;
+            lastTerrainTick = tickNow;
+            _tg.regrowTick(tickNow);
+            const growingNow = _tg.growingRocks().length > 0;
+            const liveGems = [];
+            for (const instance of global.entities.values()) {
+                if (!instance || instance.isDead?.()) continue;
+                if (instance.noclip || instance.godmode || instance.isArenaCloser) continue;
+
+                if (instance.isGemPickup) {
+                    // loot pass: slide out of rock, home toward miners, collect
+                    gems.tickGem(instance, _tg, global.gameManager.socketManager.players);
+                    // rising stone shoves loose gems aside too (never crushes
+                    // them — they just get nudged out of the way)
+                    if (growingNow) _tg.pushCircleFromGrowing(instance, instance.realSize, tickNow);
+                    if (instance.gemValue > 0) liveGems.push(instance);
+                } else if (instance.type === 'tank' || instance.type === 'miniboss' ||
+                           instance.type === 'minion') {
+                    const r = instance.realSize;
+                    const p = _tg.pushCircleFromVoronoi(instance, r);
+                    let dx = p.dx, dy = p.dy;
+                    const nowT = Date.now();
+                    // ── THE LIVING WALL pushes back ──
+                    // Rising stone displaces bodies along its own outline. If
+                    // it can't get you clear you're pinned, not teleported:
+                    // you keep control and bleed until you slip out or die.
+                    let entombed = false;
+                    if (growingNow) {
+                        const g = _tg.pushCircleFromGrowing(instance, r, tickNow);
+                        entombed = g.entombed;
+                        if (g.dx !== 0 || g.dy !== 0) { dx += g.dx; dy += g.dy; }
+                    }
+                    // sealed inside stone that finished growing around you:
+                    // the ordinary face push has nowhere to put you
+                    if (!entombed && _tg.pointInRock(instance.x, instance.y)) entombed = true;
+                    if (entombed) crush(instance, tickMs);
+                    else instance._crushedNoted = false;
+                    if (dx !== 0 || dy !== 0) {
+                        const pLen = Math.hypot(dx, dy);
+                        const nx = dx / pLen, ny = dy / pLen;
+                        const vDot = instance.velocity.x * nx + instance.velocity.y * ny;
+                        if (vDot < 0) {
+                            instance.velocity.x -= vDot * nx;
+                            instance.velocity.y -= vDot * ny;
+                        }
+                        // remember the wall contact: physics only shoves the
+                        // tank on GAME ticks (30Hz), so displacement is only
+                        // seen on ~1 in 4 terrain ticks — grinding must keep
+                        // accumulating between them or it runs at 1/4 rate
+                        instance.grindTouchUntil = nowT + 300;
+                        instance.grindNx = nx;
+                        instance.grindNy = ny;
+                    }
+                    // Body grinding: a tank pressing its hull into the face
+                    // chips it — how ram tanks (and ram builds) mine. Pure
+                    // body-damage scaling (mining.js): 0 pts = harmless
+                    // hull, 1 pt = crawl, 12 pts ≈ 3s/rock. Damage lands in
+                    // 150ms chunks flagged as grind events so the client
+                    // renders soft grinding sparks, not bullet impacts.
+                    if (instance.type === 'tank' && instance.grindTouchUntil > nowT) {
+                        const gsec = mining.grindSecondsFor(instance);
+                        if (gsec) {
+                            instance.grindAcc = Math.min(
+                                _tg.baseRockHealth * 0.6, // no banking huge charges
+                                (instance.grindAcc || 0) + (_tg.baseRockHealth / gsec) * 0.008
+                            );
+                            if (!instance.grindLast || nowT - instance.grindLast >= 150) {
+                                instance.grindLast = nowT;
+                                const rock = _tg.rockHitByCircle(instance.x, instance.y, r * 1.06)
+                                    || (growingNow ? _tg.growingRockHitByCircle(instance.x, instance.y, r * 1.06, tickNow) : null);
+                                if (rock) {
+                                    let mb = mineBudget.get(instance.id);
+                                    if (!mb || nowT - mb.t >= 1000) {
+                                        mb = { t: nowT, left: _tg.baseRockHealth * 1.5 };
+                                        mineBudget.set(instance.id, mb);
+                                    }
+                                    const dmg = Math.min(instance.grindAcc, mb.left);
+                                    if (dmg > 0) {
+                                        mb.left -= dmg;
+                                        instance.grindAcc -= dmg;
+                                        // soft spark at the hull contact point
+                                        const wasGrowing = rock.growing;
+                                        const destroyed = _tg.damageRock(rock, dmg,
+                                            instance.x - (instance.grindNx || 0) * r,
+                                            instance.y - (instance.grindNy || 0) * r,
+                                            true);
+                                        // a rock killed mid-rise pays nothing:
+                                        // its seam never finished forming
+                                        if (destroyed && rock.ore && !wasGrowing) {
+                                            gems.spawnOreBurst(rock, instance);
+                                            if (rock.ore === 4) announceEmerald(instance);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (instance.type === 'bullet' || instance.type === 'drone' ||
+                           instance.type === 'trap'   || instance.type === 'satellite' ||
+                           instance.type === 'swarm') {
+                    // Same Voronoi geometry the bodies collide with: touching a
+                    // rock face (or spawning inside one — e.g. a long barrel
+                    // poking into the rock) kills the projectile like hitting
+                    // a polygon, and chips the rock's health. One rule, no
+                    // special cases.
+                    // rising stone is stone: a nub eats bullets exactly like a
+                    // finished rock does (and dies fast, since it's soft)
+                    const rock = _tg.rockHitByCircle(instance.x, instance.y, instance.realSize)
+                        || (growingNow ? _tg.growingRockHitByCircle(instance.x, instance.y, instance.realSize, tickNow) : null);
+                    if (rock) {
+                        const owner = rootMaster(instance);
+                        const nowT = Date.now();
+                        let mb = mineBudget.get(owner.id);
+                        if (!mb || nowT - mb.t >= 1000) {
+                            // 1.5 rocks' worth of HP per player per second
+                            mb = { t: nowT, left: _tg.baseRockHealth * 1.5 };
+                            mineBudget.set(owner.id, mb);
+                        }
+                        // Mining power = HITS-TO-BREAK per tank family
+                        // (terrain/mining.js): each contact removes
+                        // (barren rock HP / hits) × a bounded skill factor.
+                        // Bullet damage/pen/health investment matters, but
+                        // only within 0.6×..1× — the table stays the truth
+                        // (its numbers are the maxed-build hit counts). Ore
+                        // HP tiers and the budget stack on top.
+                        const raw = _tg.baseRockHealth / mining.rockHitsFor(owner, instance)
+                                  * mining.skillFactor(owner);
+                        const dmg = Math.min(raw, mb.left);
+                        if (dmg > 0) {
+                            mb.left -= dmg;
+                            const wasGrowing = rock.growing;
+                            const destroyed = _tg.damageRock(rock, dmg, instance.x, instance.y);
+                            // breaking an ore cell erupts its gem payout —
+                            // unless it was still rising, in which case there
+                            // was nothing in it to spill yet
+                            if (destroyed && rock.ore && !wasGrowing) {
+                                gems.spawnOreBurst(rock, owner);
+                                if (rock.ore === 4) announceEmerald(owner);
+                            }
+                        }
+                        // Freeze the projectile so its death fade stays at the
+                        // rock face instead of drifting into the rock.
+                        instance.velocity.x = 0; instance.velocity.y = 0;
+                        instance.accel.x = 0;    instance.accel.y = 0;
+                        instance.kill();
+                    }
+                }
+            }
+
+            // loot keeps its personal space — no two gems overlap
+            if (liveGems.length > 1) gems.separateGems(liveGems);
+
+            // vault pads: pad presence + active deposit channels
+            const vNow = Date.now();
+            vault.tick(global.gameManager.socketManager.players,
+                       Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
+            this._lastVaultTick = vNow;
+
+            // Broadcast rock damage/destroy deltas so every player sees the
+            // same cracks and shatter effects.
+            // Regrow deltas ride the same channel, always LAST in the batch so
+            // an authoritative "it's grown" can't be undone by a stale hit in
+            // the same flush.
+            if (_tg.rockEvents.length || _tg.growEvents.length) {
+                const batch = _tg.growEvents.length
+                    ? _tg.rockEvents.concat(_tg.growEvents)
+                    : _tg.rockEvents;
+                const payload = JSON.stringify(batch);
+                _tg.rockEvents.length = 0;
+                _tg.growEvents.length = 0;
+                for (const client of global.gameManager.socketManager.clients) {
+                    client.talk('TR', payload);
+                }
+            }
+        }, 8);
     }
     stop() {
         this.active = false;

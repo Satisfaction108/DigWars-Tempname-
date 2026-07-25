@@ -106,13 +106,18 @@ class socketManager {
             let nearby = view.getNearby(),
             array = [];
 
+            const viewTeam = view.socket.player && view.socket.player.body
+                ? view.socket.player.body.team
+                : (view.socket.player ? view.socket.player.team : undefined);
             for (let entity of nearby.values()) {
                 let id = entity.id;
                 if (chats[id]) {
                     array.push({ id: id, messages: [] });
                     let index = array.length - 1;
                     for (let chat of chats[id].messages) {
-                        array[index].messages.push({ text: chat.message, id: chat.id });
+                        // team messages only reach the sender's team
+                        if (chat.team != null && chat.team !== viewTeam) continue;
+                        array[index].messages.push({ text: chat.team != null ? "[TEAM] " + chat.message : chat.message, id: chat.id });
                     }
                 }
             }
@@ -247,7 +252,7 @@ class socketManager {
                 let autoLVLup = m[2];
                 let transferbodyID = m[3];
                 let incognitoMode = m[4];
-                if (incognitoMode) socket.status.incognito = true;
+                if (incognitoMode && Config.allow_incognito !== false) socket.status.incognito = true;
                 if (global.gameManager.arenaClosed) {
                     if (needsRoom) {
                       socket.talk("message", "Arena closed. Try again in a few seconds.");
@@ -294,6 +299,17 @@ class socketManager {
                             global.gameManager.terrainGrid.cols,
                             global.gameManager.terrainGrid.rows,
                             JSON.stringify(global.gameManager.terrainGrid.serialize()),
+                            // Current rock damage state so late joiners see the
+                            // same cracks/holes as everyone else.
+                            JSON.stringify(global.gameManager.terrainGrid.rockStateSnapshot()),
+                            // Ore veins: [key, tier] pairs for every living ore cell.
+                            JSON.stringify(global.gameManager.terrainGrid.oreSnapshot()),
+                            // Per-boot ore salt — the client mixes it into the
+                            // mirrored deposit layout so crystal spots match.
+                            global.gameManager.terrainGrid.oreSalt,
+                            // Vault pads (one per base) so clients can draw
+                            // the doors and their UI.
+                            JSON.stringify(require('../terrain/vault.js').snapshot()),
                         );
                     }
                     return;
@@ -333,6 +349,16 @@ class socketManager {
 
                 socket.talk('p', ping.toFixed(1));
                 socket.status.lastHeartbeat = util.time();
+            } break;
+            case 'vd': {
+                // Dig Wars: vault deposit request — cash out N gem dust
+                if (m.length !== 1) { socket.kick("Ill-sized vault deposit."); return 1; }
+                if (typeof m[0] !== "number" || !isFinite(m[0])) { socket.kick("Weird vault deposit."); return 1; }
+                require('../terrain/vault.js').requestDeposit(socket, m[0]);
+            } break;
+            case 'vc': {
+                // Dig Wars: cancel an active vault deposit channel
+                require('../terrain/vault.js').requestCancel(socket);
             } break;
             case "d": {
 
@@ -502,6 +528,9 @@ class socketManager {
                 }
 
                 if (player.body == null || player.body.underControl) return;
+                // Manual leveling is disabled (everyone spawns at 45);
+                // dev permission still overrides for testing.
+                if (!Config.manual_level_up && !(socket.permissions && socket.permissions.infiniteLevelUp)) return;
                 if (player.body.skill.level < Config.level_cap_cheat || (socket.permissions && socket.permissions.infiniteLevelUp)) {
                     player.body.skill.score += player.body.skill.levelScore;
                     player.body.skill.maintain();
@@ -529,6 +558,27 @@ class socketManager {
                             player.body.sendMessage(msg[i]);
                         }
                     }
+                }
+            } break;
+            case "EP": {
+                // Dig Wars enemy ping: [x, y] — relayed to the sender's
+                // whole team as a danger marker
+                if (m.length !== 2 || typeof m[0] !== "number" || typeof m[1] !== "number" ||
+                    !isFinite(m[0]) || !isFinite(m[1])) {
+                    return; // malformed or non-finite: drop quietly
+                }
+                if (player.body == null) return;
+                const nowP = Date.now();
+                if (socket.status.lastEnemyPing && nowP - socket.status.lastEnemyPing < 500) return;
+                socket.status.lastEnemyPing = nowP;
+                const room = global.gameManager.room;
+                const pxw = Math.max(-room.width / 2, Math.min(room.width / 2, m[0]));
+                const pyw = Math.max(-room.height / 2, Math.min(room.height / 2, m[1]));
+                const pteam = player.body.team;
+                for (const s of global.gameManager.socketManager.clients) {
+                    const b = s.player && s.player.body;
+                    if (!b || b.team !== pteam) continue;
+                    s.talk("EP", Math.round(pxw), Math.round(pyw), player.body.id);
                 }
             } break;
             case "1": {
@@ -650,7 +700,11 @@ class socketManager {
                     chats[id].messages = [];
                 }
 
-                chats[id].messages.unshift({ message, expires: Date.now() + Config.chat_message_duration, id: global.chatID++ });
+                // m[1] truthy = team chat: only the sender's team sees it
+                const chatTeam = m[1] ? player.body.team : null;
+                chats[id].messages.unshift({ message, team: chatTeam, expires: Date.now() + Config.chat_message_duration, id: global.chatID++ });
+                // at most 3 bubbles per player
+                if (chats[id].messages.length > 3) chats[id].messages.length = 3;
 
                 this.chatLoop();
             } break;
@@ -1066,7 +1120,7 @@ class socketManager {
                     }, 20)
                 }
             }, 100)
-            if (autoLVLup) {
+            if (autoLVLup || Config.spawn_at_max_level) {
                 if (!socket.player.body) return;
                 while (socket.player.body.skill.level < Config.level_cap_cheat) {
                     socket.player.body.skill.score += socket.player.body.skill.levelScore;
@@ -1150,6 +1204,10 @@ class socketManager {
         player.body = body;
         body.socket = socket;
         body.hasOperator = socket.status.hasOperator;
+        // Dig Wars: every player body carries a gem satchel (drop-on-death
+        // hook + visible pouch prop + HUD state). Safe on reconnect: the
+        // existing satchel is kept and only the HUD state is re-sent.
+        if (Config.dig_wars) require('../terrain/gems.js').initSatchel(body);
         socket.status.daily_tank_watched_ad = false;
         socket.status.daily_tank_watched_ad_client = false;
 
@@ -1224,7 +1282,12 @@ class socketManager {
         if (!doNotTakeAction.dontOverrideRecords) {
             let begin = util.time();
             player.records = () => [
-                player.body.skill.score,
+                // Dig Wars: the death screen's "Your Score" is your wealth
+                // (carried + banked), matching the leaderboard — NOT the
+                // vestigial level score
+                global.gameManager.terrainGrid
+                    ? (player.body.carriedGems | 0) + (((socket && socket.gemBanked) || 0) | 0)
+                    : player.body.skill.score,
                 Math.floor((util.time() - begin) / 1000),
                 Config.respawn_delay,
                 player.body.killCount.solo,
@@ -1569,6 +1632,21 @@ class socketManager {
 
                         if (!Config.load_all_mockups && entity.index) {
                             mockupsToSend.add(entity.index);
+                            // runtime-attached turrets/props (gem satchels,
+                            // gem facets, ...) aren't part of the entity's
+                            // own mockup — send theirs too or the client
+                            // renders them as missingno squares (not every
+                            // viewable object carries these maps, so guard)
+                            if (entity.turrets) {
+                                for (const t of entity.turrets.values()) {
+                                    if (t.index) mockupsToSend.add(t.index);
+                                }
+                            }
+                            if (entity.props) {
+                                for (const p of entity.props.values()) {
+                                    if (p.index) mockupsToSend.add(p.index);
+                                }
+                            }
                         }
 
                         if (!entity.flattenedPhoto) {
@@ -1687,19 +1765,27 @@ class socketManager {
                 return { update, reset };
             }
         };
+        // Dig Wars: rank = total wealth (carried + banked), not kill score.
+        // Everywhere else the leaderboard stays stock score.
+        let isGemMode = () => !!global.gameManager.terrainGrid;
+        let lbValue = (ent) => isGemMode()
+            ? (ent.carriedGems | 0) + (((ent.socket && ent.socket.gemBanked) || 0) | 0)
+            : ent.skill.score;
         let makeLeaderboardList = (list, args) => {
             let topTen = [];
             for (let i = 0; i < 10 && list.length; i++) {
                 let top,
-                    is = 0;
+                    is = -1;
                 for (let j = 0; j < list.length; j++) {
-                    let val = list[j].skill.score;
+                    let val = lbValue(list[j]);
                     if (val > is) {
                         is = val;
                         top = j;
                     }
                 }
-                if (is === 0) break;
+                // gem mode lists broke players at 0 — presence matters more
+                // than wealth in a 2-team war
+                if (top === undefined || (is === 0 && !isGemMode())) break;
                 let entry = list[top];
                 let color = entry.leaderboardColor ? entry.leaderboardColor + " 0 1 0 false"
                     : Config.groups || (Config.mode == 'ffa' && !Config.tag) ? '11 0 1 0 false'
@@ -1707,7 +1793,7 @@ class socketManager {
                 topTen.push({
                     id: entry.id,
                     data: [
-                        Math.round(entry.skill.score),
+                        Math.round(lbValue(entry)),
                         entry.index,
                         entry.name,
                         entry.leaderboardColor ? color : Config.mode == 'ffa' && !Config.tag ? '12 0 1 0 false' : color,
@@ -1912,6 +1998,43 @@ class socketManager {
                 leaderboardUpdate,
                 minimapAllTeamsUpdate = minimapAllTeams.update(),
                 minimapTeamUpdates;
+            // Dig Wars war score: each team's total banked gemdust, shown as
+            // the top-center bar on every client.
+            let bankBlue = 0, bankRed = 0;
+            const gemMode = !!global.gameManager.terrainGrid;
+            if (gemMode) {
+                for (const s of this.clients) {
+                    if (!s.player) continue;
+                    const t = s.player.body ? s.player.body.team : s.player.team;
+                    const b = (s.gemBanked || 0) | 0;
+                    if (t === TEAM_BLUE) bankBlue += b;
+                    else if (t === TEAM_RED) bankRed += b;
+                }
+            }
+            // Teammate positions + names for the map overlays, per team.
+            let tmBlue = [], tmRed = [];
+            if (gemMode) {
+                for (const s of this.clients) {
+                    const b = s.player && s.player.body;
+                    if (!b || s.status.deceased) continue;
+                    const rec = [b.id, b.name || "", Math.round(b.x), Math.round(b.y)];
+                    if (b.team === TEAM_BLUE) tmBlue.push(rec);
+                    else if (b.team === TEAM_RED) tmRed.push(rec);
+                }
+            }
+            // Leader arrow: the #1 player's live position, resolved once per
+            // 250ms tick — clients point a screen-edge arrow at them when
+            // they're out of view (slither-style).
+            let leaderID = -1, leaderX = 0, leaderY = 0;
+            {
+                const topId = global.gameManager.room.topPlayerID;
+                const leader = topId !== -1 ? entities.get(topId) : null;
+                if (leader) {
+                    leaderID = topId;
+                    leaderX = Math.round(leader.x);
+                    leaderY = Math.round(leader.y);
+                }
+            }
             for (let socket of subscribers) {
                 minimapTeamUpdates = minimapTeams.update(socket.id, socket.player.body ? socket.player.body.team : socket.player.team);
                 if (!socket.status.selectedLeaderboard) socket.status.selectedLeaderboard = "global";
@@ -1957,6 +2080,13 @@ class socketManager {
                     socket.talk("RM");
                     socket.talk("RL");
                     socket.status.needsNewBroadcast = true;
+                }
+                socket.talk("LA", leaderID, leaderX, leaderY);
+                if (gemMode) {
+                    socket.talk("TB", bankBlue, bankRed);
+                    const myTeam = socket.player && (socket.player.body ? socket.player.body.team : socket.player.team);
+                    const tm = myTeam === TEAM_RED ? tmRed : tmBlue;
+                    socket.talk("TM", tm.length, ...tm.flat());
                 }
             }
             logs.minimap.mark();

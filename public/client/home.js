@@ -27,7 +27,13 @@
         var closeBtn = document.getElementById('homeSettingsClose');
 
         function openP() { panel.classList.add('open'); overlay.classList.add('visible'); }
-        function closeP() { panel.classList.remove('open'); overlay.classList.remove('visible'); }
+        function closeP() {
+            panel.classList.remove('open'); overlay.classList.remove('visible');
+            // if the game is running, hand the keyboard back to it
+            var gaw = document.getElementById('gameAreaWrapper');
+            var cv = document.getElementById('gameCanvas');
+            if (gaw && cv && gaw.style.display !== 'none') cv.focus();
+        }
 
         if (openBtn) openBtn.onclick = openP;
         if (closeBtn) closeBtn.onclick = closeP;
@@ -134,6 +140,9 @@
         grid.onclick = function (e) {
             var b = e.target.closest('b[data-key]');
             if (!b) return;
+            // don't let the original click bubble to the document handler —
+            // it would instantly unselect the cell the proxy just selected
+            e.stopPropagation();
             var hb = hidden.querySelector('b[data-key="' + b.getAttribute('data-key') + '"]');
             if (hb) hb.click();
         };
@@ -141,10 +150,13 @@
         function sync() {
             hidden.querySelectorAll('b[data-key]').forEach(function (src) {
                 var dst = grid.querySelector('b[data-key="' + src.getAttribute('data-key') + '"]');
-                if (dst) dst.textContent = src.textContent;
+                if (!dst) return;
+                dst.textContent = src.textContent || '·';
+                // mirror the "waiting for a key" state onto the visible grid
+                dst.classList.toggle('kb-editing', !!src.closest('.editing'));
             });
         }
         setTimeout(sync, 500);
-        new MutationObserver(sync).observe(hidden, { subtree: true, characterData: true, childList: true });
+        new MutationObserver(sync).observe(hidden, { subtree: true, characterData: true, childList: true, attributes: true, attributeFilter: ['class'] });
     });
 })();

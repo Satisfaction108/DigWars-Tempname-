@@ -777,3 +777,129 @@ i.reset::after {
 
 .tdCenter { width: 350px; }
 h3 { font-size: 14px; line-height: 16px; color: var(--text2); text-align: center; padding: 0; margin: 9px 0 0; }
+
+/* ── Dig Wars settings restyle ─────────────────────────────────────────
+   One dark, game-styled panel shared by the homepage gear and the in-game
+   gear (#ingameSettingsBtn). Colors mirror the in-game HUD: dark plates,
+   heavy black borders, gold accents. */
+/* homepage gear follows the site theme; only the IN-GAME buttons are the
+   dark game plates */
+#homeSettingsBtn {
+    position: fixed;
+    top: 14px; left: 14px;
+    z-index: 200;
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color .15s, background .15s;
+}
+#homeSettingsBtn:hover { border-color: var(--border-hl); background: var(--surface); }
+#ingameSettingsBtn {
+    position: fixed;
+    top: 6px; left: 16px;
+    z-index: 30;
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    border: 2px solid #000;
+    background: #16171d;
+    color: #f2ecdc;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 0 rgba(0,0,0,.4);
+    transition: background .12s, transform .05s;
+}
+#ingameSettingsBtn:hover { background: #23252e; }
+#ingameSettingsBtn:active { transform: scale(.95); }
+
+#homeSettingsPanel {
+    background: #16171d;
+    border: 3px solid #000;
+    border-radius: 14px;
+    color: #e8e3d4;
+    box-shadow: 0 12px 44px rgba(0,0,0,.6);
+    width: 400px;
+}
+#homeSettingsPanel .sp-header { background: #101116; border-bottom: 2px solid #000; border-radius: 11px 11px 0 0; }
+#homeSettingsPanel .sp-header span { color: #ffd75e; }
+#homeSettingsPanel #homeSettingsClose { background: transparent; border: none; color: #e8e3d4; cursor: pointer; font-size: 15px; }
+#homeSettingsPanel #homeSettingsClose:hover { color: #eb4034; }
+#homeSettingsPanel .sp-tabs { background: #101116; border-bottom: 2px solid #000; }
+#homeSettingsPanel .sp-tab { color: #9b968a; background: transparent; }
+#homeSettingsPanel .sp-tab.active { background: #23252e; color: #ffd75e; }
+#homeSettingsPanel .sp-label { color: #ffd75e; }
+#homeSettingsPanel .container { color: #e8e3d4; }
+#homeSettingsPanel .checkmark { background: #0d0e14; border: 2px solid #000; }
+#homeSettingsPanel .container:hover .checkmark { background: #23252e; }
+#homeSettingsPanel .container input:checked ~ .checkmark { background: #ffd75e; border-color: #000; }
+#homeSettingsPanel .container input:checked ~ .checkmark:after { border-color: #101116; }
+#homeSettingsPanel select, #homeSettingsPanel #optCustom {
+    background: #0d0e14;
+    color: #e8e3d4;
+    border: 2px solid #000;
+    border-radius: 8px;
+}
+#homeSettingsPanel select:hover { border-color: #ffd75e; }
+#homeSettingsPanel .kb-section { color: #ffd75e; }
+#homeSettingsPanel .kb-row b { background: #0d0e14; color: #ffd75e; border: 2px solid #000; border-radius: 6px; cursor: pointer; }
+#homeSettingsPanel .kb-row b:hover { background: #23252e; color: #ffd75e; border-color: #ffd75e; }
+#homeSettingsPanel .kb-row span { color: #b7b1a2; }
+#homeSettingsPanel .kb-note { color: #9b968a; }
+#homeSettingsOverlay { background: rgba(0,0,0,.55); }
+#homeSettingsPanel .kb-row { background: #0d0e14; border: 1px solid #000; border-radius: 8px; }
+#homeSettingsPanel .kb-header span { color: #ffd75e; }
+#homeSettingsPanel .kb-row b.kb-editing {
+    border-color: #ffd75e;
+    background: #33290f;
+    color: #fff;
+    box-shadow: 0 0 8px rgba(255, 215, 94, .45);
+    animation: kbPulse 1s ease-in-out infinite;
+}
+@keyframes kbPulse {
+    50% { box-shadow: 0 0 3px rgba(255, 215, 94, .2); }
+}
+/* changelog button rides beside the settings gear, themed like it */
+#homeChangelogBtn {
+    position: fixed;
+    top: 14px; left: 64px;
+    z-index: 200;
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color .15s, background .15s;
+}
+#homeChangelogBtn:hover { border-color: var(--border-hl); background: var(--surface); }
+/* in-game Global/Team chat toggle, docked beside the gear */
+#ingameChatModeBtn {
+    position: fixed;
+    top: 6px; left: 62px;
+    z-index: 30;
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 2px solid #000;
+    background: #16171d;
+    color: #f2ecdc;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font: 700 12px Rubik, Ubuntu, sans-serif;
+    box-shadow: 0 2px 0 rgba(0,0,0,.4);
+    transition: background .12s, transform .05s;
+}
+#ingameChatModeBtn:hover { background: #23252e; }
+#ingameChatModeBtn:active { transform: scale(.96); }

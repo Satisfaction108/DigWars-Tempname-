@@ -261,9 +261,11 @@ class gameServer {
                 this.terrainGrid = generate({
                     cols: Config.roomWidth,
                     rows: Config.roomHeight,
+                    tileWidth: Config.map_tile_width,
                     seed: cfg.seed ?? 7,
                     extrusionChance: cfg.extrusion_chance ?? 0.40,
                 });
+                this.terrainGrid.buildContour();
             }
 
             setTimeout(() => {

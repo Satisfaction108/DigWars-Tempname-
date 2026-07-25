@@ -6,6 +6,7 @@ import { color as colors } from "./color.js";
 import { gameDraw } from "./gameDraw.js";
 import * as socketStuff from "./socketinit.js";
 import './terrainRenderer.js';
+import { gameSound } from "./sound.js";
 
 (async function (util, global, config, Canvas, color, gameDraw, socketStuff) {
     let { socketInit, resync, gui, leaderboard, minimap, moveCompensation, lag, getNow } = socketStuff;
@@ -95,13 +96,16 @@ import './terrainRenderer.js';
         selectedElement.element.parentNode.parentNode.classList.remove("editing");
         resetButton.classList.add("active");
         if (keyCode !== selectedElement.keyCode) {
+            // a key can only ever belong to ONE action: whatever previously
+            // used it becomes unbound (shown as · in the grid), never a
+            // silent swap
             let otherElement = controlsArray.find(c => c.keyCode === keyCode);
             if (keyCode !== -1 && otherElement) {
-                otherElement.keyName = selectedElement.keyName;
-                otherElement.element.innerText = selectedElement.keyName;
-                otherElement.keyCode = selectedElement.keyCode;
-                global[otherElement.keyId] = selectedElement.keyCode;
-                keybinds[otherElement.keyId] = [selectedElement.keyName, selectedElement.keyCode];
+                otherElement.keyName = "";
+                otherElement.element.innerText = "";
+                otherElement.keyCode = -1;
+                global[otherElement.keyId] = -1;
+                keybinds[otherElement.keyId] = ["", -1];
             }
         }
         selectedElement.keyName = key;
@@ -156,22 +160,26 @@ import './terrainRenderer.js';
         util.retrieveFromLocalStorage("optPredictive");
         util.retrieveFromLocalStorage("optFancy");
         util.retrieveFromLocalStorage("optLowResolution");
-        util.retrieveFromLocalStorage("coloredHealthbars");
         util.retrieveFromLocalStorage("smoothCamera");
         util.retrieveFromLocalStorage("optColors");
         util.retrieveFromLocalStorage("optPointy");
         util.retrieveFromLocalStorage("optCurvyTraps");
+        util.retrieveFromLocalStorage("optNoGrid");
         util.retrieveFromLocalStorage("optInterpolation");
         util.retrieveFromLocalStorage("optLerpAnim");
         util.retrieveFromLocalStorage("optOptimizeMode");
         util.retrieveFromLocalStorage("optCenterMinimap");
         util.retrieveFromLocalStorage("optBorders");
-        util.retrieveFromLocalStorage("optNoGrid");
-        util.retrieveFromLocalStorage("optColoredNest");
+        // default-ON toggles — only pull a stored value if the player has
+        // actually saved one (a blind retrieve reads missing keys as
+        // unchecked)
+        for (const id of ["optSatchelWarning", "optLeaderIndicators", "optWarBar", "optChatMessages"]) {
+            if (localStorage.getItem(id + "Checked") !== null) util.retrieveFromLocalStorage(id);
+        }
         util.retrieveFromLocalStorage("optRenderKillbar");
         util.retrieveFromLocalStorage("separatedHealthbars");
         util.retrieveFromLocalStorage("autoLevelUp");
-        util.retrieveFromLocalStorage("optMobile");
+        localStorage.removeItem("optMobileValue"); // legacy device-mode override, now auto-detected
 
         util.retrieveFromLocalStorage("optRenderGui");
         util.retrieveFromLocalStorage("optRenderLeaderboard");
@@ -240,16 +248,31 @@ import './terrainRenderer.js';
 
         document.getElementById("optColors").addEventListener("change", () => loadSettings());
 
+        // One-time keybind reset: a since-fixed bug in the settings grid
+        // could silently scramble stored bindings — restore stock defaults
+        // once, then never touch them again.
+        if (localStorage.getItem("keybindsSanitized") !== "1") {
+            localStorage.removeItem("keybinds");
+            localStorage.setItem("keybindsSanitized", "1");
+        }
         getKeybinds();
         getElements(keybinds, true);
+        // Rebinding works anywhere the settings panel is open — including
+        // mid-game (the panel steals focus, so the game never sees the key)
+        const settingsPanelOpen = () => {
+            const p = document.getElementById("homeSettingsPanel");
+            return !!(p && p.classList.contains("open"));
+        };
         document.addEventListener("click", event => {
-            if (!global.gameStart) {
+            if (!global.gameStart || settingsPanelOpen()) {
+                let element = controlsArray.find(({ element }) => element === event.target);
                 if (selectedElement) {
+                    const prev = selectedElement;
                     unselectElement();
-                } else {
-                    let element = controlsArray.find(({ element }) => element === event.target);
-                    if (element) selectElement(element);
-                }
+                    // clicking a DIFFERENT key switches to it directly;
+                    // clicking the same key (or anywhere else) just cancels
+                    if (element && element !== prev) selectElement(element);
+                } else if (element) selectElement(element);
             }
         });
         resetButton.addEventListener("click", () => {
@@ -317,17 +340,23 @@ import './terrainRenderer.js';
 
         document.getElementById("startButton").onclick = () => startGame();
         document.onkeydown = (e) => {
-            if (!(global.gameStart || e.shiftKey || e.ctrlKey || e.altKey)) {
+            if (!((global.gameStart && !settingsPanelOpen()) || e.shiftKey || e.ctrlKey || e.altKey)) {
                 let key = e.which || e.keyCode;
                 if (selectedElement) {
-                    if (1 !== e.key.length  || 3 === e.location) {
+                    if ("Escape" === e.key) {
+                        unselectElement();
+                    } else if (1 !== e.key.length || 3 === e.location) {
                         if (!("Backspace" !== e.key && "Delete" !== e.key)) {
                             setKeybind("", -1);
+                            unselectElement();
                         }
                     } else {
                         setKeybind(e.key.toUpperCase(), e.keyCode);
+                        // one key per click — don't stay armed and eat
+                        // every keystroke after the bind lands
+                        unselectElement();
                     }
-                } else if (key === global.KEY_ENTER) {
+                } else if (key === global.KEY_ENTER && !global.gameStart) {
                     startGame();
                 }
             }
@@ -505,7 +534,8 @@ import './terrainRenderer.js';
             Id =
             (11 === currentDate.getMonth() && 31 === currentDate.getDate()) ||
             (0 === currentDate.getMonth() && 3 >= currentDate.getDate());
-        if (!global.mobile && ((Hd && Gd) || Id)) {
+        // Fireworks year-round (was July 4th + New Year's only)
+        if (!global.mobile) {
             let fireworkCanvas = document.createElement("canvas");
             fireworkCanvas.style.position = "absolute";
             fireworkCanvas.style.top = "0";
@@ -964,11 +994,14 @@ import './terrainRenderer.js';
         config.game.centeredMinimap = document.getElementById("optCenterMinimap").checked;
         config.lag.unresponsive = document.getElementById("optPredictive").checked;
         config.graphical.sharpEdges = document.getElementById("optSharpEdges").checked;
-        config.graphical.coloredHealthbars = document.getElementById("coloredHealthbars").checked;
+        {
+            const ng = document.getElementById("optNoGrid");
+            config.graphical.showGrid = !(ng && ng.checked);
+        }
+        config.graphical.coloredHealthbars = true; // always on
         config.graphical.separatedHealthbars = document.getElementById("separatedHealthbars").checked;
         config.graphical.lowResolution = document.getElementById("optLowResolution").checked;
-        config.graphical.showGrid = !document.getElementById("optNoGrid").checked;
-        config.graphical.coloredNest = document.getElementById("optColoredNest").checked;
+        config.graphical.coloredNest = true;      // always on
         config.graphical.slowerFOV = document.getElementById("optSlowerFOV").checked;
         config.graphical.optimizeMode = document.getElementById("optOptimizeMode").checked;
 
@@ -987,6 +1020,14 @@ import './terrainRenderer.js';
         global.mobileStatus.showJoysticks = document.getElementById("showJoystick").checked;
 
         config.game.incognitoMode = document.getElementById("optIncognitoMode").checked;
+
+        // Dig Wars HUD toggles (default ON when the element is missing)
+        const dwOpt = (id) => { const el = document.getElementById(id); return el ? el.checked : true; };
+        config.game.satchelWarning = dwOpt("optSatchelWarning");
+        config.game.leaderIndicators = dwOpt("optLeaderIndicators");
+        config.game.warBar = dwOpt("optWarBar");
+        global.GUIStatus.renderChat = dwOpt("optChatMessages");
+
         switch (document.getElementById("optBorders").value) {
             case "normal":
                 config.graphical.darkBorders = config.graphical.neon = false;
@@ -1003,19 +1044,10 @@ import './terrainRenderer.js';
                 config.graphical.darkBorders = config.graphical.neon = true;
                 break;
         }
-        switch (document.getElementById("optMobile").value) {
-            case "desktop":
-                global.mobile = false;
-                break;
-            case "mobileWithBigJoysticks":
-                global.mobileStatus.useBigJoysticks = true;
-                break;
-        }
-        global.autoScale = false;
+        // Device mode is auto-detected from the user agent — the old
+        // selector could silently force desktop players into mobile mode
+        global.autoScale = false; // auto UI scale removed
         switch (document.getElementById("optUiScale").value) {
-            case "auto":
-                global.autoScale = true;
-                break;
             case "small":
                 global.UIscale = 2560;
                 break;
@@ -1060,20 +1092,17 @@ import './terrainRenderer.js';
         util.submitToLocalStorage("optBorders");
         util.submitToLocalStorage("optPointy");
         util.submitToLocalStorage("optCurvyTraps");
+        util.submitToLocalStorage("optNoGrid");
         util.submitToLocalStorage("optInterpolation");
         util.submitToLocalStorage("optLerpAnim");
         util.submitToLocalStorage("optOptimizeMode");
         util.submitToLocalStorage("optCenterMinimap");
         util.submitToLocalStorage("autoLevelUp");
-        util.submitToLocalStorage("optMobile");
         util.submitToLocalStorage("optPredictive");
         util.submitToLocalStorage("optSharpEdges");
         util.submitToLocalStorage("optSlowerFOV");
         util.submitToLocalStorage("optRenderKillbar");
-        util.submitToLocalStorage("coloredHealthbars");
         util.submitToLocalStorage("separatedHealthbars");
-        util.submitToLocalStorage("optColoredNest");
-        util.submitToLocalStorage("optNoGrid");
 
         util.submitToLocalStorage("optRenderGui");
         util.submitToLocalStorage("optRenderLeaderboard");
@@ -1322,10 +1351,13 @@ import './terrainRenderer.js';
         context.globalAlpha = 1;
     }
 
+    // dev console handle (module-scoped state is otherwise unreachable)
+    window.dwDebug = global;
+
     const fontWidth = "bold";
     function measureText(text, fontSize, withHeight = false) {
         fontSize += config.graphical.fontSizeBoost;
-        ctx[2].font = fontWidth + " " + fontSize + "px Ubuntu";
+        ctx[2].font = fontWidth + " " + fontSize + "px Rubik, Ubuntu";
         let measurement = ctx[2].measureText(arrayifyText(text).reduce((a, b, i) => (i & 1) ? a : a + b, ''));
         return withHeight ? { width: measurement.width, height: fontSize } : measurement.width;
     }
@@ -1362,7 +1394,7 @@ import './terrainRenderer.js';
         if (ratio !== 1) {
             size *= ratio;
         }
-        context.font = "bold " + size + "px Ubuntu";
+        context.font = "bold " + size + "px Rubik, Ubuntu";
 
         let Xoffset = offset,
             Yoffset = (size + 2 * offset) / 2,
@@ -2015,6 +2047,14 @@ import './terrainRenderer.js';
             for (let i = 0; i < turrets.length; i++) {
                 let t = turrets[i];
                 if (t.isProp) t = util.requestEntityImage(t);
+                if (!t.sizeFactor) continue; // zero-size prop
+                // Dig Wars: the hoard prop broadcasts carried load but is
+                // never drawn — the on-tank wealth visual is shelved until
+                // skins land (the HUD wallet bar carries the info)
+                {
+                    const pm = global.mockups[parseInt(t.index)];
+                    if (pm && pm.name === "Hoard") continue;
+                }
 
                 if (t.lerpedFacing === undefined) {
                     t.lerpedFacing = t.facing;
@@ -2152,6 +2192,14 @@ import './terrainRenderer.js';
             for (let i = 0; i < turrets.length; i++) {
                 let t = turrets[i];
                 if (t.isProp) t = util.requestEntityImage(t);
+                if (!t.sizeFactor) continue; // zero-size prop
+                // Dig Wars: the hoard prop broadcasts carried load but is
+                // never drawn — the on-tank wealth visual is shelved until
+                // skins land (the HUD wallet bar carries the info)
+                {
+                    const pm = global.mockups[parseInt(t.index)];
+                    if (pm && pm.name === "Hoard") continue;
+                }
 
                 if (t.lerpedFacing === undefined) {
                     t.lerpedFacing = t.facing;
@@ -2254,16 +2302,393 @@ import './terrainRenderer.js';
         drawGuiRect(x, y, len, height, true);
     }
 
+    // Dig Wars: the cavern floor — a seamless, world-locked dirt texture
+    // (mottled mud blotches + pebble specks) built once on an offscreen
+    // tile. Kept close to the stock floor's luminance so readability of
+    // tanks, bullets and borders is untouched.
+    let floorPattern = null;
+    function makeFloorPattern(context) {
+        const S = 256;
+        const tile = document.createElement("canvas");
+        tile.width = tile.height = S;
+        const t = tile.getContext("2d");
+        // deterministic hash so every session's floor looks the same
+        let seed = 7;
+        const rng = () => {
+            seed = (Math.imul(seed, 1597334677) + 926135893) | 0;
+            return ((seed >>> 8) & 0xffffff) / 0x1000000;
+        };
+        t.fillStyle = "#221c16"; // near-black cavern dirt
+        t.fillRect(0, 0, S, S);
+        // toroidal draw: paint each feature at all 9 wrap offsets so the
+        // tile is seamless when repeated. All randomness is rolled BEFORE
+        // the 9 copies so every copy is identical (no seams).
+        const wrapped = (draw) => {
+            for (let dx = -1; dx <= 1; dx++)
+                for (let dy = -1; dy <= 1; dy++) {
+                    t.save();
+                    t.translate(dx * S, dy * S);
+                    draw();
+                    t.restore();
+                }
+        };
+        // big soft dirt blotches, some lighter earth, some deeper shadow
+        for (let i = 0; i < 30; i++) {
+            const x = rng() * S, y = rng() * S, r = 22 + rng() * 48;
+            const light = rng() < 0.55;
+            const a = 0.12 + rng() * 0.12;
+            wrapped(() => {
+                const g = t.createRadialGradient(x, y, 0, x, y, r);
+                g.addColorStop(0, light ? `rgba(88,73,55,${a})` : `rgba(5,4,3,${a})`);
+                g.addColorStop(1, "rgba(0,0,0,0)");
+                t.fillStyle = g;
+                t.beginPath();
+                t.arc(x, y, r, 0, Math.PI * 2);
+                t.fill();
+            });
+        }
+        // fine grain: a dusting of 1px dirt specks
+        for (let i = 0; i < 260; i++) {
+            const x = rng() * S, y = rng() * S;
+            const s = 0.5 + rng() * 0.9;
+            const light = rng() < 0.55;
+            const a = 0.14 + rng() * 0.14;
+            wrapped(() => {
+                t.globalAlpha = a;
+                t.fillStyle = light ? "#6b5a45" : "#000000";
+                t.fillRect(x, y, s, s);
+                t.globalAlpha = 1;
+            });
+        }
+        // pebbles: small stones catching what little light there is
+        for (let i = 0; i < 70; i++) {
+            const x = rng() * S, y = rng() * S;
+            const r = 1.2 + rng() * 3.2, rot = rng() * Math.PI;
+            const squish = 0.6 + rng() * 0.4;
+            const shade = rng();
+            const a = 0.35 + rng() * 0.25;
+            const col = shade < 0.4 ? "#3c332a" : shade < 0.75 ? "#4e4234" : "#6a5a46";
+            wrapped(() => {
+                t.save();
+                t.translate(x, y);
+                t.rotate(rot);
+                t.globalAlpha = a * 0.6;
+                t.fillStyle = "#000000";
+                t.beginPath();
+                t.ellipse(r * 0.25, r * 0.3, r, r * squish, 0, 0, Math.PI * 2);
+                t.fill();
+                t.globalAlpha = a;
+                t.fillStyle = col;
+                t.beginPath();
+                t.ellipse(0, 0, r, r * squish, 0, 0, Math.PI * 2);
+                t.fill();
+                t.restore();
+            });
+        }
+        // a few faint cracks in the packed ground
+        for (let i = 0; i < 9; i++) {
+            const x0 = rng() * S, y0 = rng() * S;
+            const segs = 3 + (rng() * 3 | 0);
+            const pts = [[x0, y0]];
+            let ang = rng() * Math.PI * 2;
+            for (let sgi = 0; sgi < segs; sgi++) {
+                ang += (rng() - 0.5) * 1.4;
+                const len = 8 + rng() * 16;
+                const [lx, ly] = pts[pts.length - 1];
+                pts.push([lx + Math.cos(ang) * len, ly + Math.sin(ang) * len]);
+            }
+            wrapped(() => {
+                t.strokeStyle = "rgba(0,0,0,0.35)";
+                t.lineWidth = 1.1;
+                t.lineCap = "round";
+                t.beginPath();
+                t.moveTo(pts[0][0], pts[0][1]);
+                for (let pi = 1; pi < pts.length; pi++) t.lineTo(pts[pi][0], pts[pi][1]);
+                t.stroke();
+            });
+        }
+        return context.createPattern(tile, "repeat");
+    }
+
+    // Dig Wars: the team Vault — THE bank, drawn in the game's own flat
+    // style: bold shapes, dark outlines, gem-gold heart. Pre-rendered
+    // layers keep the per-frame cost at a few drawImages; a rotating shine
+    // sweep, sparkles and a pulsing gold aura make it unmistakably the
+    // most valuable object in the base.
+    let vaultSprites = null;
+    let vaultDust = [];   // deposit stream + completion burst particles
+    function makeVaultSprites() {
+        const S = 256, C = S / 2;
+        const GEM = [[-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95]];
+        const layer = (draw) => {
+            const cv = document.createElement("canvas");
+            cv.width = cv.height = S;
+            const c = cv.getContext("2d");
+            c.translate(C, C);
+            c.lineJoin = "round";
+            draw(c);
+            return cv;
+        };
+        const ring = (c, r, w, fill, stroke, sw = 5) => {
+            c.lineWidth = w;
+            c.strokeStyle = fill;
+            c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.stroke();
+            c.lineWidth = sw;
+            c.strokeStyle = stroke;
+            c.beginPath(); c.arc(0, 0, r + w / 2, 0, Math.PI * 2); c.stroke();
+            c.beginPath(); c.arc(0, 0, r - w / 2, 0, Math.PI * 2); c.stroke();
+        };
+        // static base: flat armored disc, arras-style dark borders
+        const plate = layer((c) => {
+            c.fillStyle = "#474e5c";
+            c.beginPath(); c.arc(0, 0, S * 0.47, 0, Math.PI * 2); c.fill();
+            c.lineWidth = 7; c.strokeStyle = "#16181d"; c.stroke();
+            // gold stud bolts on the rim
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+                const bx = Math.cos(a) * S * 0.415, by = Math.sin(a) * S * 0.415;
+                c.fillStyle = "#efc74b";
+                c.beginPath(); c.arc(bx, by, S * 0.026, 0, Math.PI * 2); c.fill();
+                c.lineWidth = 3; c.strokeStyle = "#16181d"; c.stroke();
+            }
+            // recessed inner disc
+            c.fillStyle = "#3a404c";
+            c.beginPath(); c.arc(0, 0, S * 0.33, 0, Math.PI * 2); c.fill();
+            c.lineWidth = 5; c.strokeStyle = "#16181d"; c.stroke();
+        });
+        // rotating lock ring: flat teeth, gold-tipped
+        const cog = layer((c) => {
+            ring(c, S * 0.375, S * 0.045, "#565e6e", "#16181d", 4);
+            for (let i = 0; i < 12; i++) {
+                c.save();
+                c.rotate((i / 12) * Math.PI * 2);
+                c.fillStyle = i % 3 === 0 ? "#efc74b" : "#6a7385";
+                c.fillRect(S * 0.345, -S * 0.016, S * 0.062, S * 0.032);
+                c.lineWidth = 3; c.strokeStyle = "#16181d";
+                c.strokeRect(S * 0.345, -S * 0.016, S * 0.062, S * 0.032);
+                c.restore();
+            }
+        });
+        // the heart: a big gold gem-cut emblem + three flat handles.
+        // Same silhouette as every gem in the game — this is where they go.
+        const wheel = layer((c) => {
+            c.lineCap = "round";
+            for (let i = 0; i < 3; i++) {
+                const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
+                c.lineWidth = S * 0.05;
+                c.strokeStyle = "#6a7385";
+                c.beginPath();
+                c.moveTo(Math.cos(a) * S * 0.12, Math.sin(a) * S * 0.12);
+                c.lineTo(Math.cos(a) * S * 0.27, Math.sin(a) * S * 0.27);
+                c.stroke();
+                c.lineWidth = S * 0.018;
+                c.strokeStyle = "#16181d";
+                c.beginPath();
+                c.moveTo(Math.cos(a) * S * 0.12, Math.sin(a) * S * 0.12);
+                c.lineTo(Math.cos(a) * S * 0.27, Math.sin(a) * S * 0.27);
+                c.stroke();
+            }
+            const drawGem = (scale, fill) => {
+                c.fillStyle = fill;
+                c.beginPath();
+                GEM.forEach((p, i) => {
+                    const px = p[0] * S * scale, py = p[1] * S * scale;
+                    i ? c.lineTo(px, py) : c.moveTo(px, py);
+                });
+                c.closePath(); c.fill();
+            };
+            drawGem(0.155, "#efc74b");
+            c.lineWidth = 5; c.strokeStyle = "#16181d"; c.stroke();
+            drawGem(0.085, "#f7dd8a");
+            drawGem(0.038, "#fff6d8");
+        });
+        return { plate, cog, wheel };
+    }
+
+    function drawVaults(roomX, roomY, ratio) {
+        if (!global.vaults.length) return;
+        if (!vaultSprites) vaultSprites = makeVaultSprites();
+        const now = performance.now();
+        const v0 = global.vault;
+        const halfW = global.gameWidth / 2, halfH = global.gameHeight / 2;
+        const c = ctx[0];
+        for (const v of global.vaults) {
+            const sx = roomX + (v.x + halfW) * ratio;
+            const sy = roomY + (v.y + halfH) * ratio;
+            const R = v.r * 1.15 * ratio;
+            if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
+                sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
+            const depositing = v0.total > 0 && v0.onPad;
+            const doneFlash = Math.max(0, 1 - (now - v0.doneAt) / 700);
+            const teamCol = gameDraw.getColor(v.team === -1 ? "blue" : "red");
+
+            c.save();
+            c.translate(sx, sy);
+            // grounding shadow + breathing gold aura: THE vault, from afar
+            c.fillStyle = "rgba(0,0,0,0.45)";
+            c.beginPath(); c.arc(3, 5, R, 0, Math.PI * 2); c.fill();
+            // flat octagonal foundation: tanks are round, structures are
+            // not — the pad keeps the vault from reading as one more tank
+            c.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+                const ox = Math.cos(a) * R * 1.22, oy = Math.sin(a) * R * 1.22;
+                i ? c.lineTo(ox, oy) : c.moveTo(ox, oy);
+            }
+            c.closePath();
+            c.fillStyle = "#23262d";
+            c.fill();
+            c.lineWidth = Math.max(3, R * 0.07);
+            c.lineJoin = "round";
+            c.strokeStyle = "#111318";
+            c.stroke();
+            const pulse = 0.5 + 0.5 * Math.sin(now / 650);
+            const aura = c.createRadialGradient(0, 0, R * 0.8, 0, 0, R * (1.5 + 0.15 * pulse));
+            aura.addColorStop(0, `rgba(239,199,75,${0.12 + 0.10 * pulse + doneFlash * 0.4})`);
+            aura.addColorStop(1, "rgba(239,199,75,0)");
+            c.fillStyle = aura;
+            c.beginPath(); c.arc(0, 0, R * 1.7, 0, Math.PI * 2); c.fill();
+            // team claim ring
+            c.globalAlpha = 0.55 + 0.25 * pulse;
+            c.lineWidth = Math.max(2.5, R * 0.06);
+            c.strokeStyle = doneFlash > 0 ? "#ffd75e" : teamCol;
+            c.beginPath(); c.arc(0, 0, R * 1.06, 0, Math.PI * 2); c.stroke();
+            c.globalAlpha = 1;
+
+            // door layers: plate static, cog & emblem counter-rotating
+            const spin = depositing ? now / 200 : now / 6000;
+            c.drawImage(vaultSprites.plate, -R, -R, R * 2, R * 2);
+            c.save(); c.rotate(spin * 0.7);
+            c.drawImage(vaultSprites.cog, -R, -R, R * 2, R * 2);
+            c.restore();
+            c.save(); c.rotate(-spin * 0.4);
+            c.drawImage(vaultSprites.wheel, -R, -R, R * 2, R * 2);
+            c.restore();
+
+            // shine: a soft specular sweep gliding around the door
+            c.save();
+            c.beginPath(); c.arc(0, 0, R * 0.96, 0, Math.PI * 2); c.clip();
+            c.rotate(now / 1800);
+            const sh = c.createLinearGradient(-R, 0, R, 0);
+            sh.addColorStop(0.42, "rgba(255,255,255,0)");
+            sh.addColorStop(0.5, "rgba(255,255,255,0.10)");
+            sh.addColorStop(0.58, "rgba(255,255,255,0)");
+            c.fillStyle = sh;
+            c.fillRect(-R, -R, R * 2, R * 2);
+            c.restore();
+
+            // sparkle: the gold heart glints on its own clock
+            const sparkT = ((now / 2600 + (v.team === -1 ? 0 : 0.5)) % 1);
+            if (sparkT < 0.16) {
+                const ga = Math.sin(sparkT / 0.16 * Math.PI);
+                const gr = R * 0.10 * ga;
+                c.save();
+                c.globalAlpha = ga * 0.9;
+                c.strokeStyle = "#fff6d8";
+                c.lineWidth = Math.max(1.5, gr * 0.3);
+                c.beginPath();
+                for (let aI = 0; aI < 4; aI++) {
+                    const ang = aI * Math.PI / 2 + sparkT * 3;
+                    c.moveTo(0, 0);
+                    c.lineTo(Math.cos(ang) * gr * (aI % 2 ? 1.6 : 2.6),
+                             Math.sin(ang) * gr * (aI % 2 ? 1.6 : 2.6));
+                }
+                c.stroke();
+                c.restore();
+            }
+
+            // channel progress arc + dust stream from the tank to the door
+            if (depositing && v0.total > 0) {
+                const frac = 1 - v0.remaining / v0.total;
+                c.lineWidth = Math.max(3.5, R * 0.09);
+                c.lineCap = "round";
+                c.strokeStyle = "#ffd75e";
+                c.beginPath();
+                c.arc(0, 0, R * 0.96, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+                c.stroke();
+            }
+            c.restore();
+
+            // deposit dust: gold motes streaming from the player into the
+            // vault heart, each swallowed with a tiny flash — the money is
+            // visibly leaving your bag and entering the door
+            if (depositing) {
+                const px0 = global.screenWidth / 2, py0 = global.screenHeight / 2;
+                for (let n = 0; n < 2; n++) {
+                    if (vaultDust.length > 70) break;
+                    vaultDust.push({
+                        x: px0 + (Math.random() - 0.5) * 26,
+                        y: py0 + (Math.random() - 0.5) * 26,
+                        tx: sx, ty: sy,
+                        born: now, life: 420 + Math.random() * 160,
+                        bend: (Math.random() - 0.5) * 90,
+                        size: 1.6 + Math.random() * 2.2,
+                    });
+                }
+            }
+            if (doneFlash > 0) {
+                // completion burst: one-off ring of gold sparks
+                if (!v0._burstDone) {
+                    v0._burstDone = true;
+                    for (let n = 0; n < 22; n++) {
+                        const a = (n / 22) * Math.PI * 2;
+                        vaultDust.push({
+                            burst: true,
+                            x: sx, y: sy,
+                            vx: Math.cos(a) * (2 + Math.random() * 2.5),
+                            vy: Math.sin(a) * (2 + Math.random() * 2.5),
+                            born: now, life: 500 + Math.random() * 200,
+                            size: 2 + Math.random() * 2,
+                        });
+                    }
+                }
+            } else v0._burstDone = false;
+        }
+
+        // animate the dust
+        if (vaultDust.length) {
+            c.save();
+            for (let i = vaultDust.length - 1; i >= 0; i--) {
+                const d = vaultDust[i];
+                const t = (now - d.born) / d.life;
+                if (t >= 1) { vaultDust.splice(i, 1); continue; }
+                let dx, dy, a;
+                if (d.burst) {
+                    dx = d.x + d.vx * (now - d.born) / 16;
+                    dy = d.y + d.vy * (now - d.born) / 16;
+                    a = 1 - t;
+                } else {
+                    const e = t * t * (3 - 2 * t); // smoothstep glide
+                    const mx = (d.x + d.tx) / 2 - (d.ty - d.y) * 0.002 * d.bend;
+                    const my = (d.y + d.ty) / 2 + (d.tx - d.x) * 0.002 * d.bend;
+                    const u = 1 - e;
+                    dx = u * u * d.x + 2 * u * e * mx + e * e * d.tx;
+                    dy = u * u * d.y + 2 * u * e * my + e * e * d.ty;
+                    a = t > 0.85 ? (1 - t) / 0.15 : 1;
+                }
+                c.globalAlpha = a;
+                c.fillStyle = t > 0.9 ? "#fff6d8" : "#ffd75e";
+                c.beginPath();
+                c.arc(dx, dy, d.size * (1 - t * 0.4), 0, Math.PI * 2);
+                c.fill();
+            }
+            c.globalAlpha = 1;
+            c.restore();
+        }
+    }
+
     function drawFloor(px, py, ratio, tick) {
 
-        clearScreen(color.white, 1, ctx[0]);
-        clearScreen(color.guiblack, 0.1, ctx[0]);
+        // out-of-bounds void: even darker than the cavern floor
+        clearScreen("#0e0c0a", 1, ctx[0]);
 
         let gameWidth = global.gameWidth = global.player.roomAnim.x.get(tick);
         let gameHeight = global.gameHeight = global.player.roomAnim.y.get(tick);
 
         ctx[0].globalAlpha = 1;
-        ctx[0].fillStyle = color.white;
+        // room base = the dirt tile's ground color, so even if the pattern
+        // ever fails to build the floor is dark, never white
+        ctx[0].fillStyle = "#221c16";
 
         let roomX = -px + global.screenWidth / 2 - ratio * gameWidth / 2,
             roomY = -py + global.screenHeight / 2 - ratio * gameHeight / 2,
@@ -2282,6 +2707,26 @@ import './terrainRenderer.js';
             ctx[0].clip();
         }
         ctx[0].fillRect(roomX, roomY, roomWidth, roomHeight);
+        // muddy cavern floor: repeat the dirt tile across the room,
+        // anchored to world coordinates and scaled with the camera so the
+        // ground never "swims". PERF: only the visible slice of the room is
+        // pattern-filled — filling the whole room rect each frame was a
+        // fullscreen-and-then-some rasterization for nothing.
+        if (!floorPattern) floorPattern = makeFloorPattern(ctx[0]);
+        {
+            const vx0 = Math.max(roomX, 0), vy0 = Math.max(roomY, 0);
+            const vx1 = Math.min(roomX + roomWidth, global.screenWidth);
+            const vy1 = Math.min(roomY + roomHeight, global.screenHeight);
+            if (vx1 > vx0 && vy1 > vy0) {
+                ctx[0].save();
+                ctx[0].translate(roomX, roomY);
+                ctx[0].scale(ratio, ratio);
+                ctx[0].fillStyle = floorPattern;
+                ctx[0].fillRect((vx0 - roomX) / ratio, (vy0 - roomY) / ratio,
+                                (vx1 - vx0) / ratio, (vy1 - vy0) / ratio);
+                ctx[0].restore();
+            }
+        }
         if (global.roomSetup.length) {
             let W = global.roomSetup[0].length,
                 H = global.roomSetup.length;
@@ -2310,8 +2755,24 @@ import './terrainRenderer.js';
                     ctx[0].globalAlpha = 0.3;
                     if (tile.color == 'none') tile.color = 'border';
                     let tileColor = gameDraw.getColor(tile.color, true);
+                    // the blue base used to melt into the teal floor and
+                    // read as clutter — deepen it toward cobalt and tint a
+                    // touch stronger so it separates as cleanly as red
+                    let tintAlpha = 0.3;
+                    if (tile.color === "blue") {
+                        try { tileColor = gameDraw.mixColors(tileColor, "#1737a8", 0.5); } catch (e) { /* keep */ }
+                        tintAlpha = 0.4;
+                    }
 
                     if (tileColor !== color.white) {
+                        // bases/nests keep their ORIGINAL look: lay down the
+                        // stock light floor under the tint so the team color
+                        // reads exactly as it always did — bright, safe
+                        // islands punched out of the dark cavern dirt
+                        ctx[0].globalAlpha = 1;
+                        ctx[0].fillStyle = color.white;
+                        ctx[0].fillRect(top, bottom, left - top, right - bottom);
+                        ctx[0].globalAlpha = tintAlpha;
                         ctx[0].fillStyle = tileColor;
                         ctx[0].fillRect(top, bottom, left - top, right - bottom);
                     }
@@ -2323,8 +2784,9 @@ import './terrainRenderer.js';
         if (config.graphical.showGrid && 2.5 < gridsize) {
             ctx[0].save();
             ctx[0].lineWidth = ratio;
-            ctx[0].strokeStyle = color.guiblack;
-            ctx[0].globalAlpha = 0.04;
+            // light grid lines — dark ones vanish on the cavern floor
+            ctx[0].strokeStyle = "#ffffff";
+            ctx[0].globalAlpha = 0.035;
             ctx[0].beginPath();
             for (let x = (global.screenWidth / 2 - px) % gridsize; x < global.screenWidth; x += gridsize) {
                 ctx[0].moveTo(x, 0);
@@ -2338,9 +2800,13 @@ import './terrainRenderer.js';
             ctx[0].globalAlpha = 1;
             ctx[0].restore();
         }
+        // Dig Wars: team vault doors, set into the base floors
+        drawVaults(roomX, roomY, ratio);
 
         if (window.terrainRenderer && window.terrainRenderer.ready) {
-            ctx[0].globalAlpha = 0.5;
+            // near-opaque on the dark cavern floor — the old 0.5 wash only
+            // read against a white arena; here it would melt into the dirt
+            ctx[0].globalAlpha = 0.9;
             window.terrainRenderer.draw(ctx[0], px, py, ratio, gameWidth, gameHeight, global.screenWidth, global.screenHeight);
         }
     }
@@ -2358,6 +2824,14 @@ import './terrainRenderer.js';
             }
             let motion = compensation();
             let rst = instance.render.status.getFade();
+            // first frame of a death fade: play a size-appropriate sound
+            if (rst < 1 && !instance.deathSounded) {
+                instance.deathSounded = true;
+                gameSound.die(instance.render.x, instance.render.y,
+                              instance.realSize || instance.size || 20);
+            } else if (rst === 1 && instance.deathSounded) {
+                instance.deathSounded = false; // entity recovered/reused
+            }
             if (rst === 1) {
                 motion.set();
             } else {
@@ -2899,6 +3373,7 @@ import './terrainRenderer.js';
     }
 
     function drawChatMessages(x, y, py, instance, ratio, alpha, isize) {
+        if (global.GUIStatus.renderChat === false) return;
         if (!(instance.id === gui.playerid) && instance.alpha < 0.25) return;
         let size = isize * ratio,
             g = Math.max(20, size);
@@ -2924,8 +3399,10 @@ import './terrainRenderer.js';
             let chat = messages[chatIndex],
                 text = chat.text,
                 msgLengthHalf = measureText(text, 0.5 * g) / 2,
-                barScale = global.GUIStatus.renderPlayerScores ? 2.66 : 2.26,
-                textScale = global.GUIStatus.renderPlayerScores ? 2.45 : 2.05,
+                crownLift = (config.game.leaderIndicators && global.leader &&
+                             global.leader.id === instance.id) ? 0.55 : 0,
+                barScale = (global.GUIStatus.renderPlayerScores ? 3.05 : 2.65) + crownLift,
+                textScale = (global.GUIStatus.renderPlayerScores ? 2.84 : 2.44) + crownLift,
                 valpha = chat.alpha.get();
 
             if (chat.erased && valpha === 0) {
@@ -2944,10 +3421,10 @@ import './terrainRenderer.js';
             if (valpha <= 0) continue;
 
             ctx[1].globalAlpha = 0.5 * valpha * alpha * alpha * fade;
-            drawBar(x - msgLengthHalf, x + msgLengthHalf, y - g * (instance.id === gui.playerid ? 2.26 : barScale) - slideOffset, 0.75 * g, gameDraw.getColorDark(gameDraw.getColor(instance.color.split(" ")[0])), ctx[1]);
+            drawBar(x - msgLengthHalf, x + msgLengthHalf, y - g * (instance.id === gui.playerid ? 2.7 + crownLift : barScale) - slideOffset, 0.75 * g, gameDraw.getColorDark(gameDraw.getColor(instance.color.split(" ")[0])), ctx[1]);
             ctx[1].globalAlpha = valpha * alpha * fade;
             config.graphical.fontStrokeRatio *= 1.2;
-            drawText(text, x, y - g * (instance.id === gui.playerid ? 2.05 : textScale) - slideOffset, 0.50 * g, color.guiwhite, "center", false, 1, true, ctx[1]);
+            drawText(text, x, y - g * (instance.id === gui.playerid ? 2.49 + crownLift : textScale) - slideOffset, 0.50 * g, color.guiwhite, "center", false, 1, true, ctx[1]);
             config.graphical.fontStrokeRatio /= 1.2;
         }
     }
@@ -2996,6 +3473,88 @@ import './terrainRenderer.js';
         }
     }
 
+    // ── Enemy pings in the world: a bobbing red marker at the spot, and a
+    // small quiet edge indicator when it's off-screen (the subtle cousin
+    // of the leader arrow — informative, never nagging). Pings live 6s. ──
+    function drawEnemyPings() {
+        const now = performance.now();
+        for (let i = global.enemyPings.length - 1; i >= 0; i--) {
+            if (now - global.enemyPings[i].at > 20000) global.enemyPings.splice(i, 1);
+        }
+        if (!global.enemyPings.length || global.died) return;
+        const wr = util.getRatio();
+        const cx = global.screenWidth / 2, cy = global.screenHeight / 2;
+        for (const p of global.enemyPings) {
+            const age = now - p.at;
+            const fade = age > 19000 ? 1 - (age - 19000) / 1000 : 1;
+            const dx = (p.x - global.player.renderx) * wr;
+            const dy = (p.y - global.player.rendery) * wr;
+            const onScreen = Math.abs(dx) < cx - 30 && Math.abs(dy) < cy - 30;
+            if (onScreen) {
+                const bob = Math.sin(now / 260 + (p.at % 97)) * 3;
+                const r = 13 + 1.5 * Math.sin(now / 200);
+                drawPingDiamond(ctx[2], cx + dx, cy + dy - 16 + bob, r, fade);
+                // spawn pulse ring
+                if (age < 650) {
+                    const t = age / 650;
+                    ctx[2].save();
+                    ctx[2].globalAlpha = (1 - t) * 0.6;
+                    ctx[2].strokeStyle = "#eb4034";
+                    ctx[2].lineWidth = 3 * (1 - t) + 1;
+                    ctx[2].beginPath();
+                    ctx[2].arc(cx + dx, cy + dy, 14 + t * 46, 0, Math.PI * 2);
+                    ctx[2].stroke();
+                    ctx[2].restore();
+                }
+            } else {
+                const ang = Math.atan2(dy, dx);
+                const inset = 30;
+                const t2 = Math.min((cx - inset) / (Math.abs(Math.cos(ang)) || 1e-9),
+                                    (cy - inset) / (Math.abs(Math.sin(ang)) || 1e-9));
+                drawPingDiamond(ctx[2], cx + Math.cos(ang) * t2, cy + Math.sin(ang) * t2, 13, fade * 0.7);
+            }
+        }
+    }
+
+    // ── Leader crown: the classic simple 2D game crown — three equal
+    // triangular spikes on a flat band, balls on the tips, flat gold with a
+    // dark outline. Everyone sees it on the #1 player, themselves included.
+    function drawCrown(x, y, g, a, c = ctx[1]) {
+        // The crown: flat solid gold, three ball tips melting into the
+        // spikes, softly rounded silhouette — matches the reference art.
+        const w = 1.05 * g, h = 0.72 * g;
+        const sideY = y - h * 0.92;  // outer tip centers
+        const midY  = y - h * 1.12;  // center tip sits higher
+        const tipR  = 0.155 * g;
+        c.save();
+        c.globalAlpha = a;
+        c.lineJoin = "round";
+        c.lineCap = "round";
+        c.fillStyle = color.gold;
+        c.strokeStyle = color.gold;
+        // body: base → left tip → valley → center tip → valley → right tip
+        c.beginPath();
+        c.moveTo(x - 0.38 * w, y);
+        c.lineTo(x - 0.5 * w, sideY);
+        c.lineTo(x - 0.165 * w, y - 0.5 * h);
+        c.lineTo(x, midY);
+        c.lineTo(x + 0.165 * w, y - 0.5 * h);
+        c.lineTo(x + 0.5 * w, sideY);
+        c.lineTo(x + 0.38 * w, y);
+        c.closePath();
+        // fat same-color stroke first = the soft rounded corners
+        c.lineWidth = 0.16 * g;
+        c.stroke();
+        c.fill();
+        // the three ball tips, merged into the spikes
+        for (const [tx, ty] of [[-0.5 * w, sideY], [0, midY], [0.5 * w, sideY]]) {
+            c.beginPath();
+            c.arc(x + tx, ty, tipR, 0, Math.PI * 2);
+            c.fill();
+        }
+        c.restore();
+    }
+
     function drawName(x, y, instance, ratio, alpha, isize) {
         if (!(0.02 > alpha)) {
             let fade = instance.render.status.getFade();
@@ -3006,13 +3565,24 @@ import './terrainRenderer.js';
             x += global.screenWidth / 2;
             y += global.screenHeight / 2;
 
+            const L = global.leader;
+            if (config.game.leaderIndicators && L && L.id === instance.id && performance.now() - L.at < 1200) {
+                const g = Math.max(20, size);
+                const isSelf = instance.id === gui.playerid;
+                // above the name/score stack for others; straight above the
+                // hull for yourself (your own name isn't drawn)
+                const cy = y - g * (isSelf ? 1.7 : (global.GUIStatus.renderPlayerScores ? 2.5 : 2.05)) - 5;
+                drawCrown(x, cy + Math.sin(performance.now() / 350) * 0.06 * g,
+                          g, alpha * alpha * fade);
+            }
+
             if (instance.id !== gui.playerid && instance.nameplate) {
                 var name = instance.name.substring(7, instance.name.length + 1);
                 var namecolor = instance.name.substring(0, 7);
                 ctx[1].globalAlpha = alpha * alpha * fade;
                 let g = Math.max(20, size);
                 if (global.GUIStatus.renderPlayerNames) drawText(name, x, y - g * (global.GUIStatus.renderPlayerScores ? 1.9 : 1.45), 0.55 * g, namecolor == "#ffffff" ? color.guiwhite : namecolor, "center", false, 1, true, ctx[1]);
-                if (global.GUIStatus.renderPlayerScores || typeof instance.score === "string") drawText(typeof instance.score === "string" ? instance.score : util.handleLargeNumber(instance.score, 1), x, y - 1.45 * g, 0.3 * g, namecolor == "#ffffff" ? color.guiwhite : namecolor, "center", false, 1, true, ctx[1]);
+                if (global.GUIStatus.renderPlayerScores || typeof instance.score === "string") drawText(typeof instance.score === "string" ? instance.score : util.handleLargeNumber(instance.score), x, y - 1.45 * g, 0.3 * g, namecolor == "#ffffff" ? color.guiwhite : namecolor, "center", false, 1, true, ctx[1]);
                 ctx[1].globalAlpha = 1;
             }
         }
@@ -3105,19 +3675,16 @@ import './terrainRenderer.js';
 
     function drawSelfInfo(max) {
 
+        // Dig Wars bottom stack (bottom → top): team war bar, wallet row,
+        // player name. The old level bar is gone — everyone is 45, it said
+        // nothing.
         let width = 440,
             scorewidth = 70,
             scorelength = 0,
-            height = 25.5,
+            height = 17,
             x = (global.screenWidth - width) / 2,
-            y = global.screenHeight - 22 - height;
+            y = global.screenHeight - 44 - height;
         ctx[2].lineWidth = 10;
-        drawBar(x, x + width, y + height / 2, height - 3 + config.graphical.barChunk, color.black);
-        drawBar(x, x + width, y + height / 2, height - 3, color.grey);
-        drawBar(x, x + width * gui.__s.getProgress(), y + height / 2, height - 3.5, color.gold);
-        drawText("Level " + gui.__s.getLevel() + " " + gui.class, x + width / 2 + 1, y + height / 2 + 9, 21, color.guiwhite, "center", false, 6);
-        height = 17;
-        y -= height + 5;
         if (global.GUIStatus.renderPlayerKillbar) {
             scorelength = -112.2;
             scorewidth = 160;
@@ -3128,13 +3695,361 @@ import './terrainRenderer.js';
             scorelength = 72.5;
             scorewidth = 120;
         }
-        drawBar(x + scorewidth - scorelength, x + width - scorewidth - scorelength, y + height / 2, height - 3 + config.graphical.barChunk, color.black);
-        drawBar(x + scorewidth - scorelength, x + width - scorewidth - scorelength, y + height / 2, height - 3, color.grey);
-        drawBar(x + scorewidth - scorelength, x - scorelength + width * ((scorewidth / width) + ((width - scorewidth * 2) / width) * (max ? Math.min(1, gui.__s.getScore() / max) : 1)), y + height / 2, height - 3.5, color.green);
-        drawText("Score: " + util.formatLargeNumber(Math.round(gui.__s.getScore())), x + width / 2 + 0.5 - scorelength, y + height / 2 + 6, 13, color.guiwhite, "center");
+        // ── Dig Wars wallet row (replaces the old score bar) ─────────────
+        // Two separate pills so the facts don't mash together: a gold
+        // carried-meter that fills with satchel load (blinks red at cap),
+        // and a solid teal banked pill. Uses the exact footprint the score
+        // bar had, so the killbar / info-mode layouts are untouched.
+        // On non-gem gamemodes (no GEM data → cap 0) the stock score bar
+        // draws instead.
+        if (!global.gems || !(global.gems.cap > 0)) {
+            drawBar(x + scorewidth - scorelength, x + width - scorewidth - scorelength, y + height / 2, height - 3 + config.graphical.barChunk, color.black);
+            drawBar(x + scorewidth - scorelength, x + width - scorewidth - scorelength, y + height / 2, height - 3, color.grey);
+            drawBar(x + scorewidth - scorelength, x - scorelength + width * ((scorewidth / width) + ((width - scorewidth * 2) / width) * (max ? Math.min(1, gui.__s.getScore() / max) : 1)), y + height / 2, height - 3.5, color.green);
+            drawText("Score: " + util.formatLargeNumber(Math.round(gui.__s.getScore())), x + width / 2 + 0.5 - scorelength, y + height / 2 + 6, 13, color.guiwhite, "center");
+        } else {
+            const g = global.gems;
+            const rx1 = x + scorewidth - scorelength,
+                rx2 = x + width - scorewidth - scorelength,
+                ry = y + height / 2,
+                capR = (height - 3) / 2,
+                mid = rx1 + (rx2 - rx1) * 0.54,
+                carX2 = mid - capR - 3,
+                bankX1 = mid + capR + 3,
+                load = g.cap > 0 ? Math.min(1, g.carried / g.cap) : 0,
+                blink = load >= 1 && Math.floor(Date.now() / 160) % 2 === 0;
+            drawBar(rx1, carX2, ry, height - 3 + config.graphical.barChunk, color.black);
+            drawBar(rx1, carX2, ry, height - 3, color.grey);
+            if (load > 0.004) drawBar(rx1, rx1 + (carX2 - rx1) * load, ry, height - 3.5, blink ? "#eb4034" : color.gold);
+            drawText("Carried: " + util.formatLargeNumber(g.carried | 0), (rx1 + carX2) / 2 + 0.5, ry + 6, 13, color.guiwhite, "center");
+            drawBar(bankX1, rx2, ry, height - 3 + config.graphical.barChunk, color.black);
+            drawBar(bankX1, rx2, ry, height - 3, color.grey);
+            drawBar(bankX1, rx2, ry, height - 3.5, color.teal);
+            drawText("Banked: " + util.formatLargeNumber(g.banked | 0), (bankX1 + rx2) / 2 + 0.5, ry + 6, 13, color.guiwhite, "center");
+        }
         ctx[2].lineWidth = 4;
         var name = global.player.name.substring(7, global.player.name.length + 1);
         drawText(name, Math.round(x + width / 2) + 1.5, Math.round(y - 10 - 4) - 1, 31, global.nameColor == "#ffffff" ? color.guiwhite : global.nameColor, "center");
+    }
+
+    // Dig Wars: the Vault panel — fades and slides in while you stand on
+    // your team's pad, themed in your team color. Choose the exact dust
+    // amount three ways: drag/click the slider, tap a percent, or nudge
+    // with the − / + steppers.
+    const vaultGlide = Smoothbar(0, 2, 3, 0.1, 0.025, true);
+    const VAULT_MIN_DEPOSIT = 15;
+    // A real typed input for the deposit amount — native caret, selection,
+    // clamping. Created once, positioned over the canvas panel each frame.
+    let vaultInput = null;
+    function getVaultInput() {
+        if (vaultInput) return vaultInput;
+        const style = document.createElement("style");
+        style.textContent = "#vaultInput::-webkit-inner-spin-button,#vaultInput::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}" +
+            "#vaultInput::selection{background:#ffd75e55}";
+        document.head.appendChild(style);
+        vaultInput = document.createElement("input");
+        vaultInput.id = "vaultInput";
+        vaultInput.type = "text";
+        vaultInput.inputMode = "numeric";
+        vaultInput.autocomplete = "off";
+        vaultInput.style.cssText =
+            "position:fixed;display:none;z-index:40;text-align:center;" +
+            "background:#0d0e14;color:#ffd75e;border:2px solid #ffd75e;" +
+            "border-radius:8px;outline:none;font-family:Rubik,Ubuntu,sans-serif;" +
+            "font-weight:bold;box-shadow:0 0 14px #ffd75e33 inset;";
+        vaultInput.oninput = () => {
+            // digits only, clamped to what's actually carried
+            let n = vaultInput.value.replace(/[^0-9]/g, "");
+            const max = global.gems.carried | 0;
+            if (n !== "" && parseInt(n) > max) n = "" + max;
+            if (vaultInput.value !== n) vaultInput.value = n;
+        };
+        vaultInput.onkeydown = (e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+                const n = parseInt(vaultInput.value) || 0;
+                if (n >= 1 && global.socket) global.socket.talk('vd', n);
+                vaultInput.blur();
+                document.getElementById("gameCanvas").focus();
+            } else if (e.key === "Escape") {
+                vaultInput.blur();
+                document.getElementById("gameCanvas").focus();
+            }
+        };
+        // taking focus means the game canvas stops hearing keyUPs — release
+        // every held command or a held W drives the tank into the wall
+        // forever (the "stuck on W" bug)
+        vaultInput.onfocus = () => {
+            if (global.socket && global.socket.cmd) {
+                for (let i = 0; i < 8; i++) global.socket.cmd.set(i, false);
+            }
+        };
+        document.body.appendChild(vaultInput);
+        return vaultInput;
+    }
+    function hideVaultInput() {
+        if (!vaultInput || vaultInput.style.display === "none") return;
+        vaultInput.style.display = "none";
+        if (document.activeElement === vaultInput) {
+            vaultInput.blur();
+            document.getElementById("gameCanvas").focus();
+        }
+    }
+
+    // Dig Wars: the Vault panel — dead simple: how much dust do you want to
+    // cash out? Type it (clamped to your satchel), hit DEPOSIT or Enter.
+    function drawVaultUI() {
+        const v = global.vault, g = global.gems;
+        const active = v.total > 0;
+        const belowMin = !active && (g.carried | 0) < VAULT_MIN_DEPOSIT;
+        const wantOpen = v.onPad && !global.died;
+        vaultGlide.set(wantOpen ? 1 : 0);
+        const glide = vaultGlide.get();
+        if (glide < 0.02) {
+            global.clickables.vault.hide();
+            hideVaultInput();
+            v.wasOpen = false;
+            return;
+        }
+        const now = performance.now();
+        const W = 340, H = belowMin ? 92 : 136;
+        const x = (global.screenWidth - W) / 2;
+        const y = global.screenHeight - 318 + (1 - glide) * 26;
+        const cr = global.canvas ? global.canvas.height / global.screenHeight / global.ratio : 1;
+        const c = ctx[2];
+        // team color for the frame — getColor can return undefined for
+        // unmapped indices and mixColors requires hex strings, so guard
+        let teamCol = gameDraw.getColor(gui.color);
+        if (typeof teamCol !== "string" || teamCol[0] !== "#") teamCol = color.gold;
+
+        c.save();
+        c.globalAlpha = glide;
+        c.fillStyle = "rgba(16,17,23,0.93)";
+        optionsMenu_drawRoundedRect(x, y, W, H, 12);
+        c.fill();
+        c.lineWidth = 3;
+        c.strokeStyle = teamCol;
+        optionsMenu_drawRoundedRect(x, y, W, H, 12);
+        c.stroke();
+        drawText("TEAM VAULT", x + W / 2, y + 21, 15, "#ffd75e", "center");
+        c.fillStyle = teamCol;
+        c.fillRect(x + W / 2 - 56, y + 28, 112, 2.5);
+        drawText("Banked  " + util.formatLargeNumber(g.banked | 0), x + 16, y + 46, 12, color.teal, "left");
+        drawText("Carried  " + util.formatLargeNumber(g.carried | 0), x + W - 16, y + 46, 12, color.gold, "right");
+
+        global.clickables.vault.hide();
+        if (belowMin) {
+            hideVaultInput();
+            drawText("You need at least " + VAULT_MIN_DEPOSIT + " gem dust to cash out!",
+                     x + W / 2, y + 70, 12.5, "#ff9a8c", "center");
+        } else if (active) {
+            // ── channeling: gold progress + live count + cancel ──
+            hideVaultInput();
+            const frac = 1 - v.remaining / v.total;
+            const bx = x + 20, bw = W - 40, by = y + 60, bh = 16;
+            drawBar(bx, bx + bw, by + bh / 2, bh + config.graphical.barChunk, color.black);
+            drawBar(bx, bx + bw, by + bh / 2, bh, color.grey);
+            drawBar(bx, bx + Math.max(6, bw * frac), by + bh / 2, bh - 1, "#ffd75e");
+            if (frac > 0.03) {
+                const shx = bx + ((now / 900) % 1) * bw * frac;
+                c.save();
+                c.globalAlpha = glide * 0.35;
+                c.fillStyle = "#fff6d8";
+                c.fillRect(shx - 6, by, 12, bh);
+                c.restore();
+            }
+            drawText(util.formatLargeNumber(Math.round(v.total - v.remaining)) + " / " +
+                     util.formatLargeNumber(v.total) + "  secured…",
+                     x + W / 2, by + bh + 18, 12.5, color.guiwhite, "center");
+            const cbx = x + W / 2 - 46, cby = y + H - 30, cbw = 92, cbh = 20;
+            c.fillStyle = "#33191c";
+            optionsMenu_drawRoundedRect(cbx, cby, cbw, cbh, 6); c.fill();
+            c.lineWidth = 2; c.strokeStyle = "#e05b4a";
+            optionsMenu_drawRoundedRect(cbx, cby, cbw, cbh, 6); c.stroke();
+            drawText("CANCEL", cbx + cbw / 2, cby + 14.5, 12, "#ff9a8c", "center");
+            global.clickables.vault.place(11, cbx * cr, cby * cr, cbw * cr, cbh * cr);
+        } else {
+            // ── the whole UI: one input, one button ──
+            drawText("How much dust do you want to cash out?", x + W / 2, y + 66, 12, color.guiwhite, "center");
+            const el = getVaultInput();
+            const iw = 150, ih = 30;
+            const ix = x + W / 2 - iw / 2 - 62, iy = y + 78;
+            el.style.left = (ix * cr) + "px";
+            el.style.top = (iy * cr) + "px";
+            el.style.width = (iw * cr - 4) + "px";
+            el.style.height = (ih * cr - 4) + "px";
+            el.style.fontSize = (15 * cr) + "px";
+            el.style.opacity = glide;
+            if (el.style.display === "none") {
+                el.style.display = "block";
+                el.value = "" + (g.carried | 0);   // defaults to everything
+                // NO auto-focus: stealing focus while driving onto the pad
+                // ate the W keyup and left the tank driving forever. Click
+                // the box (or just hit DEPOSIT for the full amount).
+            }
+            const dbx = x + W / 2 + 26, dby = y + 78, dbw = 108, dbh = 30;
+            const dpulse = 0.8 + 0.2 * Math.sin(now / 380);
+            c.fillStyle = "#3d3110";
+            optionsMenu_drawRoundedRect(dbx, dby, dbw, dbh, 7); c.fill();
+            c.lineWidth = 3;
+            c.strokeStyle = `rgba(255,215,94,${dpulse * glide})`;
+            optionsMenu_drawRoundedRect(dbx, dby, dbw, dbh, 7); c.stroke();
+            drawText("DEPOSIT", dbx + dbw / 2, dby + 20, 14, "#ffd75e", "center");
+            global.clickables.vault.place(10, dbx * cr, dby * cr, dbw * cr, dbh * cr);
+        }
+        c.restore();
+    }
+
+    // Dig Wars: pickup feedback in the WORLD, not the HUD — +N popups float
+    // up off your tank like hit numbers, a gold ring snaps around the hull
+    // on every grab, and chained pickups run the numbers white-hot.
+    function drawGemPopups() {
+        const g = global.gems;
+        if (!g || !config.game.gemPopups) return;
+        const now = performance.now();
+        // the camera rides the tank, so the tank lives at screen center
+        const cx = global.screenWidth / 2, cy = global.screenHeight / 2;
+
+        // pickup ring: a quick gold pulse snapping outward around the hull
+        const ft = (now - g.flashAt) / 380;
+        if (ft >= 0 && ft < 1) {
+            const fe = 1 - Math.pow(1 - ft, 3);
+            ctx[2].save();
+            ctx[2].globalAlpha = (1 - ft) * 0.5;
+            ctx[2].strokeStyle = color.gold;
+            ctx[2].lineWidth = 3.5 * (1 - ft) + 0.5;
+            ctx[2].beginPath();
+            ctx[2].arc(cx, cy, 26 + fe * 30, 0, Math.PI * 2);
+            ctx[2].stroke();
+            ctx[2].restore();
+        }
+
+        // +N numbers: rise off the tank and fade; chains heat gold → white
+        for (let i = g.popups.length - 1; i >= 0; i--) {
+            const p = g.popups[i];
+            const t = (now - p.born) / 1000;
+            if (t >= 1) { g.popups.splice(i, 1); continue; }
+            const rise  = 52 + 42 * (1 - Math.pow(1 - t, 2.2));
+            const alpha = t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
+            const heat  = Math.min(1, (p.combo || 0) / 8);
+            const size  = 16 + Math.min(10, p.value / 25) + Math.min(6, (p.combo || 0));
+            ctx[2].save();
+            ctx[2].globalAlpha = alpha;
+            drawText("+" + p.value,
+                     Math.round(cx + (p.drift || 0)), Math.round(cy - rise),
+                     size, gameDraw.mixColors(color.gold, "#ffffff", heat), "center");
+            ctx[2].restore();
+        }
+    }
+
+    // ── Leader arrow: a gold chevron pinned to the screen edge, pointing at
+    // the #1 player (slither-style). Fades out when you ARE the leader, when
+    // they're inside your view, or when the feed goes stale; fades in with a
+    // soft breathing pulse when they're out there somewhere.
+    const leaderArrow = { a: 0, x: 0, y: 0, ang: 0 };
+    function drawLeaderArrow() {
+        const L = global.leader, la = leaderArrow;
+        if (!config.game.leaderIndicators) { la.a = 0; return; }
+        const now = performance.now();
+        let target = 0;
+        if (L && L.id !== -1 && L.id !== gui.playerid &&
+            now - L.at < 1200 && !global.died) {
+            const smL = (global._mapSmooth && global._mapSmooth.leader) || L;
+            const wr = util.getRatio();
+            const dx = (smL.x - global.player.renderx) * wr;
+            const dy = (smL.y - global.player.rendery) * wr;
+            const cx = global.screenWidth / 2, cy = global.screenHeight / 2;
+            const onScreen = Math.abs(dx) < cx - 40 && Math.abs(dy) < cy - 40;
+            if (!onScreen) {
+                target = 1;
+                la.ang = Math.atan2(dy, dx);
+                // hug the screen border
+                const inset = 28;
+                const t = Math.min((cx - inset) / (Math.abs(Math.cos(la.ang)) || 1e-9),
+                                   (cy - inset) / (Math.abs(Math.sin(la.ang)) || 1e-9));
+                la.x = cx + Math.cos(la.ang) * t;
+                la.y = cy + Math.sin(la.ang) * t;
+            }
+        }
+        la.a += (target - la.a) * 0.12;
+        if (la.a < 0.02) return;
+        const pulse = 1 + 0.06 * Math.sin(now / 280);
+        const c = ctx[2];
+        c.save();
+        c.globalAlpha = la.a * 0.95;
+        c.translate(la.x, la.y);
+        c.rotate(la.ang);
+        c.scale(pulse, pulse);
+        // sleek dart: long nose, notched tail
+        c.beginPath();
+        c.moveTo(16, 0);
+        c.lineTo(-10, -11);
+        c.lineTo(-4.5, 0);
+        c.lineTo(-10, 11);
+        c.closePath();
+        c.lineWidth = 3.5;
+        c.strokeStyle = color.black;
+        c.stroke();
+        c.fillStyle = color.gold;
+        c.fill();
+        c.restore();
+        // an upright crown rides just inside the arrow (it never rotates,
+        // the arrow does) — far enough inboard that they can't overlap
+        drawCrown(la.x - Math.cos(la.ang) * 50,
+                  la.y - Math.sin(la.ang) * 50 + 9,
+                  28, la.a * 0.95, ctx[2]);
+    }
+
+    // ── Dig Wars war score: both teams' banked vault totals as a slim
+    // tug-of-war bar sitting at the very bottom of the player stack, same
+    // width as the wallet plate. Always visible once in-game, never fades.
+    let warBarFrac = 0.5;
+    function drawTeamBankBar() {
+        const tb = global.teamBanked;
+        if (!tb || tb.at < 0 || !config.game.warBar) return;
+        const w = 440, h = 13,
+            x = (global.screenWidth - w) / 2,
+            y = global.screenHeight - 22 - h,
+            cy = y + h / 2,
+            total = (tb.blue | 0) + (tb.red | 0);
+        // the frontier glides instead of snapping when someone banks —
+        // plain monotone lerp, nothing springy, nothing that flickers
+        warBarFrac += ((total > 0 ? tb.blue / total : 0.5) - warBarFrac) * 0.08;
+        const f = Math.max(0, Math.min(1, warBarFrac));
+        const split = x + w * f;
+        drawBar(x, x + w, cy, h + config.graphical.barChunk, color.black);
+        if (f > 0.003) drawBar(x, split, cy, h - 3, color.blue);
+        if (f < 0.997) drawBar(split, x + w, cy, h - 3, color.red);
+        // tie mark at the centre, and a bright frontier notch at the split
+        drawBar(x + w / 2 - 0.8, x + w / 2 + 0.8, cy, h - 5, "rgba(0,0,0,0.35)");
+        drawBar(split - 2.6, split + 2.6, cy, h + 2, color.black);
+        drawBar(split - 1.4, split + 1.4, cy, h - 1, color.guiwhite);
+        drawText(util.formatLargeNumber(tb.blue | 0), x - 10, cy + 5, 13, color.blue, "right");
+        drawText(util.formatLargeNumber(tb.red | 0), x + w + 10, cy + 5, 13, color.red, "left");
+    }
+
+    // ── Full satchel danger: a slim red vignette hugging the screen edges
+    // plus a warning line under the notification area, pulsing gently
+    // while carried sits at the cap.
+    function drawSatchelDanger() {
+        const g = global.gems;
+        if (!config.game.satchelWarning) return;
+        if (!g || !(g.cap > 0) || g.carried < g.cap || global.died) return;
+        const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 380);
+        const c = ctx[2];
+        const w = global.screenWidth, h = global.screenHeight;
+        const r = Math.hypot(w, h) / 2;
+        c.save();
+        const gd = c.createRadialGradient(w / 2, h / 2, r * 0.74, w / 2, h / 2, r);
+        gd.addColorStop(0, "rgba(235,64,52,0)");
+        gd.addColorStop(1, "rgba(235,64,52," + (0.09 + 0.07 * pulse).toFixed(3) + ")");
+        c.fillStyle = gd;
+        c.fillRect(0, 0, w, h);
+        c.restore();
+        c.save();
+        c.globalAlpha = 0.7 + 0.3 * pulse;
+        drawText("Gem limit reached, please bank it!", w / 2, 112, 16, "#eb4034", "center");
+        c.restore();
     }
 
     function handleSpeedMonitor() {
@@ -3147,6 +4062,426 @@ import './terrainRenderer.js';
         } else global.serverStats.mspt_color = color.guiwhite;
     }
     const xc = { cc: 0, dc: 0 };
+    // ═══ Dig Wars world map (Fortnite-style, pure vector) ═══════════════
+    // Both maps draw the REAL voronoi cells as vectors every frame — true
+    // rock shapes with their borders, base tints, vault pads. Vector means
+    // crisp at any zoom level, never a blurry scaled bitmap. Ores are
+    // deliberately NOT drawn — finds stay secret.
+    function myTeamColor() {
+        try {
+            const c = gameDraw.modifyColor
+                ? gameDraw.modifyColor(gui.color)
+                : gameDraw.getColor(gui.color);
+            if (typeof c === "string" && c.length) return c;
+        } catch (e) { /* fall through */ }
+        try {
+            const c = gameDraw.getColor(gui.color);
+            if (typeof c === "string" && c.length) return c;
+        } catch (e) { /* fall through */ }
+        return "#00b2e1";
+    }
+
+    // The rock cells as two big cached Path2Ds in WORLD coordinates —
+    // built once, redrawn with a transform. One fill call instead of
+    // thousands of lineTo()s per frame (this was the map lag).
+    let mapPaths = null;
+    function getMapPaths() {
+        const tr = window.terrainRenderer;
+        if (!tr || !tr.ready || !tr._cellPolys.size) return null;
+        if (!mapPaths || tr.mapDirty) {
+            tr.mapDirty = false;
+            const gw = global.gameWidth, gh = global.gameHeight;
+            const cols = tr._cols, rows = tr._rows;
+            const alive = new Path2D(), dead = new Path2D();
+            for (const [k, cell] of tr._cellPolys) {
+                const p = tr._rockDead.has(k) ? dead : alive;
+                const poly = cell.poly;
+                p.moveTo((poly[0][0] / cols - 0.5) * gw, (poly[0][1] / rows - 0.5) * gh);
+                for (let i = 1; i < poly.length; i++)
+                    p.lineTo((poly[i][0] / cols - 0.5) * gw, (poly[i][1] / rows - 0.5) * gh);
+                p.closePath();
+            }
+            mapPaths = { alive, dead, epoch: (mapPaths ? mapPaths.epoch : 0) + 1 };
+        }
+        return mapPaths;
+    }
+
+    // A small red danger diamond (the enemy ping glyph), shared by the
+    // world overlay and both maps.
+    function drawPingDiamond(c, x, y, r, alpha) {
+        c.save();
+        c.globalAlpha = alpha;
+        c.lineJoin = "round";
+        c.beginPath();
+        c.moveTo(x, y - r);
+        c.lineTo(x + r * 0.8, y);
+        c.lineTo(x, y + r);
+        c.lineTo(x - r * 0.8, y);
+        c.closePath();
+        c.strokeStyle = color.black;
+        c.lineWidth = Math.max(1.4, r * 0.34);
+        c.stroke();
+        c.fillStyle = "#eb4034";
+        c.fill();
+        c.beginPath();
+        c.arc(x, y - r * 0.05, r * 0.22, 0, Math.PI * 2);
+        c.fillStyle = "rgba(255,255,255,0.9)";
+        c.fill();
+        c.restore();
+    }
+
+    // Draw the world into a screen rect. The world window is (wx0, wy0)
+    // with wspan world units across the rect's width (height follows the
+    // rect aspect). Assumes the caller has already clipped to the rect.
+    function drawWorldWindow(c, rx, ry, rw, rh, wx0, wy0, wspan) {
+        const tr = window.terrainRenderer;
+        const gw = global.gameWidth, gh = global.gameHeight;
+        const s = rw / wspan; // px per world unit
+        const X = (v) => rx + (v - wx0) * s;
+        const Y = (v) => ry + (v - wy0) * s;
+
+        // out-of-arena void, then the arena floor
+        c.fillStyle = "#0e1418";
+        c.fillRect(rx, ry, rw, rh);
+        c.fillStyle = "#22323b";
+        c.fillRect(X(-gw / 2), Y(-gh / 2), gw * s, gh * s);
+
+        // room tiles: base zones tinted in their team colors
+        if (global.roomSetup.length) {
+            const Rw = global.roomSetup[0].length, Rh = global.roomSetup.length;
+            c.globalAlpha = 0.34;
+            for (let ty = 0; ty < Rh; ty++) {
+                for (let tx = 0; tx < Rw; tx++) {
+                    const cell = global.roomSetup[ty][tx];
+                    if (!cell || cell.color === "none") continue;
+                    let col = gameDraw.getColor(cell.color);
+                    if (col === color.white) continue;
+                    if (cell.color === "blue") {
+                        try { col = gameDraw.mixColors(col, "#1737a8", 0.5); } catch (e) { /* keep */ }
+                        c.globalAlpha = 0.48;
+                    } else {
+                        c.globalAlpha = 0.34;
+                    }
+                    c.fillStyle = col;
+                    // exact tiling (start/end computed per edge) — the old
+                    // +1px overlap double-painted rows into visible seams
+                    const tx0 = X((tx / Rw - 0.5) * gw), tx1 = X(((tx + 1) / Rw - 0.5) * gw);
+                    const ty0 = Y((ty / Rh - 0.5) * gh), ty1 = Y(((ty + 1) / Rh - 0.5) * gh);
+                    c.fillRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
+                }
+            }
+            c.globalAlpha = 1;
+        }
+
+        // the wall: two cached Path2Ds (alive / dead) drawn under a
+        // transform — one fill call each, fast enough for 60fps
+        const paths = getMapPaths();
+        if (paths && tr) {
+            c.save();
+            c.translate(rx - wx0 * s, ry - wy0 * s);
+            c.scale(s, s);
+            c.fillStyle = "#2b2320";
+            c.fill(paths.dead);
+            c.fillStyle = "#413c4c";
+            c.fill(paths.alive);
+            const borderW = 0.09 * (tr._cols / 50.0) * (gw / tr._cols); // world units
+            if (borderW * s > 0.45) {
+                c.strokeStyle = "rgb(8,7,10)";
+                c.lineJoin = "round";
+                c.lineWidth = borderW;
+                c.stroke(paths.alive);
+            }
+            c.restore();
+        }
+
+        // vault pads: team-tinted discs with a gold gem set in the middle
+        const GEMM = [[-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95]];
+        for (const v of global.vaults) {
+            const vx = X(v.x), vy = Y(v.y);
+            const vr = Math.max(3, (v.r || 95) * s);
+            // vault team: -1 blue, -2 red
+            const vc = v.team === -2 ? color.red : color.blue;
+            c.beginPath();
+            c.arc(vx, vy, vr, 0, Math.PI * 2);
+            c.fillStyle = vc;
+            c.globalAlpha = 0.4;
+            c.fill();
+            c.globalAlpha = 1;
+            c.lineWidth = Math.max(1, vr * 0.12);
+            c.strokeStyle = "rgba(8,7,10,0.8)";
+            c.stroke();
+            const gr = Math.max(3.2, vr * 0.5);
+            c.beginPath();
+            for (let i = 0; i < GEMM.length; i++) {
+                const px = vx + GEMM[i][0] * gr, py = vy + GEMM[i][1] * gr;
+                i ? c.lineTo(px, py) : c.moveTo(px, py);
+            }
+            c.closePath();
+            c.fillStyle = color.gold;
+            c.strokeStyle = color.black;
+            c.lineWidth = 1.4;
+            c.fill();
+            c.stroke();
+        }
+
+        return { X, Y, s };
+    }
+
+    // Markers shared by both maps: teammates (team-colored dots with tiny
+    // names) and yourself (a soft rounded team-colored arrow).
+    function drawMapMarkers(T, rx, ry, rw, rh, nameSize, dotR) {
+        const c = ctx[2];
+        const inside = (x, y) => x > rx - 8 && x < rx + rw + 8 && y > ry - 8 && y < ry + rh + 8;
+        const teamCol = myTeamColor();
+        // the reigning leader's live position wears the crown — but the
+        // king himself doesn't need a map marker for his own head
+        const L = global.leader;
+        const sm = global._mapSmooth;
+        if (config.game.leaderIndicators && L && L.id !== -1 &&
+            L.id !== gui.playerid && sm && sm.leader &&
+            performance.now() - L.at < 1200) {
+            const lx = T.X(sm.leader.x), ly = T.Y(sm.leader.y);
+            if (inside(lx, ly)) drawCrown(lx, ly + dotR * 1.2, dotR * 3.8, 1, c);
+        }
+        // team enemy pings: red danger diamonds
+        const nowPing = performance.now();
+        for (const p of global.enemyPings) {
+            const age = nowPing - p.at;
+            if (age > 20000) continue;
+            const mx = T.X(p.x), my = T.Y(p.y);
+            if (!inside(mx, my)) continue;
+            drawPingDiamond(c, mx, my, dotR * 2.4, age > 19000 ? 1 - (age - 19000) / 1000 : 1);
+        }
+        for (const t of global.teammates) {
+            if (t.id === gui.playerid) continue;
+            const sp = (sm && sm.mates.get(t.id)) || t;
+            const mx = T.X(sp.x), my = T.Y(sp.y);
+            if (!inside(mx, my)) continue;
+            c.beginPath();
+            c.arc(mx, my, dotR, 0, Math.PI * 2);
+            c.fillStyle = teamCol;
+            c.strokeStyle = color.black;
+            c.lineWidth = 1.6;
+            c.fill();
+            c.stroke();
+            c.beginPath();
+            c.arc(mx, my, dotR * 0.38, 0, Math.PI * 2);
+            c.fillStyle = "rgba(255,255,255,0.85)";
+            c.fill();
+            if (nameSize > 0) {
+                drawText(t.name || "Player", Math.round(mx), Math.round(my - dotR - 5), nameSize, color.guiwhite, "center");
+            }
+        }
+        // you: a soft rounded arrow in your team color, pointing at your aim
+        const px = T.X(global.player.renderx), py = T.Y(global.player.rendery);
+        if (inside(px, py)) {
+            const ang = Math.atan2(global.target.y, global.target.x);
+            const r = dotR * 1.9;
+            c.save();
+            c.translate(px, py);
+            c.rotate(ang);
+            c.lineJoin = "round";
+            c.lineCap = "round";
+            c.beginPath();
+            c.moveTo(r * 1.15, 0);
+            c.lineTo(-r * 0.75, -r * 0.72);
+            c.lineTo(-r * 0.3, 0);
+            c.lineTo(-r * 0.75, r * 0.72);
+            c.closePath();
+            // fat round-joined stroke first = soft silhouette
+            c.strokeStyle = color.black;
+            c.lineWidth = r * 0.55;
+            c.stroke();
+            c.fillStyle = teamCol;
+            c.fill();
+            c.strokeStyle = "rgba(255,255,255,0.9)";
+            c.lineWidth = r * 0.16;
+            c.stroke();
+            c.restore();
+        }
+    }
+
+    // The corner minimap: a tight, player-centered crop of the world.
+    // The world layer renders into a cached offscreen bitmap with a wide
+    // margin; each frame we blit the live sub-window out of it, so the
+    // view SCROLLS smoothly with the camera while the expensive vector
+    // render only happens when you near the margin or rocks change.
+    const cornerCache = { canvas: null, sizePx: 0, epoch: -1, cx: 1e9, cy: 1e9, wx0: 0, wy0: 0 };
+    const cornerVign = { canvas: null, size: 0 };
+    function drawFortniteMinimap(x, y, size) {
+        const gw = global.gameWidth, gh = global.gameHeight;
+        if (!gw || !gh) return;
+        const span = 2800;          // world units across the visible square
+        const cSpan = span * 1.35;  // cached window is wider by a margin
+        // live window: follows the smooth camera every frame
+        let wx0 = global.player.renderx - span / 2;
+        let wy0 = global.player.rendery - span / 2;
+        wx0 = Math.max(-gw / 2 - span * 0.08, Math.min(gw / 2 - span * 0.92, wx0));
+        wy0 = Math.max(-gh / 2 - span * 0.08, Math.min(gh / 2 - span * 0.92, wy0));
+        const cxNow = wx0 + span / 2, cyNow = wy0 + span / 2;
+        const paths = getMapPaths(); // refreshes the rock epoch
+        const epoch = paths ? paths.epoch : -1;
+        const dpr = Math.max(1, Math.min(2, global.ratio || 1));
+        const S = Math.ceil(size * dpr * (cSpan / span));
+        const margin = (cSpan - span) / 2;
+        const needs = !cornerCache.canvas || cornerCache.sizePx !== S ||
+            cornerCache.epoch !== epoch ||
+            Math.abs(cxNow - cornerCache.cx) > margin * 0.7 ||
+            Math.abs(cyNow - cornerCache.cy) > margin * 0.7;
+        if (needs) {
+            if (!cornerCache.canvas || cornerCache.sizePx !== S) {
+                cornerCache.canvas = document.createElement("canvas");
+                cornerCache.canvas.width = cornerCache.canvas.height = S;
+                cornerCache.sizePx = S;
+            }
+            const oc = cornerCache.canvas.getContext("2d");
+            oc.clearRect(0, 0, S, S);
+            const cWx0 = cxNow - cSpan / 2, cWy0 = cyNow - cSpan / 2;
+            drawWorldWindow(oc, 0, 0, S, S, cWx0, cWy0, cSpan);
+            cornerCache.cx = cxNow;
+            cornerCache.cy = cyNow;
+            cornerCache.wx0 = cWx0;
+            cornerCache.wy0 = cWy0;
+            cornerCache.epoch = epoch;
+        }
+        ctx[2].save();
+        optionsMenu_drawRoundedRect(x, y, size, size, 12);
+        ctx[2].clip();
+        // blit the live sub-window out of the cached bitmap — this is what
+        // makes the map scroll smoothly instead of stepping
+        const ppw = S / cSpan;
+        ctx[2].imageSmoothingEnabled = true;
+        ctx[2].drawImage(cornerCache.canvas,
+            (wx0 - cornerCache.wx0) * ppw, (wy0 - cornerCache.wy0) * ppw,
+            span * ppw, span * ppw,
+            x, y, size, size);
+        // live markers over the live window
+        const s2 = size / span;
+        const T = {
+            X: (wx) => x + (wx - wx0) * s2,
+            Y: (wy) => y + (wy - wy0) * s2,
+            s: s2,
+        };
+        drawMapMarkers(T, x, y, size, size, 8.5, 3.4);
+        // soft inner vignette (cached overlay, cheap blit)
+        if (!cornerVign.canvas || cornerVign.size !== size) {
+            cornerVign.canvas = document.createElement("canvas");
+            cornerVign.canvas.width = cornerVign.canvas.height = Math.ceil(size);
+            cornerVign.size = size;
+            const vc = cornerVign.canvas.getContext("2d");
+            const vg = vc.createRadialGradient(size / 2, size / 2, size * 0.42, size / 2, size / 2, size * 0.74);
+            vg.addColorStop(0, "rgba(0,0,0,0)");
+            vg.addColorStop(1, "rgba(0,0,0,0.28)");
+            vc.fillStyle = vg;
+            vc.fillRect(0, 0, size, size);
+        }
+        ctx[2].drawImage(cornerVign.canvas, x, y, size, size);
+        ctx[2].restore();
+        // frame
+        optionsMenu_drawRoundedRect(x, y, size, size, 12);
+        ctx[2].lineWidth = 3.5;
+        ctx[2].strokeStyle = color.black;
+        ctx[2].stroke();
+    }
+
+
+    // ── The full-map overlay: the whole arena, wheel zoom toward the
+    // cursor, drag pan, teammates with names, smooth fade. ──
+    // asymmetric fade: ease in gently, but get OUT of the way fast — a
+    // lingering dark overlay on close feels like input lag
+    let bigMapFade = 0;
+    function drawBigMap() {
+        const mapTarget = global.showBigMap ? 1 : 0;
+        bigMapFade = util.lerp(bigMapFade, mapTarget, mapTarget ? 0.1 : 0.28, true);
+        const fade = bigMapFade;
+        if (fade < 0.02) return;
+        // HTML floats above canvas no matter what — anything interactive
+        // must yield while the map covers the screen
+        const vi = document.getElementById("vaultInput");
+        if (vi && vi.style.display !== "none") vi.style.display = "none";
+        const bm = global.bigMap;
+        const gw = global.gameWidth, gh = global.gameHeight;
+        if (!gw || !gh) return;
+        const sw = global.screenWidth, sh = global.screenHeight;
+        ctx[2].save();
+        ctx[2].globalAlpha = fade;
+        ctx[2].fillStyle = "rgba(5,6,10,0.55)";
+        ctx[2].fillRect(0, 0, sw, sh);
+        // panel keeps the arena's aspect, popping in gently with the fade
+        const pop = 0.97 + 0.03 * fade;
+        const fitW = sw * 0.72, fitH = sh * 0.8;
+        const fit = Math.min(fitW / gw, fitH / gh) * pop;
+        const panelW = gw * fit, panelH = gh * fit;
+        const px0 = (sw - panelW) / 2, py0 = (sh - panelH) / 2;
+        // world window from zoom + center (center clamped inside arena)
+        bm.zoom = Math.max(1, Math.min(4, bm.zoom || 1));
+        const span = gw / bm.zoom;
+        const spanY = gh / bm.zoom;
+        bm.cx = Math.max(-gw / 2 + span / 2, Math.min(gw / 2 - span / 2, bm.cx || 0));
+        bm.cy = Math.max(-gh / 2 + spanY / 2, Math.min(gh / 2 - spanY / 2, bm.cy || 0));
+        const wx0 = bm.cx - span / 2, wy0 = bm.cy - spanY / 2;
+        // publish geometry for the input handlers (wheel/drag)
+        bm._panel = { x: px0, y: py0, w: panelW, h: panelH, s: panelW / span, wx0, wy0 };
+        // plate
+        optionsMenu_drawRoundedRect(px0 - 4, py0 - 4, panelW + 8, panelH + 8, 16);
+        ctx[2].fillStyle = "#0d0e14";
+        ctx[2].fill();
+        ctx[2].save();
+        optionsMenu_drawRoundedRect(px0, py0, panelW, panelH, 11);
+        ctx[2].clip();
+        const T = drawWorldWindow(ctx[2], px0, py0, panelW, panelH, wx0, wy0, span);
+        drawMapMarkers(T, px0, py0, panelW, panelH, 10, 4.6);
+        // hover: ring + bolder name on the teammate under the cursor
+        const mScale = global.canvas ? global.canvas.height / global.screenHeight : 1;
+        const hx = global.mouse.x / mScale, hy = global.mouse.y / mScale;
+        for (const t of global.teammates) {
+            if (t.id === gui.playerid) continue;
+            const mx = T.X(t.x), my = T.Y(t.y);
+            if (Math.hypot(mx - hx, my - hy) < 22) {
+                ctx[2].beginPath();
+                ctx[2].arc(mx, my, 8.5, 0, Math.PI * 2);
+                ctx[2].strokeStyle = color.gold;
+                ctx[2].lineWidth = 2.5;
+                ctx[2].stroke();
+                drawText(t.name || "Player", Math.round(mx), Math.round(my - 17), 14, color.gold, "center");
+            }
+        }
+        ctx[2].restore();
+        // frame + footer hint
+        optionsMenu_drawRoundedRect(px0 - 4, py0 - 4, panelW + 8, panelH + 8, 16);
+        ctx[2].lineWidth = 4;
+        ctx[2].strokeStyle = color.black;
+        ctx[2].stroke();
+        const keyEl = document.querySelector('#controlSettings b[data-key="KEY_TOGGLE_MAP"]');
+        const keyName = keyEl && keyEl.textContent ? keyEl.textContent : ";";
+        drawText("Scroll to zoom  ·  drag to pan  ·  [" + keyName + "] to close",
+                 sw / 2, py0 + panelH + 26, 13, color.gold, "center");
+        ctx[2].restore();
+    }
+
+
+    // Glide map markers between the 250ms position updates — once per
+    // frame, shared by the corner map and the big map.
+    function updateMapSmoothing() {
+        if (!global._mapSmooth) global._mapSmooth = { leader: null, mates: new Map() };
+        const sm = global._mapSmooth;
+        const L = global.leader;
+        if (L && L.id !== -1) {
+            if (!sm.leader || sm.leaderId !== L.id) { sm.leader = { x: L.x, y: L.y }; sm.leaderId = L.id; }
+            sm.leader.x += (L.x - sm.leader.x) * 0.12;
+            sm.leader.y += (L.y - sm.leader.y) * 0.12;
+        } else sm.leader = null;
+        const seen = new Set();
+        for (const t of global.teammates) {
+            seen.add(t.id);
+            let sp = sm.mates.get(t.id);
+            if (!sp) { sp = { x: t.x, y: t.y }; sm.mates.set(t.id, sp); }
+            sp.x += (t.x - sp.x) * 0.12;
+            sp.y += (t.y - sp.y) * 0.12;
+        }
+        for (const id of sm.mates.keys()) if (!seen.has(id)) sm.mates.delete(id);
+    }
+
     function drawMinimapAndDebug(spacing, alcoveSize, GRAPHDATA) {
 
         let len = alcoveSize;
@@ -3155,6 +4490,10 @@ import './terrainRenderer.js';
         let x = global.mobile ? spacing : global.screenWidth - spacing - len - 5;
         let y = global.mobile ? spacing : global.screenHeight - height - spacing - 5;
         if (global.GUIStatus.renderMinimap) {
+            // Dig Wars: the Fortnite-style crop replaces the stock minimap
+            if (window.terrainRenderer && window.terrainRenderer.ready && global.gems && global.gems.cap > 0 && !global.mobile) {
+                drawFortniteMinimap(global.screenWidth - spacing - len - 5, global.screenHeight - len - spacing - 5, len);
+            } else {
             if (global.mobile) {
                 y += global.canUpgrade ? (alcoveSize / 1.5) * mobileUpgradeGlide.get() * upgradeColumns / 1.5 + spacing * (upgradeColumns + 1.55) + 9 : 0;
                 y += global.canSkill || global.showSkill ? statMenu.get() * alcoveSize / 2.6 + spacing / 0.75 : 0;
@@ -3247,6 +4586,30 @@ import './terrainRenderer.js';
                 }
             }
 
+            // Dig Wars: vault markers — little gold gems on each base
+            if (global.vaults.length) {
+                const GEMM = [[-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95]];
+                const gp = 0.85 + 0.15 * Math.sin(performance.now() / 500);
+                for (const v of global.vaults) {
+                    const relX = v.x - global.player.cx.animX;
+                    const relY = v.y - global.player.cy.animY;
+                    const mx = config.game.centeredMinimap ? centerX + (relX / global.gameWidth) * len : x + (v.x / global.gameWidth + 0.5) * len;
+                    const my = config.game.centeredMinimap ? centerY + (relY / global.gameHeight) * height : y + (v.y / global.gameHeight + 0.5) * height;
+                    const mr = (global.mobile ? 6 : 4.5) * gp;
+                    ctx[2].beginPath();
+                    for (let i = 0; i < GEMM.length; i++) {
+                        const px = mx + GEMM[i][0] * mr, py = my + GEMM[i][1] * mr;
+                        i ? ctx[2].lineTo(px, py) : ctx[2].moveTo(px, py);
+                    }
+                    ctx[2].closePath();
+                    ctx[2].fillStyle = color.gold;
+                    ctx[2].strokeStyle = color.black;
+                    ctx[2].lineWidth = 1.5;
+                    ctx[2].fill();
+                    ctx[2].stroke();
+                }
+            }
+
             ctx[2].globalAlpha = 1;
             ctx[2].lineWidth = 1;
             ctx[2].strokeStyle = color.guiblack;
@@ -3259,6 +4622,7 @@ import './terrainRenderer.js';
 
             ctx[2].lineWidth = 3;
             global.advanced.roundMap ? drawGuiCircle(x + len / 2, y + height / 2, len / 2, true) : drawGuiRect(x, y, len, height, true);
+            }
         }
         if (global.mobile || !global.GUIStatus.renderMinimap) {
             x = global.screenWidth - spacing - len;
@@ -3279,12 +4643,6 @@ import './terrainRenderer.js';
         let ping = global.metrics.latency.reduce((b, a) => b + a, 1) / global.metrics.latency.length - 1;
         let xloc = global.player.renderx / 30;
         let yloc = global.player.rendery / 30;
-        let watermarkText = "Open Source Arras";
-        let versionLength = (measureText(global.version ?? "v?", 32)) / 2;
-        let length = Math.max(measureText(watermarkText, 32)) / 16;
-        let gradientTransition = global.showDebug ? 4.1 : 2;
-        let watermarkTextPos1 = Math.round(x + len / gradientTransition) + 0.5;
-        let watermarkColor = gameDraw.getColor({gradient: true, asset: [{color: `${color.blue}`}, {color: `${color.green}`}]}, ctx[2], watermarkTextPos1 - length, length * 0.085, watermarkTextPos1 + length, 0);
         if (global.showDebug) {
             let getRenderingInfo = (data, isTurret) => {
                 isTurret ? global.renderingInfo.turretEntities += data.length : global.renderingInfo.entities += data.length;
@@ -3301,8 +4659,6 @@ import './terrainRenderer.js';
             global.tankSpeedHistory.push(rawSpeed);
             if (global.tankSpeedHistory.length > HISTORY_LENGTH) global.tankSpeedHistory.shift();
             let tankSpeed = global.tankSpeedHistory.reduce((sum, val) => sum + val, 0) / global.tankSpeedHistory.length;
-            drawText(watermarkText, x + len - versionLength - 4, y - 50 - 10 * 14 - 2, 15, watermarkColor, "right");
-            drawText(global.version ?? "v?", x + len, y - 50 - 10 * 14 - 2, 15, color.guiwhite, "right");
             drawText(`§${global.serverStats.lag_color}§ ${(100 * gui.fps).toFixed(2)}% §reset§/ ` + global.serverStats.players + ` player${global.serverStats.players == 1 ? "" : "s"}`, x + len, y - 50 - 9 * 14, 10, color.guiwhite, "right");
             drawText(`Coordinates: (${xloc.toFixed(2)}, ${yloc.toFixed(2)})`, x + len, y - 50 - 8 * 14, 10, color.guiwhite, "right");
             drawText("Speed: " + tankSpeed.toFixed(2) + " gu/s", x + len, y - 50 - 7 * 14, 10, color.guiwhite, "right");
@@ -3314,11 +4670,10 @@ import './terrainRenderer.js';
             drawText(`§${global.metrics.rendertime_color}§ ${global.metrics.rendertime} FPS §reset§/` + `§${global.serverStats.mspt_color}§ ${global.serverStats.mspt} mspt : ${global.metrics.mspt.toFixed(1)} gmspt`, x + len, y - 50 - 1 * 14, 10, color.guiwhite, "right");
             drawText(ping.toFixed(1) + " ms / " + global.serverStats.serverGamemodeName + " " + global.locationHash, x + len, y - 50, 10, color.guiwhite, "right");
         } else if (!global.GUIStatus.minimapReducedInfo) {
-            drawText(watermarkText, x + len, y - 50 - 3 * 14 - 2, 15, watermarkColor, "right");
             drawText(`§${global.serverStats.lag_color}§ ${(100 * gui.fps).toFixed(2)}% §reset§/ ` + global.serverStats.players + ` player${global.serverStats.players == 1 ? "" : "s"}`, x + len, y - 50 - 2 * 14, 10, color.guiwhite, "right");
             drawText(`§${global.metrics.rendertime_color}§ ${global.metrics.rendertime} FPS §reset§/` + `§${global.serverStats.mspt_color}§ ${global.serverStats.mspt} mspt`, x + len, y - 50 - 1 * 14, 10, color.guiwhite, "right");
             drawText(ping.toFixed(1) + " ms / " + global.serverStats.serverGamemodeName + " " + global.locationHash, x + len, y - 50, 10, color.guiwhite, "right");
-        } else drawText(watermarkText, x + len, y - 22 - 2 * 14 - 2, 15, watermarkColor, "right");
+        }
     }
 
     function drawLeaderboard(spacing, alcoveSize, max) {
@@ -3441,7 +4796,8 @@ import './terrainRenderer.js';
             upgradeSpin = upgradeSpin - (Math.floor(upgradeSpin / Math.PI / 2) * Math.PI * 2);
 
             let x = glide * 2 * spacing + spacing + 5;
-            let y = spacing - height - internalSpacing + 5;
+            // +46: clear of the fixed settings button in the corner
+            let y = spacing - height - internalSpacing + 5 + 46;
             let xStart = x;
             let initialX = x;
             let rowWidth = 0;
@@ -3867,46 +5223,101 @@ import './terrainRenderer.js';
                 killCountTexts.push(finalKills[key][0] + key);
             }
         }
-        return (
-            (destruction === 0 ? "🌼"
-                : destruction < 4 ? "🎯"
-                    : destruction < 8 ? "💥"
-                        : destruction < 15 ? "💢"
-                            : destruction < 25 ? "🔥"
-                                : destruction < 50 ? "💣"
-                                    : destruction < 75 ? "👺"
-                                        : destruction < 100 ? "🌶️" : "💯"
-            ) + " " + (!killCountTexts.length ? "A true pacifist" :
-                killCountTexts.length == 1 ? killCountTexts.join(" and ") :
-                    killCountTexts.slice(0, -1).join(", ") + " and " + killCountTexts[killCountTexts.length - 1])
-        );
+        return !killCountTexts.length ? "A true pacifist" :
+            killCountTexts.length == 1 ? killCountTexts.join(" and ") :
+                killCountTexts.slice(0, -1).join(", ") + " and " + killCountTexts[killCountTexts.length - 1];
     };
 
     let getDeath = () => {
         let txt = "";
         if (global.finalKillers.length) {
-            txt = "🔪 Succumbed to";
+            txt = "Succumbed to";
             for (let e of global.finalKillers) {
                 txt += " " + util.addArticle(util.getEntityImageFromMockup(e).name) + " and";
             }
             txt = txt.slice(0, -4);
         } else {
-            txt += "🤷 Well that was kinda dumb huh";
+            txt += "Well that was kinda dumb huh";
         }
         return txt;
     };
 
-    let getTips = () => {
-        let txt = "❓ ";
-        if (global.finalKillers.length) {
-            txt += "lol you died";
-        } else if (!global.autolvlUp) {
-            txt += "Enable auto-level up in the options menu to get level 45";
-        } else {
-            txt += "Kill players and polygons to get more score";
+    let getTips = () => global.finalKillers.length
+        ? "lol you died"
+        : "Bank your gemdust at the vault, you drop most of it when you die";
+
+    // Small flat vector icons for the death screen — same visual language
+    // as the rest of the HUD (flat fills, dark outlines), no emoji.
+    function drawDeathIcon(kind, x, y, s, a) {
+        const c = ctx[2];
+        c.save();
+        c.globalAlpha = a;
+        c.strokeStyle = color.guiwhite;
+        c.fillStyle = color.guiwhite;
+        c.lineWidth = 2;
+        c.lineCap = "round";
+        c.lineJoin = "round";
+        switch (kind) {
+            case "clock": {
+                c.beginPath(); c.arc(x, y, s * 0.45, 0, Math.PI * 2); c.stroke();
+                c.beginPath();
+                c.moveTo(x, y); c.lineTo(x, y - s * 0.26);
+                c.moveTo(x, y); c.lineTo(x + s * 0.18, y + s * 0.08);
+                c.stroke();
+                break;
+            }
+            case "combat": { // crossed swords
+                const r = s * 0.4;
+                c.beginPath();
+                c.moveTo(x - r, y - r); c.lineTo(x + r, y + r);
+                c.moveTo(x + r, y - r); c.lineTo(x - r, y + r);
+                c.stroke();
+                c.beginPath();
+                c.moveTo(x - r * 0.35, y + r); c.lineTo(x - r, y + r * 0.35);
+                c.moveTo(x + r * 0.35, y + r); c.lineTo(x + r, y + r * 0.35);
+                c.stroke();
+                break;
+            }
+            case "skull": {
+                const r = s * 0.38;
+                c.beginPath(); c.arc(x, y - s * 0.06, r, 0, Math.PI * 2); c.fill();
+                c.fillRect(x - r * 0.55, y + s * 0.02, r * 1.1, s * 0.3);
+                c.fillStyle = "#0d0e14";
+                c.beginPath();
+                c.arc(x - r * 0.38, y - s * 0.1, r * 0.22, 0, Math.PI * 2);
+                c.arc(x + r * 0.38, y - s * 0.1, r * 0.22, 0, Math.PI * 2);
+                c.fill();
+                break;
+            }
+            case "gem": { // the canonical gem cut, gold
+                const r = s * 0.5;
+                c.fillStyle = color.gold;
+                c.strokeStyle = color.black;
+                c.lineWidth = 1.5;
+                c.beginPath();
+                c.moveTo(x - r, y - r * 0.38);
+                c.lineTo(x - r * 0.55, y - r * 0.95);
+                c.lineTo(x + r * 0.55, y - r * 0.95);
+                c.lineTo(x + r, y - r * 0.38);
+                c.lineTo(x, y + r * 0.95);
+                c.closePath();
+                c.fill(); c.stroke();
+                break;
+            }
+            case "pulse": { // server heartbeat
+                c.beginPath();
+                c.moveTo(x - s * 0.5, y);
+                c.lineTo(x - s * 0.18, y);
+                c.lineTo(x - s * 0.04, y - s * 0.34);
+                c.lineTo(x + s * 0.12, y + s * 0.3);
+                c.lineTo(x + s * 0.22, y);
+                c.lineTo(x + s * 0.5, y);
+                c.stroke();
+                break;
+            }
         }
-        return txt;
-    };
+        c.restore();
+    }
 
     const gameDrawDead = () => {
         let glide = global.deathAnimation.get();
@@ -3919,28 +5330,33 @@ import './terrainRenderer.js';
             yy = y + scale * position.middle.y * Math.SQRT1_2,
             picture = util.getEntityImageFromMockup(gui.type, gui.color),
             baseColor = picture.color,
-            name = global.player.name.substring(7, global.player.name.length + 1),
-            timestamp = Math.floor(Date.now() / 1000);
+            name = global.player.name.substring(7, global.player.name.length + 1);
 
         clearScreen(color.black, 0.1 + 0.15 * global.lerp(0, 0.5, glide), ctx[2]);
         let ratio = util.getScreenRatio();
         scaleScreenRatio(ratio, true);
+
         drawEntity(baseColor, (xx - 190 - len / 2 + 0.5) | 0, (yy - -5 + 0.5) | 0, picture, 1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
         drawText("Level " + gui.__s.getLevel(), x - 275, y - -80, 14, color.guiwhite, "center");
         drawText(picture.name, x - 275, y - -110, 24, color.guiwhite, "center");
-        drawText(timestamp + '', x, y - 80, 10, color.guiwhite, "center");
         drawText(name == "" ? "Your Score: " : name + "'s Score: ", x - 170, y - 30, 24, color.guiwhite);
-        drawText(util.formatLargeNumber(Math.round(global.finalScore.get())), x - 170, y + 25, 50, color.guiwhite);
+        drawText(util.formatLargeNumber(Math.round(global.finalScore.get())), x - 170, y + 25, 50, color.gold);
+        const iconX = x - 192;
         ctx[2].globalAlpha = global.lerp(1, 1.25, glide);
-        drawText("⌚ Survived for " + util.timeForHumans(Math.round(global.finalLifetime.get())), x - 170, y + 55, 16, color.guiwhite);
+        drawDeathIcon("clock", iconX, y + 50, 16, ctx[2].globalAlpha);
+        drawText("Survived for " + util.timeForHumans(Math.round(global.finalLifetime.get())), x - 170, y + 55, 16, color.guiwhite);
         ctx[2].globalAlpha = global.lerp(1.25, 1.5, glide);
+        drawDeathIcon("combat", iconX, y + 72, 16, ctx[2].globalAlpha);
         drawText(getKills(), x - 170, y + 77, 16, color.guiwhite);
         ctx[2].globalAlpha = global.lerp(1.5, 1.75, glide);
+        drawDeathIcon("skull", iconX, y + 94, 16, ctx[2].globalAlpha);
         drawText(getDeath(), x - 170, y + 99, 16, color.guiwhite);
         ctx[2].globalAlpha = global.lerp(1.75, 2, glide);
+        drawDeathIcon("gem", iconX, y + 117, 16, ctx[2].globalAlpha);
         drawText(getTips(), x - 170, y + 122, 16, color.guiwhite);
         ctx[2].globalAlpha = global.lerp(2, 2.25, glide);
-        drawText("🦆 The server was alive for " + (100 * gui.fps).toFixed(0) + "%" + " for the run", x - 170, y + 144, 16, color.guiwhite);
+        drawDeathIcon("pulse", iconX, y + 139, 16, ctx[2].globalAlpha);
+        drawText("The server was alive for " + (100 * gui.fps).toFixed(0) + "%" + " for the run", x - 170, y + 144, 16, color.guiwhite);
         ctx[2].globalAlpha = global.lerp(3, 3.25, glide);
         if (global.cannotRespawn || global.mobile || global.gamepadMode) drawText(global.cannotRespawn ?
             global.respawnTimeout ?
@@ -3998,8 +5414,10 @@ import './terrainRenderer.js';
         let playerx = global.player.animX.get(tick);
         let playery = global.player.animY.get(tick);
         if (config.graphical.lerpAnimations) {
-            global.player.renderx = util.lerp(global.player.renderx, global.player.cx.x, 0.1, true);
-            global.player.rendery = util.lerp(global.player.rendery, global.player.cy.y, 0.1, true);
+            // lerp toward the INTERPOLATED position — chasing raw 30Hz
+            // packet positions is what made this mode look like stuttering
+            global.player.renderx = util.lerp(global.player.renderx, playerx, 0.15, true);
+            global.player.rendery = util.lerp(global.player.rendery, playery, 0.15, true);
         } else if (config.graphical.smoothcamera && config.graphical.shakeProperties.CameraShake.shakeStartTime == -1) {
             let n = null == tickMotion ? 0 : 0.99 ** tickMotion;
             global.player.renderx = global.player.renderx * n + playerx * (1 - n);
@@ -4044,13 +5462,23 @@ import './terrainRenderer.js';
         }
         if (global.gamepadMode) drawCrosshair();
         if (global.GUIStatus.renderGUI) {
+            updateMapSmoothing();
+            drawSatchelDanger();
+            drawTeamBankBar();
             drawMessages(spacing, alcoveSize);
             if (global.GUIStatus.renderUpgrades) drawSkillBars(spacing, alcoveSize);
-            if (global.GUIStatus.renderPlayerBars) drawSelfInfo(max);
+            if (global.GUIStatus.renderPlayerBars) {
+                drawSelfInfo(max);
+                drawGemPopups();   // +N numbers + pickup ring over the tank
+                drawVaultUI();     // deposit panel while on the vault pad
+                drawLeaderArrow(); // screen-edge pointer at the #1 player
+                drawEnemyPings();  // team danger markers (G key)
+            }
             drawMinimapAndDebug(spacing, alcoveSize, global.GRAPHDATA, tick);
             if (global.GUIStatus.renderLeaderboard) drawLeaderboard(spacing, alcoveSize, max);
             if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
         } else if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
+        drawBigMap(); // full-map overlay rides above the HUD
         if (global.showTree) {
             drawUpgradeTree(spacing, alcoveSize);
         }
@@ -4120,452 +5548,83 @@ import './terrainRenderer.js';
         }
     }
 
-    function drawOptionsMenu() {
-
-        if (!global.optionsMenu_Anim.tabOffset) {
-            global.optionsMenu_Anim.tabOffset = Smoothbar(global.optionsMenu_Anim.activeTab || 0, 2, 3, 0.08, 0.025, true);
-        }
-
-        const RENDERX = global.optionsMenu_Anim.switchMenu_button.get();
-        const BTN_SIZE = 30;
-        const BTN_WIDTH_COLLAPSED = BTN_SIZE / 1.57;
-        const BTN_WIDTH_EXPANDED = 119;
-        const BTN_X = 1;
-        const BTN_Y = 25;
-        const clickableRatio = global.canvas ? global.canvas.height / global.screenHeight / global.ratio : 1;
-        const animValue = global.optionsMenu_Anim.optionsButtonProgress.get();
-
-        let mpos = {
-            x: global.mouse.x,
-            y: global.mouse.y
+    // The in-game settings button: literally the homepage gear button,
+    // recreated as real HTML over the canvas — canvas hit-rect math proved
+    // too fragile across DPI setups, an HTML element can't miss clicks.
+    let ingameSettingsBtn = null;
+    function getIngameSettingsBtn() {
+        if (ingameSettingsBtn) return ingameSettingsBtn;
+        // styled by the shared #homeSettingsBtn/#ingameSettingsBtn rules in
+        // home.css — one look for both surfaces
+        const btn = document.createElement("button");
+        btn.id = "ingameSettingsBtn";
+        btn.title = "Settings";
+        const home = document.getElementById("homeSettingsBtn");
+        btn.innerHTML = home ? home.innerHTML : "⚙";
+        btn.onclick = () => {
+            // open/close the SAME settings panel the homepage uses
+            const panel = document.getElementById("homeSettingsPanel");
+            const overlay = document.getElementById("homeSettingsOverlay");
+            if (!panel) return;
+            const open = !panel.classList.contains("open");
+            panel.classList.toggle("open", open);
+            if (overlay) overlay.classList.toggle("visible", open);
+            btn.blur(); // never steal WASD focus
+            // closing hands the keyboard straight back to the game
+            if (!open) {
+                const cv = document.getElementById("gameCanvas");
+                if (cv && global.gameStart) cv.focus();
+            }
         };
-
-        const currentWidth = BTN_WIDTH_COLLAPSED + (BTN_WIDTH_EXPANDED - BTN_WIDTH_COLLAPSED) * animValue;
-        if (global.clickables && global.clickables.optionsMenu.switchButton) {
-            if (global.optionsMenu_Anim.isOpened) {
-                global.clickables.optionsMenu.switchButton.hide();
-            } else global.clickables.optionsMenu.switchButton.place(0, BTN_X * clickableRatio - 4, BTN_Y * clickableRatio, currentWidth * clickableRatio + 4, BTN_SIZE * clickableRatio);
+        document.body.appendChild(btn);
+        // Global/Team chat toggle rides beside the gear
+        const chatBtn = document.createElement("button");
+        chatBtn.id = "ingameChatModeBtn";
+        chatBtn.textContent = "Global Chat";
+        chatBtn.onclick = () => {
+            global.chatMode = global.chatMode === "team" ? "global" : "team";
+            chatBtn.textContent = global.chatMode === "team" ? "Team Chat" : "Global Chat";
+            chatBtn.blur();
+            const cv = document.getElementById("gameCanvas");
+            if (cv && global.gameStart) cv.focus();
+        };
+        document.body.appendChild(chatBtn);
+        setInterval(() => {
+            const show = (global.gameStart && !global.died && !global.disconnected) ? "flex" : "none";
+            btn.style.display = show;
+            chatBtn.style.display = show;
+        }, 250);
+        // in-game changes persist AND apply immediately, no restart needed
+        const panel = document.getElementById("homeSettingsPanel");
+        if (panel && !panel.dwWired) {
+            panel.dwWired = true;
+            panel.addEventListener("change", (e) => {
+                if (e.target && e.target.id) util.submitToLocalStorage(e.target.id);
+                loadSettings();
+                // resolution / UI-scale options need a resize pass to bite
+                if (window.resizeEvent) window.resizeEvent();
+            });
         }
-
-        let hover = global.clickables && global.clickables.optionsMenu.switchButton ? global.clickables.optionsMenu.switchButton.check(mpos) === 0 : false;
-
-        if (hover) {
-            global.optionsMenu_Anim.optionsButtonProgress.set(1);
-        } else {
-            global.optionsMenu_Anim.optionsButtonProgress.set(0);
-        }
-
-        const animatedWidth = BTN_WIDTH_COLLAPSED + (BTN_WIDTH_EXPANDED - BTN_WIDTH_COLLAPSED) * animValue;
-        ctx[2].translate(RENDERX, 0);
-        ctx[2].save();
-
-        ctx[2].lineWidth = 3;
-        gameDraw.setColor(ctx[2], color.green);
-        drawGuiRect(BTN_X, BTN_Y, animatedWidth, BTN_SIZE);
-        if (hover) {
-            gameDraw.setColor(ctx[2], global.clickables.clicked ? "#000" : "#fff");
-            ctx[2].globalAlpha = global.clickables.clicked ? 0.15 : 0.2;
-            drawGuiRect(BTN_X, BTN_Y, animatedWidth, BTN_SIZE);
-            ctx[2].globalAlpha = 1;
-        }
-
-        if (animValue > 0.1) {
-            const textX = BTN_X + BTN_WIDTH_COLLAPSED / 2 + animatedWidth - 105;
-            const textY = BTN_Y + BTN_SIZE / 2;
-            drawText("Options", textX, textY * 1.13, 13, color.guiwhite, "left");
-        }
-        ctx[2].lineWidth = 3;
-        gameDraw.setColor(ctx[2], color.black);
-        drawGuiRect(BTN_X, BTN_Y, animatedWidth, BTN_SIZE, true);
-
-        if (animValue > 0.001) {
-            const separatorX = BTN_X + animatedWidth - BTN_WIDTH_COLLAPSED - 2;
-            ctx[2].strokeStyle = color.black;
-            ctx[2].lineWidth = 6;
-            ctx[2].beginPath();
-            ctx[2].moveTo(separatorX, BTN_Y + 2);
-            ctx[2].lineTo(separatorX, BTN_Y + BTN_SIZE - 2);
-            ctx[2].stroke();
-        }
-
-        const arrowW = BTN_WIDTH_COLLAPSED * 0.3;
-        const arrowH = BTN_SIZE * 0.3;
-
-        const arrowBaseX = BTN_X + BTN_WIDTH_COLLAPSED / 2;
-        const arrowCenterX = arrowBaseX + animatedWidth - 19;
-        const arrowCenterY = BTN_Y + BTN_SIZE / 2;
-
-        const leftX = arrowCenterX - arrowW / 3;
-        const tipX = arrowCenterX + arrowW / 2;
-        const topY = arrowCenterY - arrowH / 2;
-        const botY = arrowCenterY + arrowH / 2;
-
-        ctx[2].fillStyle = "#ffffff";
-        ctx[2].lineJoin = "round";
-        ctx[2].lineCap = "round";
-        ctx[2].lineWidth = 3;
-
-        ctx[2].beginPath();
-        ctx[2].moveTo(leftX, topY);
-        ctx[2].lineTo(tipX, arrowCenterY);
-        ctx[2].lineTo(leftX, botY);
-        ctx[2].closePath();
-        ctx[2].fill();
-        ctx[2].strokeStyle = "#ffffff";
-        ctx[2].stroke();
-
-        ctx[2].restore();
-        ctx[2].translate(-RENDERX, -0);
-
-        const mainMenuAnim = global.optionsMenu_Anim.mainMenu.get();
-        if (mainMenuAnim < -470) return;
-        const PANEL_WIDTH = 460;
-        const PANEL_Y = 75;
-        const MAX_PANEL_HEIGHT = global.screenHeight - PANEL_Y - 25;
-        const PANEL_HEIGHT = Math.min(global.optionsMenu_Anim.mainMenuHeight.get(), MAX_PANEL_HEIGHT);
-
-        const PANEL_VISIBLE_X = mainMenuAnim;
-        const PANEL_HIDDEN_X = PANEL_VISIBLE_X - PANEL_WIDTH - 30;
-        const panelX = PANEL_HIDDEN_X + (PANEL_VISIBLE_X - PANEL_HIDDEN_X);
-
-        ctx[2].save();
-        ctx[2].globalAlpha = 1;
-
-        ctx[2].lineWidth = 3;
-        gameDraw.setColor(ctx[2], color.grey);
-        drawGuiRect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT);
-        gameDraw.setColor(ctx[2], color.black);
-        drawGuiRect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, true);
-
-        const TAB_WIDTH = PANEL_WIDTH / 3.73;
-        const TAB_HEIGHT = 50;
-        const TAB_Y = PANEL_Y - TAB_HEIGHT;
-        const TAB_NAMES = global.optionsMenu_Anim.tabs;
-
-        drawText("ingame options is not finished, expect missing features and bugs lol", panelX + PANEL_WIDTH / 2, PANEL_Y - 57, 13.5, color.guiwhite, "center");
-
-        for (let tabIndex = 0; tabIndex < TAB_NAMES.length; tabIndex++) {
-            const x = panelX + tabIndex * TAB_WIDTH * 1.162;
-            const tabX = x + 50;
-            const tabClickableX = tabX * clickableRatio;
-            const tabClickableY = TAB_Y * clickableRatio;
-            const tabClickableW = TAB_WIDTH * clickableRatio;
-            const tabClickableH = TAB_HEIGHT * clickableRatio;
-
-            global.optionsMenu_Anim.tabClickables.place(tabIndex, tabClickableX, tabClickableY, tabClickableW, tabClickableH);
-
-            const tabHover = global.optionsMenu_Anim.tabClickables.check(mpos) === tabIndex;
-
-            ctx[2].lineWidth = 3;
-            gameDraw.setColor(ctx[2], gameDraw.mixColors(color.grey, color.black, 0.3));
-            drawGuiRect(tabX, TAB_Y, TAB_WIDTH, TAB_HEIGHT);
-            if (tabHover) {
-                gameDraw.setColor(ctx[2], global.clickables.clicked ? color.guiblack : color.lgrey);
-                ctx[2].globalAlpha = global.clickables.clicked ? 0.10 : 1;
-                drawGuiRect(tabX, TAB_Y, TAB_WIDTH, TAB_HEIGHT);
-                ctx[2].globalAlpha = 1;
-            }
-        }
-
-        for (let tabIndex = 0; tabIndex < TAB_NAMES.length; tabIndex++) {
-            const x = panelX + tabIndex * TAB_WIDTH * 1.162;
-            const tabX = x + 50;
-
-            ctx[2].lineWidth = 3;
-            gameDraw.setColor(ctx[2], color.black);
-            drawGuiRect(tabX, TAB_Y, TAB_WIDTH, TAB_HEIGHT, true);
-        }
-
-        const currentTab = global.optionsMenu_Anim.tabOffset.get();
-        const bgX = panelX + currentTab * TAB_WIDTH * 1.162 + 50;
-        gameDraw.setColor(ctx[2], color.grey);
-        drawGuiRect(bgX, TAB_Y, TAB_WIDTH, TAB_HEIGHT + 3);
-
-        ctx[2].strokeStyle = color.black;
-        ctx[2].lineWidth = 3;
-        ctx[2].beginPath();
-        ctx[2].moveTo(bgX, TAB_Y);
-        ctx[2].lineTo(bgX + TAB_WIDTH, TAB_Y);
-        ctx[2].moveTo(bgX, TAB_Y);
-        ctx[2].lineTo(bgX, TAB_Y + TAB_HEIGHT);
-        ctx[2].moveTo(bgX + TAB_WIDTH, TAB_Y);
-        ctx[2].lineTo(bgX + TAB_WIDTH, TAB_Y + TAB_HEIGHT);
-        ctx[2].stroke();
-
-        for (let tabIndex = 0; tabIndex < TAB_NAMES.length; tabIndex++) {
-            const x = panelX + tabIndex * TAB_WIDTH * 1.162;
-
-            const cx = x + TAB_WIDTH - 11;
-            const cy = TAB_Y + TAB_HEIGHT - 18;
-            drawText(TAB_NAMES[tabIndex][0], cx, cy, 16, color.guiwhite, "center");
-        }
-
-        const fadeOptions = Math.max(0, 1 - Math.abs(0 - currentTab));
-        const fadeTheme = Math.max(0, 1 - Math.abs(1 - currentTab));
-        const fadeKeybinds = Math.max(0, 1 - Math.abs(2 - currentTab));
-
-        ctx[2].save();
-        ctx[2].globalAlpha *= fadeOptions;
-        ctx[2].beginPath();
-        ctx[2].rect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT - 15);
-        ctx[2].clip();
-        if (fadeOptions > 0.01) {
-
-            drawText("Game Appearance", panelX + PANEL_WIDTH / 2, PANEL_Y + 30, 15.5, color.guiwhite, "center");
-            drawText("UI Elements",     panelX + PANEL_WIDTH / 2, PANEL_Y + 310, 15.5, color.guiwhite, "center");
-            drawText("Extra",           panelX + PANEL_WIDTH / 2, PANEL_Y + 470, 15.5, color.guiwhite, "center");
-            drawText("Performance",     panelX + PANEL_WIDTH / 2, PANEL_Y + 670, 15.5, color.guiwhite, "center");
-
-            if (!global.optionsCheckboxes) {
-                global.optionsCheckboxes = [
-
-                    { id: "optRenderNames",         label: "Player Names",          column: 0, row: 0, section: "appearance", tooltip: "Show player names." },
-                    { id: "optRenderScores",        label: "Player Scores",         column: 0, row: 1, section: "appearance", tooltip: "Show player scores." },
-                    { id: "optNoGrid",              label: "Background Grid",       column: 0, row: 2, section: "appearance", tooltip: "Show the background grid.", reverseCheck: true },
-                    { id: "optPointy",              label: "Sharp Traps",           column: 0, row: 3, section: "appearance", tooltip: "Sharpen the corners of traps." },
-                    { id: "optSharpEdges",          label: "Sharp Polygons",        column: 0, row: 4, section: "appearance", tooltip: "Sharpen the corners of all polygons.\n" + "May slightly lower the frame rate." },
-                    { id: "optSecretOptions",       label: "Secret Options",        column: 0, row: 5, section: "appearance", tooltip: "Unlock the secret options tab.\n" + "Note: Some of these options are hidden for a reason. They can cause glitches, and may get removed at any time." },
-
-                    { id: "optChatMessages",        label: "Chat Messages",         column: 1, row: 0, section: "appearance", tooltip: "Show chat messages." },
-                    { id: "optRenderHealth",        label: "Health Bars",           column: 1, row: 1, section: "appearance", tooltip: "Show health bars." },
-                    { id: "separatedHealthbars",    label: "Separate Shield Bar",   column: 1, row: 2, section: "appearance", tooltip: "Separate the shield bar from the health bar." },
-                    { id: "optCurvyTraps",          label: "Curvy Traps",           column: 1, row: 3, section: "appearance", tooltip: "Add curvature to the sides of traps.\n" + "May slightly lower the frame rate." },
-                    { id: "optTankSkins",           label: "Tank Skins",            column: 1, row: 4, section: "appearance", tooltip: "Show tank skins.\n" + "May slightly lower the frame rate." },
-                    { id: "coloredHealthbars",      label: "Colored Health Bars",   column: 1, row: 5, section: "appearance", tooltip: "Make the health and shield bar(s) of entities match their body color." },
-
-                    { id: "optRenderUpgrades",      label: "Upgrades",              column: 0, row: 0, section: "ui", tooltip: "Toggle the visibility of the class and skill upgrade menus." },
-                    { id: "optRenderPlayerBars",    label: "Player Bars",           column: 0, row: 1, section: "ui", tooltip: "Toggle the visibility of the score and level bars." },
-                    { id: "optRenderKillbar",       label: "Kill Bar",              column: 0, row: 2, section: "ui", tooltip: "Toggle the visibility of the kill bar, which shows the number of kills, assists and boss kills." },
-
-                    { id: "optRenderLeaderboard",   label: "Leaderboard",           column: 1, row: 0, section: "ui", tooltip: "Toggle the visibility of the leaderboard." },
-                    { id: "optRenderMinimap",       label: "Minimap",               column: 1, row: 1, section: "ui", tooltip: "Toggle the visibility of the minimap." },
-                    { id: "optReducedInfo",         label: "Extra Info",            column: 1, row: 2, section: "ui", tooltip: "Show various extra information in the bottom right corner.", reverseCheck: true },
-
-                    { id: "smoothCamera",           label: "Smooth Camera",         column: 0, row: 0, section: "extra", tooltip: "Make the camera follow your tank instead of being fixed at it." },
-                    { id: "autoLevelUp",            label: "Auto-Level Up",         column: 0, row: 1, section: "extra", tooltip: "Automatically level you up to level 45 upon joining the game." },
-
-                    { id: "optFancy",               label: "Fading Animation",      column: 1, row: 0, section: "extra", tooltip: "Make dying entities fade out instead of shrinking until disappearing.\n" + "May slightly lower the frame rate." },
-                    { id: "optIncognitoMode",       label: "Incognito Mode",        column: 1, row: 1, section: "extra", tooltip: "Hide you from the leaderboard and make your score appear low to other players." },
-
-                    { id: "optLowResolution",       label: "Low Resolution",        column: 1, row: 0, section: "perf", tooltip: "Lower the game's resolution.\n" + "May help to improve the frame rate." },
-                ];
-
-                for (const cb of global.optionsCheckboxes) {
-                    let doc = document.getElementById(cb.id);
-                    if (doc) cb.value = doc.checked, cb.lastValue = cb.value;
-                }
-            }
-
-            const BOX_SIZE = 25;
-            const LINE_HEIGHT = 40;
-
-            for (let i = 0; i < global.optionsCheckboxes.length; i++) {
-                const cb = global.optionsCheckboxes[i];
-                let baseY = PANEL_Y + 45;
-                if (cb.section === "ui")    baseY = PANEL_Y + 325;
-                if (cb.section === "extra") baseY = PANEL_Y + 525;
-                if (cb.section === "perf")  baseY = PANEL_Y + 685;
-
-                const baseXLeft  = panelX + 20;
-                const baseXRight = panelX + PANEL_WIDTH / 2 + 7.5;
-
-                const x = (cb.column === 0 ? baseXLeft : baseXRight);
-                const y = baseY + cb.row * LINE_HEIGHT;
-                const hitX = x * clickableRatio;
-                const hitY = y * clickableRatio;
-                const hitSize = BOX_SIZE * clickableRatio;
-
-                if (!cb.tooltipService) {
-                    global.optionsCheckboxes[i].tooltipService = {
-                        text: cb.tooltip,
-                        targetAlpha: 0,
-                        alpha: Smoothbar(0, 2, 3, 0.06, 0.025, true),
-                        x: 0,
-                        y: 0
-                    }
-                }
-
-                cb.tooltipService.x = hitX;
-                cb.tooltipService.y = hitY + hitSize + 10;
-                if (fadeOptions > 0.2) {
-                    global.clickables.optionsMenu.toggleBoxes.place(i, hitX, hitY, hitSize, hitSize);
-                    global.clickables.optionsMenu.HoverBoxes.place(i, hitX, hitY, hitSize + measureText(cb.label, BOX_SIZE) * 0.65, hitSize);
-                } else {
-                    global.clickables.optionsMenu.toggleBoxes.hide();
-                    global.clickables.optionsMenu.HoverBoxes.hide();
-                }
-                let clickHover = global.clickables.optionsMenu.toggleBoxes.check(mpos);
-                let hovered = global.clickables.optionsMenu.HoverBoxes.check(mpos);
-
-                if (hovered !== -1) {
-                    global.optionsCheckboxes[hovered].tooltipService.targetAlpha = 1;
-                } else global.optionsCheckboxes[i].tooltipService.targetAlpha = 0;
-
-                if (cb.lastValue !== cb.value) {
-                    cb.lastValue = cb.value;
-                    loadSettings();
-                    if (cb.id === "optLowResolution") resizeEvent();
-                }
-
-                const isOn = (cb.reverseCheck && !cb.value) || (!cb.reverseCheck && cb.value);
-                ctx[2].lineWidth = 3;
-                gameDraw.setColor(ctx[2], isOn ? color.green : color.guiwhite);
-                drawGuiRect(x, y, BOX_SIZE, BOX_SIZE);
-                if (clickHover !== -1 && clickHover === i) {
-                    gameDraw.setColor(ctx[2], !isOn ? global.clickables.clicked ? color.guiblack : color.black : global.clickables.clicked ? color.black : color.guiwhite);
-                    ctx[2].globalAlpha = global.clickables.clicked ? 0.25 : 0.2;
-                    drawGuiRect(x, y, BOX_SIZE, BOX_SIZE);
-                    ctx[2].globalAlpha = 1 * fadeOptions;
-                }
-                gameDraw.setColor(ctx[2], color.black);
-                drawGuiRect(x, y, BOX_SIZE, BOX_SIZE, true);
-
-                if (isOn) {
-                    ctx[2].strokeStyle = "#ffffff";
-                    ctx[2].lineWidth = 3;
-                    ctx[2].beginPath();
-                    ctx[2].moveTo(x + 5.5, y + BOX_SIZE / 1.8);
-                    ctx[2].lineTo(x + BOX_SIZE / 2 - 3, y + BOX_SIZE - 7);
-                    ctx[2].lineTo(x + BOX_SIZE - 6, y + 8);
-                    ctx[2].stroke();
-                }
-
-                drawText(cb.label, x + BOX_SIZE + 10.5, y + BOX_SIZE / 2 + 6, 13.5, color.guiwhite, "left");
-            }
-
-        }
-        ctx[2].restore();
-
-        for (const cb of global.optionsCheckboxes) drawToolip(cb);
-
-        if (fadeTheme < 0.5 && global.optionsMenu_Anim.themeClickables) global.optionsMenu_Anim.themeClickables.hide();
-        ctx[2].save();
-        ctx[2].globalAlpha *= fadeTheme;
-        ctx[2].beginPath();
-        ctx[2].rect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT - 15);
-        ctx[2].clip();
-        if (fadeTheme > 0.5) {
-            drawText("Game Theme", panelX + PANEL_WIDTH / 2, PANEL_Y + 30, 15.5, color.guiwhite, "center");
-
-            const themeNames = ["Light","Dark","Classic","Classic Dark","Natural","Discord","Midnight","Solarized Dark","Retro","Snow","Navigator","Coral Reef","Gruvbox","Eggplant","WR Sheet","Lyric","Bleach","Nebula","Forest","Pastel","Descent","Badlands","Pumpkin Skeleton","Blindness"];
-            const themeValues = ["normal","dark","classic","classicDark","natural","discord","midnight","solarizedDark","retro","snow","navigator","coralReef","gruvbox","eggplant","wrSheetTheme","lyric","bleach","nebula","forest","pastel","descent","badlands","pumpkinSkeleton","blindness"];
-            const currentTheme = document.getElementById("optColors") ? document.getElementById("optColors").value : "normal";
-            const COLS = 2;
-            const ITEM_W = (PANEL_WIDTH - 60) / COLS;
-            const ITEM_H = 30;
-            const GAP = 6;
-            const startX = panelX + 20;
-            const startY = PANEL_Y + 55;
-
-            for (let i = 0; i < themeNames.length; i++) {
-                const col = i % COLS;
-                const row = Math.floor(i / COLS);
-                const x = startX + col * (ITEM_W + GAP);
-                const y = startY + row * (ITEM_H + GAP);
-                const isSelected = themeValues[i] === currentTheme;
-
-                global.optionsMenu_Anim.themeClickables.place(i, x * clickableRatio, y * clickableRatio, ITEM_W * clickableRatio, ITEM_H * clickableRatio);
-                const hovered = global.optionsMenu_Anim.themeClickables.check(mpos) === i;
-
-                ctx[2].lineWidth = 2;
-                gameDraw.setColor(ctx[2], isSelected ? color.green : gameDraw.mixColors(color.grey, color.black, 0.25));
-                drawGuiRect(x, y, ITEM_W, ITEM_H);
-                if (hovered && !isSelected) {
-                    gameDraw.setColor(ctx[2], color.lgrey);
-                    ctx[2].globalAlpha = 0.5 * fadeTheme;
-                    drawGuiRect(x, y, ITEM_W, ITEM_H);
-                    ctx[2].globalAlpha = fadeTheme;
-                }
-                gameDraw.setColor(ctx[2], color.black);
-                drawGuiRect(x, y, ITEM_W, ITEM_H, true);
-                drawText(themeNames[i], x + ITEM_W / 2, y + ITEM_H / 2 + 5, 11, isSelected ? "#ffffff" : color.guiwhite, "center");
-            }
-        }
-        ctx[2].restore();
-
-        ctx[2].save();
-        ctx[2].globalAlpha *= fadeKeybinds;
-        ctx[2].beginPath();
-        ctx[2].rect(panelX, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT - 15);
-        ctx[2].clip();
-        if (fadeKeybinds > 0.01) {
-            drawText("Keybinds", panelX + PANEL_WIDTH / 2, PANEL_Y + 30, 15.5, color.guiwhite, "center");
-
-            const keybindList = [
-                ["W","Move Up"],["S","Move Down"],["A","Move Left"],["D","Move Right"],
-                ["E","Auto-Fire"],["C","Auto-Spin"],["R","Disable AI"],["V","Reverse Tank"],
-                ["B","Reverse Mouse"],["G","Auto-Alt"],["F","Use Action"],["O","Self-Destruct"],
-                ["X","Spin Lock"],["N","Level Up"],["M","Maximize Stat"],["T","Class Tree"],
-                ["Y","Upgrade 1"],["U","Upgrade 2"],["I","Upgrade 3"],
-                ["H","Upgrade 4"],["J","Upgrade 5"],["K","Upgrade 6"],
-                ["1","ATK"],["2","HTL"],["3","SPD"],["4","STR"],["5","PEN"],
-                ["6","DAM"],["7","RLD"],["8","MOB"],["9","RGN"],["0","SHI"],
-                ["P","Token Tank"],["Z","Record"],["Q","Screenshot"]
-            ];
-            const COLS = 2;
-            const ROW_H = 26;
-            const COL_W = (PANEL_WIDTH - 60) / COLS;
-            const kStartX = panelX + 20;
-            const kStartY = PANEL_Y + 55;
-            const KEY_BOX = 22;
-
-            for (let i = 0; i < keybindList.length; i++) {
-                const col = i % COLS;
-                const row = Math.floor(i / COLS);
-                const x = kStartX + col * (COL_W + 10);
-                const y = kStartY + row * ROW_H;
-
-                gameDraw.setColor(ctx[2], gameDraw.mixColors(color.grey, color.black, 0.2));
-                drawGuiRect(x, y, KEY_BOX, KEY_BOX);
-                gameDraw.setColor(ctx[2], color.black);
-                drawGuiRect(x, y, KEY_BOX, KEY_BOX, true);
-                drawText(keybindList[i][0], x + KEY_BOX / 2, y + KEY_BOX / 2 + 5, 11, "#5cc8ff", "center");
-                drawText(keybindList[i][1], x + KEY_BOX + 8, y + KEY_BOX / 2 + 5, 11, color.guiwhite, "left");
-            }
-        }
-        ctx[2].restore();
-
-        const CLOSE_SIZE = 30;
-        const closeX = panelX;
-        const closeY = PANEL_Y - CLOSE_SIZE - 20;
-
-        global.clickables.optionsMenu.switchButton.place(
-            1,
-            closeX * clickableRatio,
-            closeY * clickableRatio,
-            CLOSE_SIZE * clickableRatio,
-            CLOSE_SIZE * clickableRatio
-        );
-
-        const cstate = global.clickables.optionsMenu.switchButton.check(mpos);
-        ctx[2].save();
-        ctx[2].globalAlpha = 1;
-
-        gameDraw.setColor(ctx[2], color.red);
-        ctx[2].lineWidth = 3;
-        drawGuiRect(closeX, closeY, CLOSE_SIZE, CLOSE_SIZE);
-        if (cstate === 1) {
-            gameDraw.setColor(ctx[2], global.clickables.clicked ? "#000" : "#fff");
-            ctx[2].globalAlpha = 0.25;
-            drawGuiRect(closeX, closeY, CLOSE_SIZE, CLOSE_SIZE);
-            ctx[2].globalAlpha = 1;
-        }
-        gameDraw.setColor(ctx[2], color.black);
-        drawGuiRect(closeX, closeY, CLOSE_SIZE, CLOSE_SIZE, true);
-
-        ctx[2].strokeStyle = "#ffffff";
-        ctx[2].lineWidth = 4;
-        ctx[2].beginPath();
-        ctx[2].moveTo(closeX + 8, closeY + 8);
-        ctx[2].lineTo(closeX + CLOSE_SIZE - 8, closeY + CLOSE_SIZE - 8);
-        ctx[2].moveTo(closeX + CLOSE_SIZE - 8, closeY + 8);
-        ctx[2].lineTo(closeX + 8, closeY + CLOSE_SIZE - 8);
-        ctx[2].stroke();
-
-        ctx[2].restore();
-
-        ctx[2].restore();
+        ingameSettingsBtn = btn;
+        return btn;
     }
+
+    function drawOptionsMenu() {
+        // The old canvas-drawn settings are gone: the in-game gear button
+        // (#ingameSettingsBtn) opens the SAME HTML settings panel the
+        // homepage uses, so both surfaces always match. This stub only
+        // keeps the legacy canvas plumbing inert.
+        getIngameSettingsBtn();
+        if (global.clickables && global.clickables.optionsMenu) {
+            global.clickables.optionsMenu.switchButton.hide();
+            global.clickables.optionsMenu.toggleBoxes.hide();
+        }
+        if (global.optionsMenu_Anim) {
+            global.optionsMenu_Anim.hit = { open: null, close: null };
+            global.optionsMenu_Anim.isOpened = false;
+        }
+    }
+
 
     function runSecondary() {
         let pingAttempt = setInterval(() => {
@@ -4625,6 +5684,8 @@ import './terrainRenderer.js';
             return;
         }
         animationFrame(animloop);
+        // Hit-stop: hold the last frame for a beat when a rock is destroyed
+        if (global.hitStop && Date.now() < global.hitStop) return;
         if (global.gameStart) {
 
             let fovtickMotion = fovlasttick ? tick - fovlasttick : null;

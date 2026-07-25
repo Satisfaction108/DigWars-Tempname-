@@ -55,71 +55,87 @@ Class.menu_deltas = makeMenu("Delta Crashers", {upgrades: [
 
 // Basic Elites
 Class.eliteLauncher = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Elite Launcher",
-    DISPLAY_NAME: false,
-    COLOR: "egg",
-    UPGRADE_COLOR: "egg",
+    COLOR: 'egg',
+    UPGRADE_COLOR: 'egg',
     SHAPE: 0,
     TURRETS: weaponArray({
         TYPE: "eliteLauncherTurret",
-        POSITION: [15, 5, 0, 0, 240, 0]
+        POSITION: {
+            SIZE: 15,
+            X: 5,
+            ARC: 240
+        }
     }, 2)
 }
 Class.eliteTwister = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Elite Twister",
-    DISPLAY_NAME: false,
-    COLOR: "square",
-    UPGRADE_COLOR: "square",
+    COLOR: 'square',
+    UPGRADE_COLOR: 'square',
     SHAPE: 4,
     TURRETS: weaponArray({
         TYPE: "hyperTwisterTurret",
-        POSITION: [15, 5, 0, 0, 170, 0]
+        POSITION: {
+            SIZE: 15,
+            X: 5,
+            ARC: 170
+        }
     }, 4)
 }
 Class.eliteSkimmer = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Elite Skimmer",
-    DISPLAY_NAME: false,
-    COLOR: "triangle",
-    UPGRADE_COLOR: "triangle",
+    COLOR: 'triangle',
+    UPGRADE_COLOR: 'triangle',
     TURRETS: weaponArray({
         TYPE: "hyperSkimmerTurret",
-        POSITION: [15, 5, 0, 60, 170, 0]
+        POSITION: {
+            SIZE: 15,
+            X: 5,
+            ANGLE: 60,
+            ARC: 170
+        }
     }, 3)
 }
 Class.eliteSwarmer = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Elite Swarmer",
-    DISPLAY_NAME: false,
-    COLOR: "pentagon",
-    UPGRADE_COLOR: "pentagon",
+    COLOR: 'pentagon',
+    UPGRADE_COLOR: 'pentagon',
     SHAPE: 5,
     TURRETS: weaponArray({
         TYPE: "eliteSwarmerTurret",
-        POSITION: [15, 5, 0, 36, 170, 0]
+        POSITION: {
+            SIZE: 15,
+            X: 5,
+            ANGLE: 36,
+            ARC: 120
+        }
     }, 5)
 }
 Class.eliteRocketeer = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Elite Rocketeer",
-    DISPLAY_NAME: false,
-    COLOR: "hexagon",
-    UPGRADE_COLOR: "hexagon",
+    COLOR: 'hexagon',
+    UPGRADE_COLOR: 'hexagon',
     SHAPE: 6,
     TURRETS: weaponArray({
         TYPE: "eliteRocketeerTurret",
-        POSITION: [14, 5, 0, 0, 170, 0]
+        POSITION: {
+            SIZE: 14,
+            X: 5,
+            ARC: 90
+        }
     }, 6)
 }
 
 // Elite Crashers
 Class.eliteDestroyer = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Destroyer",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     GUNS: weaponArray({
         POSITION: [5, 16, 1, 6, 0, 60, 0],
         PROPERTIES: {
@@ -140,11 +156,10 @@ Class.eliteDestroyer = {
     ],
 }
 Class.eliteGunner = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Gunner",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
-    FACING_TYPE: "toTarget",
+    UPGRADE_COLOR: 'pink',
+    FACING_TYPE: 'toTarget',
     AI: { NO_LEAD: false },
     GUNS: [
         {
@@ -174,10 +189,9 @@ Class.eliteGunner = {
     ],
 }
 Class.eliteSprayer = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Sprayer",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     SKILL: [3, 5, 5, 5, 3, 1, 0, 9, 1, 0],
     AI: { NO_LEAD: false },
     HAS_NO_RECOIL: true,
@@ -198,10 +212,9 @@ Class.eliteSprayer = {
     ],
 }
 Class.eliteSprayer_old = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Old Elite Sprayer",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     AI: { NO_LEAD: false },
     TURRETS: weaponArray({
         POSITION: [14, 6, 0, 60, 190, 0],
@@ -209,10 +222,9 @@ Class.eliteSprayer_old = {
     }, 3)
 }
 Class.eliteBattleship = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Battleship",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     GUNS: weaponArray([
         {
             POSITION: [4, 6, 0.6, 7, -8, 60, 0],
@@ -243,10 +255,9 @@ Class.eliteBattleship = {
     }, 3)
 }
 Class.eliteSpawner = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Spawner",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     MAX_CHILDREN: 9,
     AI: { STRAFE: false },
     SKILL_CAP: Array(10).fill(15),
@@ -298,10 +309,9 @@ Class.eliteSpawner = {
     ],
 }
 Class.eliteTrapGuard = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Trap Guard",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     AI: { STRAFE: false },
     GUNS: weaponArray([
         {
@@ -332,10 +342,9 @@ Class.eliteTrapGuard = {
     ],
 }
 Class.eliteSpinner = {
-    PARENT: "elite",
+    PARENT: 'elite',
     UPGRADE_LABEL: "Elite Spinner",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     AI: { STRAFE: false },
     FACING_TYPE: ["spin", {speed: 0.08}],
     GUNS: weaponArray([
@@ -388,13 +397,12 @@ Class.delta = {
 Class.deltaDestroyer = {
     PARENT: "delta",
     UPGRADE_LABEL: "Delta Destroyer",
-    DISPLAY_NAME: false,
     GUNS: [
         ...weaponArray({
             POSITION: [ 7, 10.5, -1.4, 6, 0, 60, 0],
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic, g.pounder, g.pounder, g.destroyer, g.launcher, g.fake, {damage: 1.1, speed: 1.05}]),
-                TYPE: "minimissile",
+                TYPE: "launcherMissile",
                 LABEL: "Devastator",
                 NO_LIMITATIONS: true,
                 AUTOFIRE: true
@@ -404,7 +412,7 @@ Class.deltaDestroyer = {
             POSITION: [5, 16, 1, 6, 0, 60, 0],
             PROPERTIES: {
                 SHOOT_SETTINGS: combineStats([g.basic, g.pounder, g.pounder, g.destroyer, g.launcher, {damage: 1.1, speed: 1.05}]),
-                TYPE: "minimissile",
+                TYPE: "launcherMissile",
                 LABEL: "Devastator",
                 NO_LIMITATIONS: true,
             },
@@ -424,8 +432,7 @@ Class.deltaDestroyer = {
 Class.deltaGunner = {
     PARENT: "delta",
     UPGRADE_LABEL: "Delta Gunner",
-    DISPLAY_NAME: false,
-    FACING_TYPE: "toTarget",
+    FACING_TYPE: 'toTarget',
     AI: { NO_LEAD: false },
     GUNS: [
         {
@@ -461,7 +468,6 @@ Class.deltaGunner = {
 Class.deltaSprayer = {
     PARENT: "delta",
     UPGRADE_LABEL: "Delta Sprayer",
-    DISPLAY_NAME: false,
     SKILL: [3, 5, 5, 5, 3, 1, 0, 9, 1, 0],
     AI: { NO_LEAD: false },
     HAS_NO_RECOIL: true,
@@ -487,7 +493,6 @@ Class.deltaSprayer = {
 Class.deltaBattleship = {
     PARENT: "delta",
     UPGRADE_LABEL: "Delta Battleship",
-    DISPLAY_NAME: false,
     GUNS: weaponArray([
         {
             POSITION: [4, 6, 0.6, 7, 3.5, 60, 1/4],
@@ -758,10 +763,9 @@ Class.legionaryCrasherSpawner = {
     }],
 }
 Class.legionaryCrasher = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Legionary Crasher",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     AI: { STRAFE: false, NO_LEAD: false },
     HAS_NO_RECOIL: true,
     VALUE: 5e6,
@@ -829,10 +833,9 @@ Class.legionaryCrasherSpawnerFix = {
     }],
 }
 Class.legionaryCrasherFix = {
-    PARENT: "elite",
+    PARENT: 'elite',
     LABEL: "Legionary Crasher",
-    DISPLAY_NAME: false,
-    UPGRADE_COLOR: "pink",
+    UPGRADE_COLOR: 'pink',
     AI: { STRAFE: false, NO_LEAD: false },
     HAS_NO_RECOIL: true,
     VALUE: 5e6,

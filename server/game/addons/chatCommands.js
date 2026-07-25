@@ -355,8 +355,12 @@ global.addChatCommand = function (command) {
 
 /** CHAT MESSAGE EVENT **/
 module.exports = ({ Events }) => {
+    // Dig Wars: $ commands are disabled for now (this also removes the
+    // alternate leaderboards — everyone sees the one server leaderboard).
+    // Flip COMMANDS_ENABLED to bring them all back.
+    const COMMANDS_ENABLED = false;
     Events.on("chatMessage", ({ socket, message, preventDefault, gameManager }) => {
-        if (message.startsWith(prefix)) {
+        if (COMMANDS_ENABLED && message.startsWith(prefix)) {
             preventDefault();
             runCommand(socket, message, gameManager);
         }

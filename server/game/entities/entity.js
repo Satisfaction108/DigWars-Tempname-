@@ -587,6 +587,14 @@ class Entity extends EventEmitter {
         if (this.settings.reloadToAcceleration) this.acceleration *= this.skill.acl;
         this.topSpeed = (1 * global.gameManager.runSpeed * this.SPEED * this.skill.mob) / speedReduce;
         if (this.settings.reloadToAcceleration) this.topSpeed /= Math.sqrt(this.skill.acl);
+        // Dig Wars: gems are heavy. The slow scales with the load, down to
+        // −20% at a full satchel (never lower) — rich runners are visibly
+        // rich and visibly slower.
+        if (this.carriedGems > 0 && this.gemCap) {
+            const gemSlow = 1 - 0.2 * Math.min(1, this.carriedGems / this.gemCap);
+            this.acceleration *= gemSlow;
+            this.topSpeed *= gemSlow;
+        }
         this.health.set(
             ((this.settings.healthWithLevel ? 2 * level : 0) + this.HEALTH) *
                 this.skill.hlt *
@@ -732,6 +740,12 @@ class Entity extends EventEmitter {
         if (this.incognito) {
             if (this.skill.level < 56) score = 26263;
             if (this.skill.level > 56) score = score / 2;
+        }
+        // Dig Wars: the score other players see over your head is your
+        // wealth (carried + banked) — the same number the leaderboard and
+        // death screen use, never the vestigial level score.
+        if (this.isPlayer && global.gameManager && global.gameManager.terrainGrid) {
+            score = (this.carriedGems | 0) + (((this.socket && this.socket.gemBanked) || 0) | 0);
         }
         // Create camera info object
         const cameraInfo = {

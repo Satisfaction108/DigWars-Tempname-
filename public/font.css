@@ -1,4 +1,13 @@
-/* License is at fonts/UFL.txt */
+/* License is at fonts/UFL.txt (Ubuntu) and fonts/OFL-Rubik.txt (Rubik) */
+
+/* The game font: Rubik (variable weight) — used by all canvas HUD text
+   and the settings panel. */
+@font-face {
+    font-family: "Rubik";
+    src: url('./fonts/Rubik.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 300 900;
+}
 
 @font-face {
     font-family: "Ubuntu";

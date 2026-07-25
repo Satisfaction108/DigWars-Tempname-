@@ -25,8 +25,8 @@ global.fps = "Unknown";
 global.loadedAddons = [];
 global.addonAuthorInfos = [];
 global.TEAM_BLUE = -1;
-global.TEAM_GREEN = -2;
-global.TEAM_RED = -3;
+global.TEAM_RED = -2;
+global.TEAM_GREEN = -3;
 global.TEAM_PURPLE = -4;
 global.TEAM_YELLOW = -5;
 global.TEAM_ORANGE = -6;
@@ -38,12 +38,24 @@ global.TEAM_ENEMIES = -101;
 global.getSpawnableArea = (team, gameManager) => {
     gameManager = ensureIsManager(gameManager);
     let room = gameManager.room;
-    return ran.choose((team in room.spawnable && room.spawnable[team].length) ? room.spawnable[team] : room.spawnableDefault).randomInside();
+    const tiles = (team in room.spawnable && room.spawnable[team].length) ? room.spawnable[team] : room.spawnableDefault;
+    let loc = ran.choose(tiles).randomInside();
+    // Dig Wars: rocks may overlap the base (intended) — never spawn inside one.
+    const tg = gameManager.terrainGrid;
+    if (tg && tg.circleHitsRock) {
+        const SPAWN_R = 50;
+        for (let i = 0; i < 30 && tg.circleHitsRock(loc.x, loc.y, SPAWN_R); i++) {
+            loc = ran.choose(tiles).randomInside();
+        }
+        // last resort: shove the point out along the rock geometry
+        if (tg.circleHitsRock(loc.x, loc.y, SPAWN_R)) tg.pushCircleFromVoronoi(loc, SPAWN_R + 10);
+    }
+    return loc;
 }
 global.teamNames = [
     "BLUE",
-    "GREEN",
     "RED",
+    "GREEN",
     "PURPLE",
     "YELLOW",
     "ORANGE",
@@ -52,8 +64,8 @@ global.teamNames = [
 ]
 global.teamColors = [
     "blue",
-    "green",
     "red",
+    "green",
     "magenta",
     "mustard",
     "tangerine",

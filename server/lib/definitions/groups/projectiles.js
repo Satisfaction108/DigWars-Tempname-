@@ -103,7 +103,6 @@ Class.speedBullet = {
 }
 Class.spiralBulletSegment = {
     PARENT: 'bullet',
-    COLOR: 'mirror',
     CLEAR_ON_MASTER_UPGRADE: true
 }
 Class.spiralBullet = {
@@ -123,6 +122,7 @@ Class.spiralBullet = {
                     //seg.shield = body.shield;
                     seg.master = body;
                     seg.source = body;
+                    seg.color = body.color;
                     seg.SIZE = body.SIZE;
                     seg.define(segmentClass);
                     body.store.snakeSegments.push(seg);
@@ -353,7 +353,7 @@ Class.spinmissile = {
     GUNS: weaponArray({
         POSITION: [14, 8, 1, 0, 0, 0, 0.5],
         PROPERTIES: {
-            AUTOFIRE: !0,
+            AUTOFIRE: true,
             SHOOT_SETTINGS: combineStats([g.basic, g.lowPower, {reload: 0.6, size: 1.1, shudder: 0.3}]),
             TYPE: ["bullet", { PERSISTS_AFTER_DEATH: true }],
             STAT_CALCULATOR: "thruster",
@@ -366,7 +366,7 @@ Class.hyperspinmissile = {
     GUNS: weaponArray({
         POSITION: [14, 8, 1, 0, 0, 0, 0],
         PROPERTIES: {
-            AUTOFIRE: !0,
+            AUTOFIRE: true,
             SHOOT_SETTINGS: combineStats([g.basic, g.lowPower, {size: 1.1}]),
             TYPE: ["bullet", { PERSISTS_AFTER_DEATH: true }],
             STAT_CALCULATOR: "thruster",
@@ -997,10 +997,14 @@ Class.medkit = {
     DIE_AT_RANGE: true,
     TURRETS: [
         {
-            POSITION: [10, 0, 0, 0, 360, 1],
             TYPE: "medkitTurret",
-        },
-    ],
+            POSITION: {
+                SIZE: 11,
+                ARC: 360,
+                LAYER: 1
+            }
+        }
+    ]
 }
 
 // Swarms
@@ -1127,6 +1131,23 @@ Class.superSplitterBullet = {
                 ]),
                 TYPE: ["splitterBullet", { PERSISTS_AFTER_DEATH: true }],
                 SHOOT_ON_DEATH: true,
+            },
+        },
+    ],
+}
+
+
+// ─── Synced from open-source-arras (missing here) ───
+Class.launcherMissile = {
+    PARENT: "missile",
+    GUNS: [
+        {
+            POSITION: [14, 6, 1, 0, 0, 180, 0],
+            PROPERTIES: {
+                AUTOFIRE: true,
+                SHOOT_SETTINGS: combineStats([g.basic, { recoil: 0.5 }, g.lowPower]),
+                TYPE: ["bullet", { PERSISTS_AFTER_DEATH: true }],
+                STAT_CALCULATOR: "thruster",
             },
         },
     ],

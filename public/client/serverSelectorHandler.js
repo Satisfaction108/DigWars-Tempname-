@@ -135,15 +135,20 @@ let initializeFilter = () => {
 
     for (let s of servers) {
 
+        // entries can arrive incomplete while the game servers are still
+        // booting — never let a missing field kill the whole selector
+        const region = (s.region || "").toLowerCase();
+        if (typeof s.gameMode !== "string") s.gameMode = s.gameMode == null ? "" : String(s.gameMode);
+
         global.filters.regions.all.push(s);
 
-        if (s.region.toLowerCase() == "usa" || s.region.toLowerCase() == "us west" || s.region.toLowerCase() == "us central" || s.region.toLowerCase() == "us east") global.filters.regions.america.push(s);
+        if (region == "usa" || region == "us west" || region == "us central" || region == "us east") global.filters.regions.america.push(s);
 
-        if (s.region.toLowerCase() == "europe") global.filters.regions.europe.push(s);
+        if (region == "europe") global.filters.regions.europe.push(s);
 
-        if (s.region.toLowerCase() == "asia") global.filters.regions.asia.push(s);
+        if (region == "asia") global.filters.regions.asia.push(s);
 
-        if (s.region.toLowerCase() == "oceania") global.filters.regions.oceania.push(s);
+        if (region == "oceania") global.filters.regions.oceania.push(s);
 
         if (
             !global.filters.regions.america.includes(s) &&

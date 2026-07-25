@@ -33,7 +33,10 @@ var color = {
         "border": 0.65
     },
     "dark": {
-        "blue": "#379fc6", // Blue Team
+        // a slightly muted cobalt — the old #379fc6 was a teal-leaning
+        // cyan that melted into the cavern floor; #3a6ff0 read a touch
+        // too electric, so the saturation is eased back
+        "blue": "#4472e2", // Blue Team (also the player's own color)
         "green": "#8abc3f", // Green Team
         "red": "#ff6c6e", // Red Team
         "magenta": "#c8679b", // Purple Team
@@ -58,7 +61,7 @@ var color = {
 
         "guiwhite": "#f2f2f2", // Text
         "white": "#0a0a0a", // Arena Background
-        "grey": "#635f5f", // Barrels, Bar Backgrounds
+        "grey": "#42404e", // Barrels, Bar Backgrounds
         "black": "#131313", // Borders
         "guiblack": "#ffffff", // Grid
         "paletteSize": 20,

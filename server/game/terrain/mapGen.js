@@ -10,29 +10,31 @@ function hash(x, y, seed) {
 }
 
 function generate(cfg) {
-    const tileCols = cfg.cols ?? 15;
-    const tileRows = cfg.rows ?? 15;
-    const cols     = tileCols * SUBCELLS;
-    const rows     = tileRows * SUBCELLS;
-    const seed     = cfg.seed ?? 7;
+    const tileCols    = cfg.cols      ?? 15;
+    const tileRows    = cfg.rows      ?? 15;
+    const tileWidth   = cfg.tileWidth ?? 420;
+    const cols        = tileCols * SUBCELLS;
+    const rows        = tileRows * SUBCELLS;
+    const seed        = cfg.seed ?? 7;
 
     const grid = new TerrainGrid(cols, rows);
 
     const lo = Math.max(2, SUBCELLS - 3);
 
+    // Straight left/right carved boundaries: the solid body is a clean
+    // rectangle. The natural-looking rocky border comes from the Voronoi
+    // cells that overlap the rect edge (client render + server colliders).
+    const leftEdge  = lo + 2;
+    const rightEdge = (cols - 1) - (lo + 2);
     for (let r = 0; r < rows; r++) {
-        const lf  = hash(Math.floor(r / 6), 0, seed);
-        const hf  = hash(r,               1, seed);
-        const lfR = hash(Math.floor(r / 6), 2, seed);
-        const hfR = hash(r,               3, seed);
-
-        const leftEdge  = lo + Math.round(lf * 2 + hf * 1);
-        const rightEdge = (cols - 1) - (lo + Math.round(lfR * 2 + hfR * 1));
-
-        for (let c = 0; c < leftEdge; c++)           grid.set(c, r, CELL.EMPTY);
+        for (let c = 0; c < leftEdge; c++)         grid.set(c, r, CELL.EMPTY);
         for (let c = rightEdge + 1; c < cols; c++) grid.set(c, r, CELL.EMPTY);
     }
+    // Top/bottom are NOT carved: no bases there, so rock fills full height and
+    // covers all empty space. The jagged top/bottom silhouette is added on the
+    // client in _smoothClipLoop (jagged outward, not by removing cells).
 
+grid.cellSize        = tileWidth / SUBCELLS;
     grid.subCellsPerTile = SUBCELLS;
     grid.tileCols        = tileCols;
     grid.tileRows        = tileRows;

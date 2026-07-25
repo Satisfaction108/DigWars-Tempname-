@@ -20,7 +20,7 @@ class Canvas {
                 if (!this.chatBox.loadedProperly) this.chatBox.remove(), this.chatInput.remove(), this.chatBox = false;
             }, 50)
             if (!this[id].value) return;
-            if (event.keyCode === global.KEY_ENTER) this.socket.talk('M', this[id].value);
+            if (event.keyCode === global.KEY_ENTER) this.socket.talk('M', this[id].value, global.chatMode === 'team' ? 1 : 0);
             this[id].value = "";
         }
 
@@ -78,6 +78,29 @@ class Canvas {
     }
 
     wheel(event) {
+        // full-map overlay: wheel zooms toward the cursor
+        if (global.showBigMap) {
+            const bm = global.bigMap;
+            const P = bm._panel;
+            const oldZoom = bm.zoom || 1;
+            const newZoom = event.deltaY > 0
+                ? Math.max(1, oldZoom / 1.18)
+                : Math.min(4, oldZoom * 1.18);
+            if (P && newZoom !== oldZoom) {
+                // keep the world point under the cursor fixed:
+                // c' = w - (w - c) * (oldZoom / newZoom)
+                const mScale = this.height / global.screenHeight;
+                const gx = (event.clientX * global.ratio) / mScale;
+                const gy = (event.clientY * global.ratio) / mScale;
+                const wcx = P.wx0 + (gx - P.x) / P.s;
+                const wcy = P.wy0 + (gy - P.y) / P.s;
+                bm.cx = wcx - (wcx - (bm.cx || 0)) * (oldZoom / newZoom);
+                bm.cy = wcy - (wcy - (bm.cy || 0)) * (oldZoom / newZoom);
+            }
+            bm.zoom = newZoom;
+            event.preventDefault && event.preventDefault();
+            return;
+        }
         if (!global.died && global.showTree) {
             if (event.deltaY > 1) {
                 global.targetTreeScale = Math.max(global.targetTreeScale / 1.2, 0.5);
@@ -96,6 +119,11 @@ class Canvas {
                 break;
         }
     }
+    releaseMovement() {
+        // any UI that steals focus (chat, map, inputs) drops held movement
+        // keys, otherwise the tank drifts until the key is pressed again
+        for (let i = 0; i < 4; i++) this.socket.cmd.set(i, false);
+    }
     spawnChatInput() {
         if (!this.chatBox) {
             this.chatBox = document.createElement("div");
@@ -109,6 +137,7 @@ class Canvas {
             this.chatInput.addEventListener('keydown', event => this.chatListener("chatInput", event));
             document.getElementById("gameAreaWrapper").appendChild(this.chatInput);
         }
+        this.releaseMovement();
         this.chatInput.focus();
         global.showChat = true;
     }
@@ -204,20 +233,21 @@ class Canvas {
             case global.KEY_MOUSE_2:
                 this.socket.cmd.set(6, true);
                 break;
-            case global.KEY_LEVEL_UP:
-                this.socket.talk('L');
-                break;
             case global.KEY_TOKEN:
                 this.socket.talk('0');
-                break;
-            case global.KEY_BECOME:
-                this.socket.talk('H');
                 break;
             case global.KEY_MAX_STAT:
                 global.statMaxing = true;
                 break;
-            case global.KEY_BECOME:
-                this.socket.talk("H");
+            case global.KEY_TOGGLE_MAP:
+                global.showBigMap = !global.showBigMap;
+                if (global.showBigMap) {
+                    global.bigMap.zoom = 1;
+                    global.bigMap.cx = 0;
+                    global.bigMap.cy = 0;
+                    global.bigMap.dragging = false;
+                    this.releaseMovement();
+                }
                 break;
             case global.KEY_SUICIDE:
                 this.socket.talk('1');
@@ -237,17 +267,28 @@ class Canvas {
                 case global.KEY_AUTO_FIRE:
                     this.socket.talk("t", 1, true);
                     break;
+                // Dig Wars: Spin Lock is removed; AI override is back on R
                 case global.KEY_OVER_RIDE:
                     this.socket.talk("t", 2, true);
                     break;
-                case global.KEY_AUTO_ALT:
-                    this.socket.talk("t", 3, true);
+                case global.KEY_AUTO_ALT: {
+                    // G: enemy ping — drops a team-wide danger marker at
+                    // the cursor's world position
+                    const nowP = Date.now();
+                    if (!this._lastEnemyPing || nowP - this._lastEnemyPing > 600) {
+                        this._lastEnemyPing = nowP;
+                        const wr = util.getRatio();
+                        let wx = global.player.renderx + global.target.x / wr;
+                        let wy = global.player.rendery + global.target.y / wr;
+                        // degenerate ratio (hidden tab etc.) → ping own spot
+                        if (!isFinite(wx) || !isFinite(wy)) {
+                            wx = global.player.renderx;
+                            wy = global.player.rendery;
+                        }
+                        if (isFinite(wx) && isFinite(wy)) this.socket.talk('EP', Math.round(wx), Math.round(wy));
+                    }
                     break;
-                case global.KEY_SPIN_LOCK:
-                    this.spinLock = !this.spinLock;
-                    global.createMessage(this.spinLock ? "Spinlock enabled." : "Spinlock disabled.");
-                    this.socket.talk("t", 4, false);
-                    break;
+                }
                 case global.KEY_REVERSE_MOUSE:
                     this.inverseMouse = !this.inverseMouse;
                     global.createMessage(this.inverseMouse ? "Reverse mouse enabled." : "Reverse mouse disabled.");
@@ -373,6 +414,14 @@ class Canvas {
                     x: mouse.clientX * global.ratio,
                     y: mouse.clientY * global.ratio,
                 };
+                // full-map overlay swallows clicks: start a drag, never fire
+                if (global.showBigMap) {
+                    const mScale = this.height / global.screenHeight;
+                    global.bigMap.dragging = true;
+                    global.bigMap.lastX = mpos.x / mScale;
+                    global.bigMap.lastY = mpos.y / mScale;
+                    break;
+                }
                 if (global.showTree) {
                     // Start dragging if not clicking UI elements
                     global.classTreeDrag.isDragging = true;
@@ -387,13 +436,22 @@ class Canvas {
                     this.socket.talk('x', statIndex, 0);
                 } else if (
                     !global.dailyTankAd.renderUI &&
-                    global.clickables.optionsMenu.toggleBoxes.check(mpos) == -1 && 
+                    global.clickables.optionsMenu.toggleBoxes.check(mpos) == -1 &&
                     global.clickables.optionsMenu.switchButton.check(mpos) == -1 &&
+                    !(global.optionsMenu_Anim.hit && (
+                        (!global.optionsMenu_Anim.isOpened && global.optionsMenu_Anim.hit.open &&
+                            mpos.x >= global.optionsMenu_Anim.hit.open.x && mpos.x <= global.optionsMenu_Anim.hit.open.x + global.optionsMenu_Anim.hit.open.w &&
+                            mpos.y >= global.optionsMenu_Anim.hit.open.y && mpos.y <= global.optionsMenu_Anim.hit.open.y + global.optionsMenu_Anim.hit.open.h) ||
+                        (global.optionsMenu_Anim.isOpened && global.optionsMenu_Anim.hit.close &&
+                            mpos.x >= global.optionsMenu_Anim.hit.close.x && mpos.x <= global.optionsMenu_Anim.hit.close.x + global.optionsMenu_Anim.hit.close.w &&
+                            mpos.y >= global.optionsMenu_Anim.hit.close.y && mpos.y <= global.optionsMenu_Anim.hit.close.y + global.optionsMenu_Anim.hit.close.h)
+                    )) &&
                     global.optionsMenu_Anim.tabClickables.check(mpos) == -1 &&
-                    global.clickables.skipUpgrades.check(mpos) == -1 && 
+                    global.clickables.vault.check(mpos) == -1 &&
+                    global.clickables.skipUpgrades.check(mpos) == -1 &&
                     global.clickables.dailyTankUpgrade.check(mpos) == false &&
                     global.clickables.dailyTankAd.check(mpos) === false &&
-                    upgradeCheck == -1 && 
+                    upgradeCheck == -1 &&
                     !global.died
                 ) this.socket.cmd.set(primaryFire, true);
                 break;
@@ -416,6 +474,10 @@ class Canvas {
                     x: mouse.clientX * global.ratio,
                     y: mouse.clientY * global.ratio,
                 };
+                if (global.showBigMap) {
+                    global.bigMap.dragging = false;
+                    break;
+                }
                 let upgradeIndex = global.clickables.upgrade.check(mpos);
                 let dailyTankUpgrade = global.clickables.dailyTankUpgrade.check(mpos);
                 let dailyTankAd = global.clickables.dailyTankAd.check(mpos);
@@ -426,14 +488,22 @@ class Canvas {
                 let optionsMenu_Switch = global.clickables.optionsMenu.switchButton.check(mpos);
                 let optionsMenu_toggleBox = global.clickables.optionsMenu.toggleBoxes.check(mpos);
                 let optionsMenu_tabClick = global.optionsMenu_Anim.tabClickables ? global.optionsMenu_Anim.tabClickables.check(mpos) : -1;
+                // Direct hit-rects published by drawOptionsMenu — the same
+                // geometry that's actually drawn, so the arrow button can't
+                // go dead if the clickable-region state drifts
+                const omHitRect = (r) => !!r && mpos.x >= r.x && mpos.x <= r.x + r.w &&
+                                                mpos.y >= r.y && mpos.y <= r.y + r.h;
+                const omHit = global.optionsMenu_Anim.hit || {};
                 // Options menu clickables
-                if (optionsMenu_Switch === 0) {
+                if (optionsMenu_Switch === 0 ||
+                    (!global.optionsMenu_Anim.isOpened && omHitRect(omHit.open))) {
                     global.optionsMenu_Anim.switchMenu_button.set(-40);
                     global.optionsMenu_Anim.mainMenu.set(25);
                     global.optionsMenu_Anim.isOpened = true;
                     break;
                 }
-                if (optionsMenu_Switch === 1) {
+                if (optionsMenu_Switch === 1 ||
+                    (global.optionsMenu_Anim.isOpened && omHitRect(omHit.close))) {
                     global.optionsMenu_Anim.switchMenu_button.set(0);
                     global.optionsMenu_Anim.mainMenu.set(-500);
                     global.optionsMenu_Anim.isOpened = false;
@@ -443,6 +513,20 @@ class Canvas {
                     global.optionsMenu_Anim.activeTab = optionsMenu_tabClick;
                     global.optionsMenu_Anim.tabOffset.set(optionsMenu_tabClick);
                     global.optionsMenu_Anim.mainMenuHeight.set(global.optionsMenu_Anim.tabs[optionsMenu_tabClick][1]);
+                    break;
+                }
+                // Dig Wars vault panel: 10 deposit (reads the typed input),
+                // 11 cancel
+                let vaultClick = global.clickables.vault.check(mpos);
+                if (vaultClick !== -1) {
+                    if (vaultClick === 10) {
+                        const el = document.getElementById('vaultInput');
+                        const carried = global.gems.carried | 0;
+                        const n = Math.min(carried, parseInt(el && el.value) || 0);
+                        if (n >= 1) this.socket.talk('vd', n);
+                    } else if (vaultClick === 11) {
+                        this.socket.talk('vc');
+                    }
                     break;
                 }
                 if (optionsMenu_toggleBox !== -1) {
@@ -527,6 +611,23 @@ class Canvas {
         }
     }
     mouseMove(mouse) {
+        // full-map overlay: drag to pan (world-space, so it tracks 1:1 at
+        // any zoom)
+        if (global.showBigMap && global.bigMap.dragging) {
+            const bm = global.bigMap, P = bm._panel;
+            const mScale = this.height / global.screenHeight;
+            const mx = (mouse.clientX * global.ratio) / mScale;
+            const my = (mouse.clientY * global.ratio) / mScale;
+            if (P) {
+                bm.cx -= (mx - bm.lastX) / P.s;
+                bm.cy -= (my - bm.lastY) / P.s;
+            }
+            bm.lastX = mx;
+            bm.lastY = my;
+            global.mouse.x = mouse.clientX * global.ratio;
+            global.mouse.y = mouse.clientY * global.ratio;
+            return;
+        }
         // Handle class tree dragging with smooth momentum
         if (global.showTree && global.classTreeDrag.isDragging) {
             const dx = (mouse.clientX - global.classTreeDrag.lastX) / global.treeScale;

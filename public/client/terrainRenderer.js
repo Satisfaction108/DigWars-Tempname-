@@ -1,8 +1,62 @@
+import { config } from "./config.js";
+import { global } from "./global.js";
+import { gameSound } from "./sound.js";
+
 const CELL_BASALT = 0;
 const CELL_EMPTY  = 1;
+
+// ─── THE LIVING WALL (mirrors server/game/terrain/terrainGrid.js REGROW) ──
+// A destroyed cell comes back by GROWING: it rises from its own centre over
+// GROW_MS, starting at GROW_START of full size. The scale curve here is the
+// exact one the server collides with, so the stone you see is the stone that
+// shoves you. Everything else in this file's growth path is pure spectacle.
+const GROW_MS      = 7000;
+const GROW_START   = 0.12;
+const GROW_ORE_MS  = 1200;   // crystals sprout AFTER the body lands
+const GROW_GEN_STRIDE = 7919;
+const growEase = (p) => p * p * (3 - 2 * p);
+// Same palette as the menu fireworks easter egg
+const FW_COLORS = ['164,14,14', '230,80,0', '230,119,0', '47,127,51', '23,78,166', '123,31,163'];
 const BASE_TILE_SUBCELLS = 8;
 
+// The canonical gem cut (unit coords): flat crown on top, pavilion point
+// below. Mirrored as GEM_CUT in server/lib/definitions/groups/digwars.js —
+// the pickups that pop out of a rock are this exact silhouette.
+const GEM_CUT = [
+    [-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95],
+];
+
 class TerrainRenderer {
+    // Spark palettes for ore shatters, by tier (copper / azurite / core shard)
+    static ORE_FX = {
+        1: ['201,111,46', '237,167,102', '160,80,30'],
+        2: ['59,124,224', '127,177,242', '35,90,180'],
+        3: ['177,62,207', '217,138,240', '130,40,160'],
+        4: ['31,191,107', '111,245,168', '18,128,72'],
+    };
+    // One color family per tier, used by markings, cracks and effects alike:
+    // dark outline / mid body / light table facet / near-white core.
+    static ORE_PAL = {
+        1: { dark: 'rgba(90,44,14,0.9)',  mid: 'rgba(201,111,46,0.95)',
+             light: 'rgba(237,167,102,0.95)', core: 'rgba(255,233,209,0.9)' },
+        2: { dark: 'rgba(14,44,90,0.9)',  mid: 'rgba(59,124,224,0.95)',
+             light: 'rgba(127,177,242,0.95)', core: 'rgba(226,240,255,0.9)' },
+        3: { dark: 'rgba(61,14,74,0.9)',  mid: 'rgba(177,62,207,0.95)',
+             light: 'rgba(217,138,240,0.95)', core: 'rgba(251,230,255,0.9)' },
+        4: { dark: 'rgba(8,66,38,0.92)',  mid: 'rgba(31,191,107,0.95)',
+             light: 'rgba(111,245,168,0.95)', core: 'rgba(232,255,242,0.95)' },
+    };
+    // Crack glow families: barren rock cracks molten orange; ore rock cracks
+    // glow in the ore's own color, so what a rock holds is readable from the
+    // damage you're doing to it.
+    static CRACK_PAL = {
+        0: { deep: '150,35,0',   hot: '255,110,20', hair: '255,225,140' },
+        1: { deep: '140,62,15',  hot: '235,140,60', hair: '255,218,175' },
+        2: { deep: '20,70,160',  hot: '80,150,255', hair: '190,222,255' },
+        3: { deep: '110,25,140', hot: '200,95,240', hair: '242,205,255' },
+        4: { deep: '12,110,60',  hot: '60,225,135', hair: '205,255,228' },
+    };
+
     constructor() {
         this.ready       = false;
         this._cols       = 0;
@@ -28,6 +82,39 @@ class TerrainRenderer {
         this._loopsSimplified = null;
         this._lineRocks       = null;
         this.useVoronoi  = true;
+        // Set to true from the browser console to overlay yellow Voronoi collision lines
+        this.debugCollision      = false;
+        this._debugVoronoiSegs   = null;
+        // Server-authoritative destructible rock state
+        this._rockHealth = new Map();   // key -> health fraction (0..1)
+        this._rockDead   = new Set();   // keys of destroyed rocks
+        this._cellPolys  = new Map();   // key -> {poly (tile coords), cx, cy}
+        this._crackCache = new Map();   // "key:stage" -> Path2D
+        this._fx         = [];          // active shatter effects
+        this._impacts    = [];          // bullet impact spark bursts
+        this._hitFlash   = new Map();   // key -> last-hit timestamp (crack glow pulse)
+        this._crackSnap  = new Map();   // key -> timestamp a new crack snapped in
+        this._fracCache  = new Map();   // key -> sub-voronoi edge graph (or null)
+        this._bites      = new Map();   // key -> impact points chipping the rim
+        this._biteCache  = new Map();   // key -> Path2D of bite notches
+        this._pockCache  = new Map();   // key:stage -> Path2D of pockmarks
+        this._damageDirty = true;       // rebuild the damage batch below
+        this._damageBatch = null;       // cached punched clip + stage groups
+        this._pebbles    = [];          // trickle pebbles from crumbling rocks
+        this._lastTrickle = new Map();  // key -> last pebble spawn time
+        this._view       = null;        // viewport tile bounds from last draw
+        // Server-authoritative ore state (TG snapshot + TR destroy deltas)
+        this._ore        = new Map();   // key -> tier (1 copper / 2 vein / 3 shard)
+        this._veinCache  = new Map();   // key -> per-cell vein artwork
+        this._oreSalt    = 0;           // per-boot layout salt (TG snapshot)
+        // ── The living wall ──
+        this._growing    = new Map();   // key -> { start, tier, gen } while rising
+        this._gen        = new Map();   // key -> regrowth generation (crystal layout salt)
+        this._oreSprout  = new Map();   // key -> time its crystals began sprouting
+        this._sproutArt  = new Map();   // key -> per-deposit paths (short-lived)
+        this._growFx     = [];          // landing flashes
+        this._growDust   = new Map();   // key -> last dust emission time
+        this._silRebuildAt = 0;         // coalesced silhouette rebuild deadline
     }
 
     _h(x, y, s) {
@@ -64,15 +151,1043 @@ class TerrainRenderer {
         return this._cells[r * this._cols + c] === CELL_BASALT;
     }
 
-    init(cells, cols, rows) {
+    init(cells, cols, rows, rockState, oreState, oreSalt) {
         this._cols  = cols;
         this._rows  = rows;
         this._cells = new Uint8Array(cells);
         this._lineRocks = null;
+        this._debugVoronoiSegs = null;
+        // Reset rock state, then apply the server snapshot (late join / rejoin)
+        this._rockHealth.clear();
+        this._rockDead.clear();
+        this._crackCache.clear();
+        this._fx.length = 0;
+        this._impacts.length = 0;
+        this._hitFlash.clear();
+        this._crackSnap.clear();
+        this._fracCache.clear();
+        this._bites.clear();
+        this._biteCache.clear();
+        this._pockCache.clear();
+        this._pebbles.length = 0;
+        this._lastTrickle.clear();
+        this._damageDirty = true;
+        this._damageBatch = null;
+        this._growing.clear();
+        this._gen.clear();
+        this._oreSprout.clear();
+        this._sproutArt.clear();
+        this._growDust.clear();
+        this._growFx.length = 0;
+        this._silRebuildAt = 0;
+        const nowInit = performance.now();
+        if (rockState) for (const ev of rockState) {
+            this._rockHealth.set(ev.k, ev.h);
+            if (ev.d) this._rockDead.add(ev.k);
+            if (ev.gen) this._gen.set(ev.k, ev.gen);
+            // mid-rise when we joined: pick the animation up where the rest
+            // of the server already is (r = milliseconds elapsed)
+            if (ev.r !== undefined) {
+                if (ev.r < GROW_MS) {
+                    this._growing.set(ev.k, { start: nowInit - ev.r, tier: ev.o | 0, gen: ev.gen | 0 });
+                } else {
+                    this._rockDead.delete(ev.k);   // stale snapshot: treat as grown
+                }
+            }
+        }
+        this.mapDirty = true; // world map overlay must rebuild
+        // Ore veins: [key, tier] pairs; cells already broken carry no ore.
+        // The salt mirrors the server's per-boot ore salt so the deposit
+        // layout math lands crystals on the exact same spots.
+        this._ore.clear();
+        this._veinCache.clear();
+        this._oreSalt = oreSalt | 0;
+        if (oreState) for (const [k, tier] of oreState) {
+            if (!this._rockDead.has(k)) this._ore.set(k, tier);
+        }
+        // rising cells carry their seam in the rock snapshot instead (they're
+        // not "alive" yet, so they never appear in the ore list)
+        for (const [k, g] of this._growing) {
+            if (g.tier) this._ore.set(k, g.tier);
+        }
         if (!this._noiseTile && !this._noiseTileBuilding) this._buildNoiseTile();
         this._buildContours();
         this._buildFacets();
         this.ready = true;
+    }
+
+    // ─── Server rock deltas ──────────────────────────────────────────────────
+    _stageOf(frac) {
+        return frac > 5/6 ? 0 : frac > 4/6 ? 1 : frac > 3/6 ? 2 :
+               frac > 2/6 ? 3 : frac > 1/6 ? 4 : 5;
+    }
+
+    _onScreen(x, y, pad = 2) {
+        const v = this._view;
+        return !!v && x > v.tlx - pad && x < v.tlx + v.tlw + pad &&
+                      y > v.tly - pad && y < v.tly + v.tlh + pad;
+    }
+
+    // Shared tremble phase so the rock face and its damage overlay shake as
+    // one piece.
+    _trembleOf(k, nowMs) {
+        const rockSz = this._cols / 50.0;
+        return [Math.sin(nowMs / 17 + (k % 13)) * 0.02 * rockSz,
+                Math.cos(nowMs / 23 + (k % 7))  * 0.02 * rockSz];
+    }
+
+    _shake(amount, duration, delay = 0) {
+        const sh = config.graphical.shakeProperties.CameraShake;
+        // don't let a small hit-shake cut short a bigger one in progress
+        if (sh.shakeStartTime !== -1 && sh.shakeAmount > amount &&
+            Date.now() - sh.shakeStartTime < sh.shakeDuration) return;
+        sh.shakeStartTime = Date.now() + delay;
+        sh.shakeDuration  = duration;
+        sh.shakeAmount    = amount;
+    }
+
+    applyRockEvents(events) {
+        if (!this.ready || !events) return;
+        const now = performance.now();
+        let rebuilt = false;
+        if (events.length) this._damageDirty = true;
+        for (const ev of events) {
+            // ── THE LIVING WALL ──
+            // A rising cell stays in _rockDead the whole time it grows: every
+            // system that treats a hole as a hole (silhouette, damage batch,
+            // ore markings, both maps) keeps doing exactly that, and the
+            // growth is drawn as its own layer on top. It only rejoins the
+            // rock when it lands.
+            if (ev.r === 1) { this._beginGrowth(ev.k, ev.o | 0, ev.gen | 0, now); continue; }
+            if (ev.r === 2) { this._finishGrowth(ev.k, now); continue; }
+            if (ev.e === 1) { this._revealOre(ev.k, 4, now); continue; }
+            if (ev.d && this._growing.has(ev.k)) { this._collapseGrowth(ev.k, now); continue; }
+            const prev = this._rockHealth.get(ev.k);
+            const oldStage = prev === undefined ? 0 : this._stageOf(prev);
+            this._rockHealth.set(ev.k, ev.h);
+            if (ev.d && !this._rockDead.has(ev.k)) {
+                const cell = this._cellPolys.get(ev.k);
+                this._rockDead.add(ev.k);
+                this.mapDirty = true; // world map overlay must rebuild
+                // ore tier rides the destroy delta (server truth); fall back
+                // to the local vein map for older payloads
+                const tier = ev.o ?? this._ore.get(ev.k) ?? 0;
+                this._ore.delete(ev.k);
+                if (cell) {
+                    // Last-hit celebration: on-screen breaks freeze the frame
+                    // for 55ms (hit-stop), THEN the burst and camera kick land.
+                    const onscreen = this._onScreen(cell.cx, cell.cy);
+                    const delay = onscreen ? 55 : 0;
+                    this._spawnShatter(cell, now + delay, tier);
+                    if (onscreen) {
+                        global.hitStop = Date.now() + delay;
+                        this._shake(tier ? 9 : 8, 400, delay);
+                    }
+                    if (this._world) {
+                        const w = this._world;
+                        const wx = cell.cx * w.s - w.hw, wy = cell.cy * w.s - w.hh;
+                        if (tier && config.game.gemSounds) gameSound.oreBreak(wx, wy, tier);
+                        else      gameSound.rockBreak(wx, wy);
+                    }
+                }
+                rebuilt = true;
+            } else if (!ev.d) {
+                // Hit feedback: pulse the cracks + spark burst at the exact
+                // impact point the server reported.
+                this._hitFlash.set(ev.k, now);
+                const stagedUp = this._stageOf(ev.h) > oldStage;
+                if (stagedUp) {
+                    this._crackSnap.set(ev.k, now);
+                    // gentle kick only when a new crack opens — per-hit
+                    // shaking was headache fuel
+                    const cell = this._cellPolys.get(ev.k);
+                    if (cell && this._onScreen(cell.cx, cell.cy))
+                        this._shake(2, 140);
+                }
+                if (ev.x !== undefined) {
+                    // crack note rises with the rock's damage stage; hull
+                    // grinding (ev.g) plays a quieter scrape
+                    if (this._world) {
+                        const w = this._world;
+                        gameSound.rockHit(ev.x * w.s - w.hw, ev.y * w.s - w.hh,
+                                          this._stageOf(ev.h), !!ev.g);
+                    }
+                    // chips fly back off the rock face: cone pointing from the
+                    // cell centre out through the impact point. Grind chunks
+                    // arrive ~7×/s — render them as small scrape sparks, not
+                    // full bullet-impact bursts.
+                    const cell = this._cellPolys.get(ev.k);
+                    let dx = 1, dy = 0;
+                    if (cell) {
+                        dx = ev.x - cell.cx; dy = ev.y - cell.cy;
+                        const dl = Math.hypot(dx, dy) || 1;
+                        dx /= dl; dy /= dl;
+                    }
+                    this._impacts.push({ x: ev.x, y: ev.y, dx, dy, born: now,
+                                         small: !!ev.g,
+                                         seed: (ev.k + Math.round(ev.x * 97) + (ev.g ? (now | 0) : 0)) & 0xffff });
+                    if (this._impacts.length > 16) this._impacts.shift();
+                    // (rim bites removed — the chipped-out notches read as
+                    // gaps in the rock; damage shows through cracks alone)
+                }
+            }
+        }
+        if (rebuilt) {
+            this._silClip = this._buildVoronoiBoundary();
+            this._debugVoronoiSegs = null;
+        }
+    }
+
+    // ═══ THE LIVING WALL — client lifecycle ═══════════════════════════════
+    // A hole starts closing. Everything the previous rock left behind (its
+    // cracks, its dents, its seam) is thrown away: this is a NEW rock that
+    // happens to occupy the same cell, with its own ore rolled server-side.
+    _beginGrowth(k, tier, gen, now) {
+        this._growing.set(k, { start: now, tier, gen });
+        this._gen.set(k, gen);
+        this._rockHealth.set(k, GROW_START);
+        for (let st = 0; st <= 5; st++) {   // crack/pock caches are stage-keyed
+            this._crackCache.delete(`${k}:${st}`);
+            this._pockCache.delete(`${k}:${st}`);
+        }
+        this._fracCache.delete(k);
+        this._bites.delete(k);
+        this._biteCache.delete(k);
+        this._hitFlash.delete(k);
+        this._crackSnap.delete(k);
+        this._lastTrickle.delete(k);
+        this._veinCache.delete(k);
+        this._sproutArt.delete(k);
+        this._oreSprout.delete(k);
+        if (tier) this._ore.set(k, tier); else this._ore.delete(k);
+        this._damageDirty = true;
+        // telegraph: the crater floor stirs a beat before the stone arrives
+        const cell = this._cellPolys.get(k);
+        if (cell && this._onScreen(cell.cx, cell.cy) && this._pebbles.length < 70) {
+            const kk = k & 0xffff;
+            for (let i = 0; i < 7; i++) {
+                const a = this._h(i, kk, 170) * Math.PI * 2;
+                const rr = (0.25 + this._h(i, kk, 171) * 0.5) * (this._cols / 50.0);
+                this._pebbles.push({
+                    x: cell.cx + Math.cos(a) * rr,
+                    y: cell.cy + Math.sin(a) * rr,
+                    // inward: the ground is being drawn INTO the rising rock
+                    dx: -Math.cos(a) * 0.5, dy: -Math.sin(a) * 0.5,
+                    born: now, seed: (kk + i * 53) & 0xffff,
+                });
+            }
+        }
+    }
+
+    // It made it. The cell rejoins the real rock: back into the silhouette,
+    // back onto the maps, and its crystals sprout on top.
+    _finishGrowth(k, now) {
+        const g = this._growing.get(k);
+        this._growing.delete(k);
+        this._growDust.delete(k);
+        this._rockDead.delete(k);
+        this._rockHealth.set(k, 1);
+        this._damageDirty = true;
+        this.mapDirty = true;               // crater → rock on both maps
+        // coalesced: a catching-up frontier can land several cells a second
+        this._silRebuildAt = this._silRebuildAt
+            ? Math.min(this._silRebuildAt, now + 120) : now + 120;
+        const tier = g ? g.tier : (this._ore.get(k) || 0);
+        if (tier) {
+            this._ore.set(k, tier);
+            this._oreSprout.set(k, now);    // crystals grow AFTER the body
+        }
+        const cell = this._cellPolys.get(k);
+        if (cell && this._onScreen(cell.cx, cell.cy)) {
+            this._growFx.push({ k, cx: cell.cx, cy: cell.cy, born: now });
+            if (this._growFx.length > 24) this._growFx.shift();
+            this._shake(3, 160);
+            // birth debris: a ring of chips thrown off the new face
+            const kk = k & 0xffff;
+            for (let i = 0; i < 12 && this._pebbles.length < 80; i++) {
+                const a = (i / 12) * Math.PI * 2 + this._h(i, kk, 172);
+                this._pebbles.push({
+                    x: cell.cx + Math.cos(a) * 0.4, y: cell.cy + Math.sin(a) * 0.4,
+                    dx: Math.cos(a), dy: Math.sin(a),
+                    born: now, seed: (kk + i * 91) & 0xffff,
+                });
+            }
+        }
+    }
+
+    // Shot down before it finished: a husk crumbling, not a rock shattering.
+    // No hit-stop, no camera kick, no ore colours — there was nothing in it.
+    _collapseGrowth(k, now) {
+        const g = this._growing.get(k);
+        this._growing.delete(k);
+        this._growDust.delete(k);
+        this._oreSprout.delete(k);
+        this._sproutArt.delete(k);
+        this._ore.delete(k);
+        this._veinCache.delete(k);
+        this._rockHealth.set(k, 0);
+        this._damageDirty = true;
+        const cell = this._cellPolys.get(k);
+        if (!cell || !this._onScreen(cell.cx, cell.cy)) return;
+        // dust and a few chips at the size it actually reached
+        const scale = g ? GROW_START + (1 - GROW_START) *
+            growEase(Math.min(1, (now - g.start) / GROW_MS)) : 0.5;
+        const kk = k & 0xffff;
+        for (let i = 0; i < 9 && this._pebbles.length < 80; i++) {
+            const a = this._h(i, kk, 173) * Math.PI * 2;
+            this._pebbles.push({
+                x: cell.cx + Math.cos(a) * scale, y: cell.cy + Math.sin(a) * scale,
+                dx: Math.cos(a) * 0.6, dy: Math.sin(a) * 0.6,
+                born: now, seed: (kk + i * 37) & 0xffff,
+            });
+        }
+    }
+
+    // A new emerald has been seeded into living rock somewhere deep.
+    _revealOre(k, tier, now) {
+        this._ore.set(k, tier);
+        this._veinCache.delete(k);
+        this._sproutArt.delete(k);
+        this._oreSprout.set(k, now);   // it blooms in, same as a regrown seam
+    }
+
+    // Per-deposit crystal art, built only while a seam is sprouting (a
+    // handful of cells at a time) so the ore can pop in one stone at a time.
+    // Paths are LOCAL to each crystal so they scale about their own middle.
+    _getSproutParts(k, tier) {
+        let parts = this._sproutArt.get(k);
+        if (parts !== undefined) return parts;
+        const cell = this._cellPolys.get(k);
+        if (!cell) { this._sproutArt.set(k, null); return null; }
+        const kk = k & 0xffff;
+        const rockSz = this._cols / 50.0;
+        const gsalt = (this._gen.get(k) || 0) * GROW_GEN_STRIDE;
+        const h = (i, s) => this._h(i, kk, (s + this._oreSalt + gsalt) | 0);
+        const deposits = this._depositLayout(tier, cell.poly, cell.cx, cell.cy, rockSz, h);
+        if (!deposits.length) { this._sproutArt.set(k, null); return null; }
+        const put = (path, r, rot, scale, ox, oy) => {
+            const c = Math.cos(rot), s = Math.sin(rot);
+            GEM_CUT.forEach((p, i) => {
+                const px = p[0] * r * scale + ox, py = p[1] * r * scale + oy;
+                const wx = px * c - py * s, wy = px * s + py * c;
+                if (i === 0) path.moveTo(wx, wy); else path.lineTo(wx, wy);
+            });
+            path.closePath();
+        };
+        parts = deposits.map(d => {
+            const body = new Path2D(), facet = new Path2D(), core = new Path2D();
+            put(body,  d.r, d.rot, 1,    0,            0);
+            put(facet, d.r, d.rot, 0.52, 0,            -d.r * 0.12);
+            put(core,  d.r, d.rot, 0.20, -d.r * 0.22,  -d.r * 0.30);
+            return { x: d.x, y: d.y, r: d.r, body, facet, core, big: d.big };
+        });
+        this._sproutArt.set(k, parts);
+        return parts;
+    }
+
+    _spawnShatter(cell, now, tier = 0) {
+        const { cx, cy } = cell;
+        const kk = cell.k & 0xffff;
+        const jc = (i, s) => this._h(i, kk, s);
+        // ~50 black rock chips bursting outward — small rotated squares,
+        // deterministic per cell so every client sees the same burst.
+        const parts = [];
+        for (let e = 0; e < 70; e++) {
+            parts.push({
+                ang:  jc(e, 28) * Math.PI * 2,
+                sp:   0.7 + jc(e, 29) * 3.6,
+                size: 0.018 + jc(e, 30) * 0.04,
+                shade: Math.floor(jc(e, 31) * 3),
+                spin: (jc(e, 32) - 0.5) * 14,
+                sq:   0.5 + jc(e, 33) * 0.5,
+                // start scattered across the rock, not all from dead centre
+                ox:   (jc(e, 34) - 0.5) * 1.1,
+                oy:   (jc(e, 35) - 0.5) * 1.1,
+            });
+        }
+        // streaks bursting with the chips — ore rocks burst in their own
+        // colors (shards especially loud about it), barren rock stays a mix
+        const palette = TerrainRenderer.ORE_FX[tier] || FW_COLORS;
+        const nSparks = tier ? (tier === 4 ? 56 : tier === 3 ? 44 : 32) : 24;
+        const sparks = [];
+        for (let e = 0; e < nSparks; e++) {
+            sparks.push({
+                ang: jc(e, 36) * Math.PI * 2,
+                sp:  1.2 + jc(e, 37) * 3.4,
+                ci:  Math.floor(jc(e, 38) * palette.length),
+            });
+        }
+        this._fx.push({ parts, sparks, colors: palette, cx, cy, path: cell.path,
+                        born: now ?? performance.now() });
+        if (this._fx.length > 40) this._fx.shift(); // hard cap, no lag
+    }
+
+    // ─── Voronoi seed hash (single source of truth) ──────────────────────────
+    // Mirrors the server's _hash2 exactly. The final values are quantised to
+    // 8 bits and ALSO uploaded to the GPU as a seed texture (see
+    // _buildNoiseTile), so the shader can never disagree with the CPU about
+    // where a rock is — GPU float quirks (FMA contraction near a fract()
+    // wrap) used to shift the odd cell's seed and desync visuals from
+    // collision/polygons.
+    _vh2(i, j) {
+        const f = Math.fround;
+        let px = f(f(i) * f(5.3983));
+        px = f(px - Math.floor(px));
+        let py = f(f(j) * f(5.4427));
+        py = f(py - Math.floor(py));
+        const d = f(f(py * f(f(px) + f(21.5351))) + f(f(px) * f(f(py) + f(14.3137))));
+        px = f(px + d); py = f(py + d);
+        const pxy = f(px * py);
+        let rx = f(pxy * f(95.4307)); rx = f(rx - Math.floor(rx));
+        let ry = f(pxy * f(97.597));  ry = f(ry - Math.floor(ry));
+        rx = f(f(0.5) + f(f(rx - f(0.5)) * f(0.55)));
+        ry = f(f(0.5) + f(f(ry - f(0.5)) * f(0.55)));
+        // 8-bit quantisation: matches the GPU seed texture exactly
+        return [Math.round(rx * 255) / 255, Math.round(ry * 255) / 255];
+    }
+
+    _buildVoronoiDebugSegs() {
+        if (this._debugVoronoiSegs) return this._debugVoronoiSegs;
+        const cols = this._cols, rows = this._rows;
+        const rockSz = cols / 50.0;
+        const h2  = (i, j) => this._vh2(i, j);
+        const sol = (c, r) => this._solid(c, r);
+
+        const clip = (poly, mx, my, ndx, ndy) => {
+            const out = [], n = poly.length;
+            for (let i = 0; i < n; i++) {
+                const [ax, ay] = poly[i], [bx, by] = poly[(i+1)%n];
+                const da = (ax-mx)*ndx + (ay-my)*ndy;
+                const db = (bx-mx)*ndx + (by-my)*ndy;
+                if (da <= 0) out.push([ax, ay]);
+                if ((da < 0) !== (db < 0)) {
+                    const t = da/(da-db);
+                    out.push([ax+t*(bx-ax), ay+t*(by-ay)]);
+                }
+            }
+            return out;
+        };
+
+
+        let maxLeft = 0, minRight = cols - 1, minLeft = cols, maxRight = 0;
+        for (let r = 0; r < rows; r++) {
+            let le = 0; while (le < cols && !sol(le, r)) le++;
+            let re = cols - 1; while (re >= 0 && !sol(re, r)) re--;
+            if (le < cols) { if (le > maxLeft) maxLeft = le; if (le < minLeft) minLeft = le; }
+            if (re >= 0)   { if (re < minRight) minRight = re; if (re > maxRight) maxRight = re; }
+        }
+        const vxMin = maxLeft / rockSz;
+        const vxMax = (minRight + 1) / rockSz;
+
+        // Lattice-index inclusion — matches server buildVoronoiColliders.
+        const viLo = Math.round(vxMin), viHi = Math.round(vxMax) - 1;
+        const vjLo = 0,                 vjHi = Math.round(rows / rockSz) - 1;
+
+        const segs = [];
+        for (let vj = vjLo; vj <= vjHi; vj++) {
+            for (let vi = viLo; vi <= viHi; vi++) {
+                if (this._rockDead.has(vi * 100003 + vj)) continue;
+                const [hx, hy] = h2(vi, vj);
+                const sx = vi+hx, sy = vj+hy;
+
+                let poly = [[sx-3,sy-3],[sx+3,sy-3],[sx+3,sy+3],[sx-3,sy+3]];
+                for (let dj = -2; dj <= 2 && poly.length >= 3; dj++) {
+                    for (let di = -2; di <= 2 && poly.length >= 3; di++) {
+                        if (di === 0 && dj === 0) continue;
+                        const [nhx, nhy] = h2(vi+di, vj+dj);
+                        const tx = vi+di+nhx, ty = vj+dj+nhy;
+                        poly = clip(poly, (sx+tx)/2, (sy+ty)/2, tx-sx, ty-sy);
+                    }
+                }
+                if (poly.length < 3) continue;
+                let area = 0;
+                for (let ai = 0; ai < poly.length; ai++) {
+                    const [ax, ay] = poly[ai], [bx, by] = poly[(ai+1)%poly.length];
+                    area += ax*by - bx*ay;
+                }
+                if (Math.abs(area) / 2 < 0.05) continue;
+
+                for (let e = 0; e < poly.length; e++) {
+                    const [vax, vay] = poly[e], [vbx, vby] = poly[(e+1)%poly.length];
+                    segs.push([vax*rockSz, vay*rockSz, vbx*rockSz, vby*rockSz]);
+                }
+            }
+        }
+        this._debugVoronoiSegs = segs;
+        return segs;
+    }
+
+    // Sub-Voronoi crack skeleton: a fine Voronoi diagram (~40 deterministic
+    // seeds) computed INSIDE one rock cell with the same Sutherland-Hodgman
+    // clipping the rock lattice uses. The interior sub-cell edges form an
+    // edge GRAPH — voronoi vertices are natural 3-way crack junctions — and
+    // cracks are walks through that graph, so they look like real fracture
+    // webs instead of drawn lines. Cached per cell, built on first damage.
+    _getRockNet(k) {
+        let net = this._fracCache.get(k);
+        if (net !== undefined) return net;
+        const cell = this._cellPolys.get(k);
+        if (!cell) return null;
+        const { poly } = cell;
+        const kk = k & 0xffff;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of poly) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+        }
+        const inPoly = (x, y) => {
+            let inside = false;
+            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                const xi = poly[i][0], yi = poly[i][1];
+                const xj = poly[j][0], yj = poly[j][1];
+                if ((yi > y) !== (yj > y) &&
+                    x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+            }
+            return inside;
+        };
+        const distToBorder = (x, y) => {
+            let best = Infinity;
+            for (let i = 0; i < poly.length; i++) {
+                const a = poly[i], b = poly[(i + 1) % poly.length];
+                const dx = b[0] - a[0], dy = b[1] - a[1];
+                const L2 = dx * dx + dy * dy || 1e-12;
+                const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2));
+                const ddx = x - (a[0] + t * dx), ddy = y - (a[1] + t * dy);
+                const d = ddx * ddx + ddy * ddy;
+                if (d < best) best = d;
+            }
+            return Math.sqrt(best);
+        };
+
+        // ~40 deterministic, well-spaced seed points inside the rock
+        const seeds = [];
+        for (let t = 0; t < 400 && seeds.length < 40; t++) {
+            const x = minX + this._h(t, kk, 130) * (maxX - minX);
+            const y = minY + this._h(t, kk, 131) * (maxY - minY);
+            if (!inPoly(x, y)) continue;
+            let ok = true;
+            for (const s of seeds) {
+                const dx = x - s[0], dy = y - s[1];
+                if (dx * dx + dy * dy < 0.04) { ok = false; break; }
+            }
+            if (ok) seeds.push([x, y]);
+        }
+        if (seeds.length < 6) { this._fracCache.set(k, null); return null; }
+
+        const clip = (pl, mx, my, ndx, ndy) => {
+            const out = [], m = pl.length;
+            for (let i = 0; i < m; i++) {
+                const [ax, ay] = pl[i], [bx, by] = pl[(i + 1) % m];
+                const da = (ax - mx) * ndx + (ay - my) * ndy;
+                const db = (bx - mx) * ndx + (by - my) * ndy;
+                if (da <= 0) out.push([ax, ay]);
+                if ((da < 0) !== (db < 0)) {
+                    const t = da / (da - db);
+                    out.push([ax + t * (bx - ax), ay + t * (by - ay)]);
+                }
+            }
+            return out;
+        };
+
+        // Build the deduped interior edge graph
+        const vkey = (x, y) => Math.round(x * 200) + ':' + Math.round(y * 200);
+        const adj = new Map();      // vertex key -> [[x, y], ...] neighbours
+        const borderV = [];         // vertices sitting on the rock border
+        const borderSeen = new Set();
+        const edgeSeen = new Set();
+        const addAdj = (ax, ay, bx, by) => {
+            const kq = vkey(ax, ay);
+            let a = adj.get(kq);
+            if (!a) { a = []; adj.set(kq, a); }
+            a.push([bx, by]);
+        };
+        for (let i = 0; i < seeds.length; i++) {
+            let sub = poly.map(p => [p[0], p[1]]);
+            for (let j = 0; j < seeds.length && sub.length >= 3; j++) {
+                if (i === j) continue;
+                sub = clip(sub, (seeds[i][0] + seeds[j][0]) / 2,
+                                (seeds[i][1] + seeds[j][1]) / 2,
+                                seeds[j][0] - seeds[i][0], seeds[j][1] - seeds[i][1]);
+            }
+            if (sub.length < 3) continue;
+            for (let e = 0; e < sub.length; e++) {
+                const A = sub[e], B = sub[(e + 1) % sub.length];
+                const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+                // rock-border edges are not cracks; shared edges added once
+                if (distToBorder(mx, my) < 0.02) continue;
+                const ek = Math.round(mx * 500) + ':' + Math.round(my * 500);
+                if (edgeSeen.has(ek)) continue;
+                edgeSeen.add(ek);
+                addAdj(A[0], A[1], B[0], B[1]);
+                addAdj(B[0], B[1], A[0], A[1]);
+                for (const P of [A, B]) {
+                    if (distToBorder(P[0], P[1]) < 0.03) {
+                        const bk = vkey(P[0], P[1]);
+                        if (!borderSeen.has(bk)) {
+                            borderSeen.add(bk);
+                            borderV.push([P[0], P[1]]);
+                        }
+                    }
+                }
+            }
+        }
+        net = borderV.length ? { adj, borderV, vkey } : null;
+        this._fracCache.set(k, net);
+        return net;
+    }
+
+    // Crack overlay, cumulative across 5 stages: each stage adds one small
+    // crack that enters at the rock's border — starting at the INNER edge of
+    // the black border stroke, since the border isn't part of the rock — and
+    // walks 3-5 edges of the sub-voronoi fracture graph inward, with a short
+    // side branch. The 5 entry points are spread evenly around the rock
+    // (per-rock rotation). Deterministic; cached as Path2D per stage.
+    _getCrackPath(k, stage) {
+        const ck = k + ':' + stage;
+        let cached = this._crackCache.get(ck);
+        if (cached !== undefined) return cached;
+        const cell = this._cellPolys.get(k);
+        const net = this._getRockNet(k);
+        if (!cell || !net) { this._crackCache.set(ck, null); return null; }
+        const { cx, cy } = cell;
+        const kk = k & 0xffff;
+        const off = this._h(0, kk, 99);
+        const inset = 0.036 * (this._cols / 50.0);  // half the border stroke
+        const path = new Path2D();
+        const used = new Set();
+        const ekey = (a, b) => {
+            const k1 = net.vkey(a[0], a[1]), k2 = net.vkey(b[0], b[1]);
+            return k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;
+        };
+        const angDiff = (a, b) => {
+            let d = a - b;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            return d;
+        };
+
+        for (let c = 0; c < stage; c++) {
+            let ri = 0;
+            const rnd = () => this._h(ri++, kk, 210 + c * 13);
+            // entry: border vertex nearest this crack's target direction
+            const ta = (off + c / 5) * Math.PI * 2;
+            const tx = Math.cos(ta), ty = Math.sin(ta);
+            let best = -Infinity, sv = null;
+            for (const v of net.borderV) {
+                const dx = v[0] - cx, dy = v[1] - cy;
+                const dl = Math.hypot(dx, dy) || 1;
+                const d = (dx * tx + dy * ty) / dl;
+                if (d > best) { best = d; sv = v; }
+            }
+            if (!sv) continue;
+            // start just inside the black border, not under it
+            const sdx = cx - sv[0], sdy = cy - sv[1];
+            const sdl = Math.hypot(sdx, sdy) || 1;
+            path.moveTo(sv[0] + sdx / sdl * inset, sv[1] + sdy / sdl * inset);
+            // walk the fracture graph inward
+            let cur = sv;
+            let prevAng = Math.atan2(cy - sv[1], cx - sv[0]);
+            const len = 3 + Math.floor(rnd() * 3);
+            for (let s = 0; s < len; s++) {
+                const cands = net.adj.get(net.vkey(cur[0], cur[1]));
+                if (!cands) break;
+                let bestScore = -Infinity, nxt = null;
+                for (const q of cands) {
+                    if (used.has(ekey(cur, q))) continue;
+                    const ang = Math.atan2(q[1] - cur[1], q[0] - cur[0]);
+                    const score = -Math.abs(angDiff(ang, prevAng)) + rnd() * 0.6;
+                    if (score > bestScore) { bestScore = score; nxt = q; }
+                }
+                if (!nxt) break;
+                used.add(ekey(cur, nxt));
+                path.lineTo(nxt[0], nxt[1]);
+                // short side branch partway along — real cracks fork
+                if (s === 1 && rnd() > 0.4) {
+                    const bc = net.adj.get(net.vkey(nxt[0], nxt[1]));
+                    if (bc) for (const q2 of bc) {
+                        const ek2 = ekey(nxt, q2);
+                        if (used.has(ek2)) continue;
+                        used.add(ek2);
+                        path.lineTo(q2[0], q2[1]);
+                        path.moveTo(nxt[0], nxt[1]);
+                        break;
+                    }
+                }
+                prevAng = Math.atan2(nxt[1] - cur[1], nxt[0] - cur[0]);
+                cur = nxt;
+            }
+        }
+
+        this._crackCache.set(ck, path);
+        return path;
+    }
+
+    // Pockmarks: deterministic dark speckles across the rock face from stage
+    // 3 on, so a low-health rock looks beaten up even between the cracks.
+    // Points land in the cell's bbox and get clipped to the cell when drawn.
+    _getPockPath(k, stage) {
+        const pk = k + ':' + stage;
+        let p = this._pockCache.get(pk);
+        if (p !== undefined) return p;
+        const cell = this._cellPolys.get(k);
+        if (!cell) { this._pockCache.set(pk, null); return null; }
+        const { poly } = cell;
+        const kk = k & 0xffff;
+        const rockSz = this._cols / 50.0;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const q of poly) {
+            if (q[0] < minX) minX = q[0];
+            if (q[0] > maxX) maxX = q[0];
+            if (q[1] < minY) minY = q[1];
+            if (q[1] > maxY) maxY = q[1];
+        }
+        p = new Path2D();
+        const count = (stage - 2) * 5;   // 5 / 10 / 15 speckles
+        for (let i = 0; i < count; i++) {
+            const x = minX + this._h(i, kk, 160) * (maxX - minX);
+            const y = minY + this._h(i, kk, 161) * (maxY - minY);
+            const r = (0.012 + this._h(i, kk, 162) * 0.028) * rockSz;
+            p.moveTo(x + r, y);
+            p.arc(x, y, r, 0, Math.PI * 2);
+        }
+        this._pockCache.set(pk, p);
+        return p;
+    }
+
+    // Bite notches: permanent chips out of the rock rim at recorded impact
+    // points, drawn in the border black so the edge looks eaten into.
+    _getBitePath(k) {
+        const bites = this._bites.get(k);
+        if (!bites || !bites.length) return null;
+        let p = this._biteCache.get(k);
+        if (p) return p;
+        p = new Path2D();
+        const rockSz = this._cols / 50.0;
+        for (const b of bites) {
+            const m = 3 + (b.seed & 1);
+            const base = (0.05 + this._h(0, b.seed, 140) * 0.05) * rockSz;
+            const rot = this._h(1, b.seed, 141) * Math.PI * 2;
+            for (let i = 0; i < m; i++) {
+                const ang = rot + i / m * Math.PI * 2;
+                const rr = base * (0.6 + this._h(i + 2, b.seed, 142) * 0.8);
+                const px = b.x + Math.cos(ang) * rr, py = b.y + Math.sin(ang) * rr;
+                if (i === 0) p.moveTo(px, py); else p.lineTo(px, py);
+            }
+            p.closePath();
+        }
+        this._biteCache.set(k, p);
+        return p;
+    }
+
+    // ─── Ore deposit layout (MIRRORED — see depositLayout in
+    // server/game/terrain/terrainGrid.js; both must stay bit-identical) ──────
+    // Every ore cell holds a handful of discrete crystal DEPOSITS at fixed
+    // spots inside the cell polygon. We draw a crystal marking at each spot;
+    // when the rock breaks, the server spawns exactly one gem pickup per
+    // deposit AT that spot with the matching size — what you see in the rock
+    // face is literally what pops out of it.
+    _depositLayout(tier, poly, cx, cy, rockSz, h) {
+        const want  = tier === 4 ? 1
+                    : tier === 3 ? 1
+                    : tier === 2 ? 2 + (h(0, 220) < 0.5 ? 0 : 1)
+                    :              3 + (h(0, 220) < 0.5 ? 0 : 1);
+        const baseR = (tier === 4 ? 0.14 : tier === 3 ? 0.15 : tier === 2 ? 0.16 : 0.13) * rockSz;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of poly) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+        }
+        const inPoly = (x, y) => {
+            let inside = false;
+            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                const xi = poly[i][0], yi = poly[i][1];
+                const xj = poly[j][0], yj = poly[j][1];
+                if ((yi > y) !== (yj > y) &&
+                    x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+            }
+            return inside;
+        };
+        const distToBorder = (x, y) => {
+            let best = Infinity;
+            for (let i = 0; i < poly.length; i++) {
+                const a = poly[i], b = poly[(i + 1) % poly.length];
+                const dx = b[0] - a[0], dy = b[1] - a[1];
+                const L2 = dx * dx + dy * dy || 1e-12;
+                const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2));
+                const ddx = x - (a[0] + t * dx), ddy = y - (a[1] + t * dy);
+                const d = ddx * ddx + ddy * ddy;
+                if (d < best) best = d;
+            }
+            return Math.sqrt(best);
+        };
+
+        const out = [];
+        // the core-shard / emerald crystal sits dead center — a neat,
+        // glowing anchor (emerald cuts the largest stone of all)
+        if (tier === 3 || tier === 4) {
+            out.push({ x: cx, y: cy, r: (tier === 4 ? 0.34 : 0.30) * rockSz,
+                       rot: (h(1, 221) - 0.5) * 0.7, big: true });
+        }
+        for (let t = 0; t < 40 && out.length < want; t++) {
+            const x = minX + h(t, 222) * (maxX - minX);
+            const y = minY + h(t, 223) * (maxY - minY);
+            if (!inPoly(x, y)) continue;
+            if (distToBorder(x, y) < baseR * 1.5) continue;
+            let ok = true;
+            for (const d of out) {
+                const dx = x - d.x, dy = y - d.y;
+                const need = (d.r + baseR) * 1.7;
+                if (dx * dx + dy * dy < need * need) { ok = false; break; }
+            }
+            if (!ok) continue;
+            out.push({ x, y, r: baseR * (0.85 + h(t, 224) * 0.3),
+                       rot: (h(t, 225) - 0.5) * 0.9, big: false });
+        }
+        return out;
+    }
+
+    // ─── Ore marking artwork (deterministic, cached per cell) ───────────────
+    // One clean crystal marking per deposit: the canonical gem-cut silhouette
+    // with a light table facet and a near-white core — the same layered look
+    // at every tier, differing only in color, size and count. Organized, not
+    // random: this IS the loot table, drawn in the rock.
+    _getVeinArt(k, tier) {
+        let art = this._veinCache.get(k);
+        if (art !== undefined) return art;
+        const cell = this._cellPolys.get(k);
+        if (!cell) { this._veinCache.set(k, null); return null; }
+        const { poly, cx, cy } = cell;
+        const kk = k & 0xffff;
+        const rockSz = this._cols / 50.0;
+        // Same salt-mixed closure the server builds in _buildDeposits. The
+        // regrowth generation rides along, so a seam that grew back sits in
+        // different spots than the one that was mined out — and the server
+        // spawns its gems at exactly these coordinates. MIRRORED MATH: this
+        // expression must stay identical to the server's.
+        const gsalt = (this._gen.get(k) || 0) * GROW_GEN_STRIDE;
+        const h = (i, s) => this._h(i, kk, (s + this._oreSalt + gsalt) | 0);
+
+        const deposits = this._depositLayout(tier, poly, cx, cy, rockSz, h);
+        if (!deposits.length) { this._veinCache.set(k, null); return null; }
+
+        const body = new Path2D(), facet = new Path2D(), core = new Path2D();
+        const glintPts = [];
+        let big = null;
+        const put = (path, x, y, r, rot, scale, ox, oy) => {
+            const c = Math.cos(rot), s = Math.sin(rot);
+            GEM_CUT.forEach((p, i) => {
+                const px = p[0] * r * scale + ox, py = p[1] * r * scale + oy;
+                const wx = x + px * c - py * s;
+                const wy = y + px * s + py * c;
+                if (i === 0) path.moveTo(wx, wy); else path.lineTo(wx, wy);
+            });
+            path.closePath();
+        };
+        for (const d of deposits) {
+            put(body,  d.x, d.y, d.r, d.rot, 1,    0,           0);
+            put(facet, d.x, d.y, d.r, d.rot, 0.52, 0,           -d.r * 0.12);
+            put(core,  d.x, d.y, d.r, d.rot, 0.20, -d.r * 0.22, -d.r * 0.30);
+            // glint anchor: the crown's left corner catches the light
+            const gc = Math.cos(d.rot), gs = Math.sin(d.rot);
+            glintPts.push([d.x + (-0.35 * d.r) * gc - (-0.6 * d.r) * gs,
+                           d.y + (-0.35 * d.r) * gs + (-0.6 * d.r) * gc]);
+            if (d.big) big = [d.x, d.y];
+        }
+
+        art = { tier, body, facet, core, glintPts, big };
+        this._veinCache.set(k, art);
+        return art;
+    }
+
+    _buildVoronoiBoundary() {
+        const cols = this._cols, rows = this._rows;
+        const rockSz = cols / 50.0;
+        const h2 = (i, j) => this._vh2(i, j);
+        const sol = (c, r) => this._solid(c, r);
+
+        const clip = (poly, mx, my, ndx, ndy) => {
+            const out = [], n = poly.length;
+            for (let i = 0; i < n; i++) {
+                const [ax, ay] = poly[i], [bx, by] = poly[(i+1)%n];
+                const da = (ax-mx)*ndx + (ay-my)*ndy;
+                const db = (bx-mx)*ndx + (by-my)*ndy;
+                if (da <= 0) out.push([ax, ay]);
+                if ((da < 0) !== (db < 0)) {
+                    const t = da/(da-db);
+                    out.push([ax+t*(bx-ax), ay+t*(by-ay)]);
+                }
+            }
+            return out;
+        };
+
+        let maxLeft = 0, minRight = cols - 1, minLeft = cols, maxRight = 0;
+        for (let r = 0; r < rows; r++) {
+            let le = 0; while (le < cols && !sol(le, r)) le++;
+            let re = cols - 1; while (re >= 0 && !sol(re, r)) re--;
+            if (le < cols) { if (le > maxLeft) maxLeft = le; if (le < minLeft) minLeft = le; }
+            if (re >= 0)   { if (re < minRight) minRight = re; if (re > maxRight) maxRight = re; }
+        }
+        const vxMin = maxLeft / rockSz;
+        const vxMax = (minRight + 1) / rockSz;
+
+        // Lattice-index inclusion — matches server buildVoronoiColliders.
+        const viLo = Math.round(vxMin), viHi = Math.round(vxMax) - 1;
+        const vjLo = 0,                 vjHi = Math.round(rows / rockSz) - 1;
+
+        const incCache = new Map();
+        const polyCache = new Map();
+
+        for (let vj = vjLo; vj <= vjHi; vj++) {
+            for (let vi = viLo; vi <= viHi; vi++) {
+                const key = vi * 100003 + vj;
+                const [hx, hy] = h2(vi, vj);
+                const sx = vi+hx, sy = vj+hy;
+
+                let poly = [[sx-3,sy-3],[sx+3,sy-3],[sx+3,sy+3],[sx-3,sy+3]];
+                for (let dj = -2; dj <= 2 && poly.length >= 3; dj++) {
+                    for (let di = -2; di <= 2 && poly.length >= 3; di++) {
+                        if (di === 0 && dj === 0) continue;
+                        const [nhx, nhy] = h2(vi+di, vj+dj);
+                        const tx = vi+di+nhx, ty = vj+dj+nhy;
+                        poly = clip(poly, (sx+tx)/2, (sy+ty)/2, tx-sx, ty-sy);
+                    }
+                }
+                if (poly.length < 3) { incCache.set(key, false); continue; }
+                let area2 = 0;
+                for (let ai = 0; ai < poly.length; ai++) {
+                    const [ax, ay] = poly[ai], [bx, by] = poly[(ai+1)%poly.length];
+                    area2 += ax*by - bx*ay;
+                }
+                if (Math.abs(area2) / 2 < 0.05) { incCache.set(key, false); continue; }
+
+                // Tile-coord polygon cached for cracks + shatter effects
+                let pcx = 0, pcy = 0;
+                for (const p of poly) { pcx += p[0]; pcy += p[1]; }
+                pcx = pcx / poly.length * rockSz; pcy = pcy / poly.length * rockSz;
+                const tilePoly = poly.map(p => [p[0] * rockSz, p[1] * rockSz]);
+                const tilePath = new Path2D();
+                tilePath.moveTo(tilePoly[0][0], tilePoly[0][1]);
+                for (let pi = 1; pi < tilePoly.length; pi++)
+                    tilePath.lineTo(tilePoly[pi][0], tilePoly[pi][1]);
+                tilePath.closePath();
+                this._cellPolys.set(key, {
+                    k: key, poly: tilePoly, cx: pcx, cy: pcy, path: tilePath,
+                });
+
+                // Destroyed rocks are holes: excluded from fill and treated as
+                // "outside" by the silhouette edge test below.
+                if (this._rockDead.has(key)) { incCache.set(key, false); continue; }
+
+                incCache.set(key, true);
+                polyCache.set(key, { poly, sx, sy });
+            }
+        }
+
+        const isInc = (vi, vj) => incCache.get(vi * 100003 + vj) || false;
+
+        const boundaryEdges = [];
+
+        for (let vj = vjLo; vj <= vjHi; vj++) {
+            for (let vi = viLo; vi <= viHi; vi++) {
+                const key = vi * 100003 + vj;
+                if (!incCache.get(key)) continue;
+                const { poly, sx, sy } = polyCache.get(key);
+
+                for (let e = 0; e < poly.length; e++) {
+                    const [vax, vay] = poly[e], [vbx, vby] = poly[(e+1)%poly.length];
+                    const emx = (vax+vbx)/2, emy = (vay+vby)/2;
+                    const edx = vbx-vax, edy = vby-vay;
+                    const elen = Math.hypot(edx, edy);
+                    if (elen < 1e-6) continue;
+
+                    let nnx = -edy/elen, nny = edx/elen;
+                    if ((sx-emx)*nnx + (sy-emy)*nny > 0) { nnx = -nnx; nny = -nny; }
+
+                    const px = emx + nnx * 0.01, py = emy + nny * 0.01;
+
+                    let minDist = Infinity, nVi = vi, nVj = vj;
+                    for (let dj = -2; dj <= 2; dj++) {
+                        for (let di = -2; di <= 2; di++) {
+                            if (di === 0 && dj === 0) continue;
+                            const [nhx, nhy] = h2(vi+di, vj+dj);
+                            const nx = vi+di+nhx, ny = vj+dj+nhy;
+                            const d = (px-nx)*(px-nx) + (py-ny)*(py-ny);
+                            if (d < minDist) { minDist = d; nVi = vi+di; nVj = vj+dj; }
+                        }
+                    }
+
+                    if (!isInc(nVi, nVj)) {
+                        boundaryEdges.push([vax*rockSz, vay*rockSz, vbx*rockSz, vby*rockSz]);
+                    }
+                }
+            }
+        }
+
+        const SNAP = 1000;
+        const snapKey = (x, y) => Math.round(x*SNAP) + ',' + Math.round(y*SNAP);
+
+        const adj = new Map();
+        for (let i = 0; i < boundaryEdges.length; i++) {
+            const [ax, ay, bx, by] = boundaryEdges[i];
+            const ka = snapKey(ax, ay), kb = snapKey(bx, by);
+            if (!adj.has(ka)) adj.set(ka, []);
+            if (!adj.has(kb)) adj.set(kb, []);
+            adj.get(ka).push({ idx: i, x: bx, y: by });
+            adj.get(kb).push({ idx: i, x: ax, y: ay });
+        }
+
+        const used = new Uint8Array(boundaryEdges.length);
+        const loops = [];
+
+        for (let i = 0; i < boundaryEdges.length; i++) {
+            if (used[i]) continue;
+            used[i] = 1;
+            const [ax, ay, bx, by] = boundaryEdges[i];
+            const chain = [[ax, ay], [bx, by]];
+
+            let curKey = snapKey(bx, by);
+            while (true) {
+                const cands = adj.get(curKey);
+                if (!cands) break;
+                let next = null;
+                for (const c of cands) { if (!used[c.idx]) { next = c; break; } }
+                if (!next) break;
+                used[next.idx] = 1;
+                if (snapKey(next.x, next.y) === snapKey(chain[0][0], chain[0][1])) break;
+                chain.push([next.x, next.y]);
+                curKey = snapKey(next.x, next.y);
+            }
+
+            curKey = snapKey(ax, ay);
+            while (true) {
+                const cands = adj.get(curKey);
+                if (!cands) break;
+                let next = null;
+                for (const c of cands) { if (!used[c.idx]) { next = c; break; } }
+                if (!next) break;
+                used[next.idx] = 1;
+                chain.unshift([next.x, next.y]);
+                curKey = snapKey(next.x, next.y);
+            }
+
+            if (chain.length >= 3) loops.push(chain);
+        }
+
+        const path = new Path2D();
+        for (const loop of loops) {
+            if (loop.length < 3) continue;
+            path.moveTo(loop[0][0], loop[0][1]);
+            for (let i = 1; i < loop.length; i++)
+                path.lineTo(loop[i][0], loop[i][1]);
+            path.closePath();
+        }
+        return path;
     }
 
 
@@ -90,8 +1205,8 @@ class TerrainRenderer {
         if (!gl) {
             canvas = document.createElement('canvas');
             canvas.width = canvas.height = 1;
-            gl = canvas.getContext('webgl', { preserveDrawingBuffer: true })
-              || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true });
+            gl = canvas.getContext('webgl', { preserveDrawingBuffer: true, alpha: true, premultipliedAlpha: false })
+              || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true, alpha: true, premultipliedAlpha: false });
         }
         if (!gl) { this._noiseTileBuilding = false; return; }
 
@@ -99,53 +1214,53 @@ class TerrainRenderer {
 	                void main(){gl_Position=vec4(a_pos,0.,1.);}`;
 
         const FS = `precision highp float;
-                	uniform vec2  u_origin;
-                	uniform vec2  u_cellSz;
-                	uniform float u_sh;
-                	uniform float u_rockSz;
-                
-                 	vec2 hash2(vec2 p){
-                	    p=fract(p*vec2(5.3983,5.4427));
-                            p+=dot(p.yx,p.xy+vec2(21.5351,14.3137));
-                            return fract(vec2(p.x*p.y*95.4307,p.x*p.y*97.597));
-                        }
-                        float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-                
-                	void main(){
-                	    vec2 sc=vec2(gl_FragCoord.x, u_sh-gl_FragCoord.y);
-                	    vec2 p=((sc-u_origin)/u_cellSz)/u_rockSz;
-                	    vec2 n=floor(p), f=fract(p);
-                	
-                	    float md=8.; vec2 mr=vec2(0.), mg=vec2(0.);
-                	    for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
-                	        vec2 g=vec2(float(i),float(j));
-                	        vec2 r=g+hash2(n+g)-f;
-                	        float d=dot(r,r);
-                	        if(d<md){md=d;mr=r;mg=g;}
-                	    }
-                	
-                 	float bd=8.;
-                        for(int j=-2;j<=2;j++) for(int i=-2;i<=2;i++){
-                            vec2 g=mg+vec2(float(i),float(j));
-                            vec2 r=g+hash2(n+g)-f;
-                            if(dot(mr-r,mr-r)>1e-4)
-                            bd=min(bd,dot(.5*(mr+r),normalize(r-mr)));
-                        }
-                
-                        vec2 cell=n+mg;
-                        float cv1=(hash1(cell+vec2(42.,3. ))-.5)*.22;
-                        float cv2=(hash1(cell+vec2(17.,91.))-.5)*.08;
-                        float nl=length(mr);
-                        float lit=nl>1e-3?dot(mr/nl,normalize(vec2(-.7,-.7))):0.;
-                        float en=max(0.,1.-bd/.10); float ed=en*en*.55;
-                        float gr=(hash1(p*vec2(2719.,4357.))-.5)*.05;
-                        float sh=clamp(.52+lit*.28+cv1+cv2-ed+gr,.04,.96);
-                        gl_FragColor=vec4(
-                            (24.+sh*122.)/255.,
-                            (22.+sh*108.)/255.,
-                            (30.+sh*98. )/255.,
-                        1.);
-                }`;
+            uniform vec2  u_origin;
+            uniform vec2  u_cellSz;
+            uniform float u_sh;
+            uniform float u_rockSz;
+            uniform sampler2D u_seeds;
+
+            // Seed jitter baked on the CPU (same code as collision/polygons)
+            // and read back here — no GPU float math, no chance of desync.
+            vec2 hash2(vec2 p){
+                return texture2D(u_seeds,(p+vec2(8.5))/128.0).rg;
+            }
+
+            void main(){
+                vec2 sc=vec2(gl_FragCoord.x, u_sh-gl_FragCoord.y);
+                vec2 p=((sc-u_origin)/u_cellSz)/u_rockSz;
+                vec2 n=floor(p), f=fract(p);
+
+                float md=8.; vec2 mr=vec2(0.), mg=vec2(0.);
+                for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+                    vec2 g=vec2(float(i),float(j));
+                    vec2 r=g+hash2(n+g)-f;
+                    float d=dot(r,r);
+                    if(d<md){md=d;mr=r;mg=g;}
+                }
+
+                float bd=8.;
+                for(int j=-2;j<=2;j++) for(int i=-2;i<=2;i++){
+                    vec2 g=mg+vec2(float(i),float(j));
+                    vec2 r=g+hash2(n+g)-f;
+                    if(dot(mr-r,mr-r)>1e-4)
+                        bd=min(bd,dot(.5*(mr+r),normalize(r-mr)));
+                }
+
+                float nl=length(mr);
+                vec2 lh=hash2(n+mg);
+                float la=(lh.x-.5)*.9;
+                vec2 ldir=vec2(sin(la),-cos(la));
+                float lit=nl>1e-3?dot(mr/nl,ldir):0.;
+                float t=clamp(lit*.5+.5,0.,1.);
+                vec3 shadowC=vec3(20.,18.,25.)/255.;
+                vec3 mainC  =vec3(38.,34.,48.)/255.;
+                vec3 tintC  =vec3(58.,52.,68.)/255.;
+                vec3 cellC=t<0.33?shadowC:(t<0.67?mainC:tintC);
+                vec3 borderC=vec3(5.,4.,7.)/255.;
+                float isEdge=bd<0.036?1.:0.;
+                gl_FragColor=vec4(mix(cellC,borderC,isEdge),1.);
+            }`;
 
 // END VORONOI NOISE
 
@@ -171,6 +1286,29 @@ class TerrainRenderer {
         gl.enableVertexAttribArray(loc);
         gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
+        // Seed texture: lattice indices -8..119 mapped to a 128x128 RGBA8
+        // texture. Texel (i,j) holds the jitter for lattice cell (i-8, j-8),
+        // computed by the SAME _vh2 the polygons and collision use.
+        const seedTex = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, seedTex);
+        const sd = new Uint8Array(128 * 128 * 4);
+        for (let j = 0; j < 128; j++) {
+            for (let i = 0; i < 128; i++) {
+                const [rx, ry] = this._vh2(i - 8, j - 8);
+                const o = (j * 128 + i) * 4;
+                sd[o]     = Math.round(rx * 255);
+                sd[o + 1] = Math.round(ry * 255);
+                sd[o + 3] = 255;
+            }
+        }
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 128, 128, 0, gl.RGBA, gl.UNSIGNED_BYTE, sd);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.uniform1i(gl.getUniformLocation(prog, 'u_seeds'), 0);
+
         this._glCanvas  = canvas;
         this._gl        = gl;
         this._glOriginU = gl.getUniformLocation(prog, 'u_origin');
@@ -189,6 +1327,7 @@ class TerrainRenderer {
         this._buildContours();
         this._buildFacets();
     }
+
 
     _buildContours() {
         const cols = this._cols, rows = this._rows;
@@ -330,8 +1469,19 @@ class TerrainRenderer {
             }
             pts = np;
         }
+        const jagOut = (x, edgeSeed) => {
+            const blk = Math.floor(x / 5);
+            return 1 + Math.round(this._h(blk, edgeSeed, 60) * 2 + this._h(blk, edgeSeed + 7, 60) * 1);
+        };
         const out = [];
-        for (let i = 0; i < pts.length; i += 3) out.push(pts[i]);
+        for (let i = 0; i < pts.length; i += 3) {
+            let x = pts[i][0], y = pts[i][1];
+            if (x > 0.5 && x < cols - 0.5) {
+                if (y <= 0.5)             y = -jagOut(x, 0);
+                else if (y >= rows - 0.5) y = rows + jagOut(x, 1);
+            }
+            out.push([x, y]);
+        }
         return out.length >= 3 ? out : pts;
     }
 
@@ -352,17 +1502,7 @@ class TerrainRenderer {
         this._silFull = sf;
         this._silOuter = so;
 
-        const sc = new Path2D();
-        for (let li = 0; li < this._loopsSimplified.length; li++) {
-            if (!this._loopOuter[li]) continue;
-            const loop = this._loopsSimplified[li];
-            if (loop.length < 3) continue;
-            const smooth = this._smoothClipLoop(loop);
-            sc.moveTo(smooth[0][0], smooth[0][1]);
-            for (let q = 1; q < smooth.length; q++) sc.lineTo(smooth[q][0], smooth[q][1]);
-            sc.closePath();
-        }
-        this._silClip = sc;
+        this._silClip = this._buildVoronoiBoundary();
 
         let minc = this._cols, maxc = 0, minr = this._rows, maxr = 0, any = false;
         for (let r = 0; r < this._rows; r++)
@@ -762,6 +1902,21 @@ class TerrainRenderer {
     draw(ctx, px, py, ratio, gameWidth, gameHeight, screenW, screenH) {
         if (!this.ready) return;
 
+        // Landed cells fold back into the silhouette on a coalesced timer —
+        // a frontier catching up can land several at once, and rebuilding the
+        // whole boundary per cell is wasted work. 120ms of lateness hides
+        // completely behind the landing flash.
+        if (this._silRebuildAt && performance.now() >= this._silRebuildAt) {
+            this._silRebuildAt = 0;
+            this._silClip = this._buildVoronoiBoundary();
+            this._debugVoronoiSegs = null;
+        }
+
+        // tile -> world conversion for spatial audio (rock events arrive in
+        // renderer tile units; the sound system listens in world units)
+        this._world = { s: gameWidth / this._cols,
+                        hw: gameWidth / 2, hh: gameHeight / 2 };
+
         const originX = screenW / 2 - px - ratio * gameWidth  / 2;
         const originY = screenH / 2 - py - ratio * gameHeight / 2;
         const cellW   = ratio * gameWidth  / this._cols;
@@ -817,20 +1972,631 @@ class TerrainRenderer {
             const tly = -originY / cellH;
             const tlw =  screenW  / cellW;
             const tlh =  screenH  / cellH;
+            this._view = { tlx, tly, tlw, tlh };
+            const nowMs = performance.now();
+
+            // Damaged cells fade as they crack — barely at stage 1, down to
+            // ~45% opacity at stage 5 — and stage-5 cells also shake. Both
+            // effects need the cell punched OUT of the base blit (even-odd
+            // hole) and redrawn as a lone copy: alpha and movement on top of
+            // the opaque static rock would ghost.
+            //
+            // Perf: the punched clip and per-stage cell groups are CACHED and
+            // only rebuilt when rock state changes (TR events) — copying the
+            // full silhouette Path2D and blitting per cell every frame was a
+            // frame-time hog.
+            if (this._damageDirty || !this._damageBatch) {
+                this._damageDirty = false;
+                const batch = { holes: null, groups: [], shaking: [] };
+                const byStage = new Map();
+                for (const [k, frac] of this._rockHealth) {
+                    if (this._rockDead.has(k)) continue;
+                    const stage = this._stageOf(frac);
+                    if (stage < 1) continue;
+                    const cell = this._cellPolys.get(k);
+                    if (!cell) continue;
+                    if (!batch.holes) batch.holes = new Path2D(this._silClip);
+                    batch.holes.addPath(cell.path);
+                    if (stage >= 5) batch.shaking.push(cell);
+                    else {
+                        let g = byStage.get(stage);
+                        if (!g) { g = new Path2D(); byStage.set(stage, g); }
+                        g.addPath(cell.path);
+                    }
+                }
+                for (const [stage, path] of byStage)
+                    batch.groups.push({ path, alpha: 1 - 0.55 * Math.pow(stage / 5, 2) });
+                this._damageBatch = batch;
+            }
+            const dmgBatch = this._damageBatch;
 
             ctx.save();
-            ctx.clip(this._silClip);
+            ctx.clip(dmgBatch.holes || this._silClip, 'evenodd');
             ctx.globalAlpha = 1;
-            ctx.fillStyle = 'rgb(55,48,52)';
-            ctx.fillRect(0, 0, this._cols, this._rows);
+            let rockImg, rockImgIsBitmap = false;
             if (typeof this._glCanvas.transferToImageBitmap === 'function') {
-                const bm = this._glCanvas.transferToImageBitmap();
-                ctx.drawImage(bm, tlx, tly, tlw, tlh);
-                bm.close();
+                rockImg = this._glCanvas.transferToImageBitmap();
+                rockImgIsBitmap = true;
             } else {
-                ctx.drawImage(this._glCanvas, tlx, tly, tlw, tlh);
+                rockImg = this._glCanvas;
             }
+            ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
             ctx.restore();
+
+            const rockSz = this._cols / 50.0;
+            ctx.save();
+            ctx.globalAlpha = 1;
+            ctx.lineJoin    = 'round';
+            ctx.lineCap     = 'round';
+            ctx.strokeStyle = 'rgb(5,4,7)';
+            ctx.lineWidth   = 0.072 * rockSz;
+            ctx.stroke(this._silClip);
+            ctx.restore();
+
+            // The damaged cells themselves: each stage's cells are redrawn in
+            // ONE batched clip + blit at that stage's alpha. Stage-5 cells
+            // draw individually (per-cell tremble transform), clipped to
+            // their exact polygon so nothing spills over neighbours.
+            for (const g of dmgBatch.groups) {
+                ctx.save();
+                ctx.globalAlpha = g.alpha;
+                ctx.clip(g.path);
+                ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
+                ctx.restore();
+            }
+            for (const cell of dmgBatch.shaking) {
+                if (cell.cx < tlx - 3 || cell.cx > tlx + tlw + 3 ||
+                    cell.cy < tly - 3 || cell.cy > tly + tlh + 3) continue;
+                ctx.save();
+                ctx.globalAlpha = 0.45;
+                ctx.clip(cell.path);
+                const [ox, oy] = this._trembleOf(cell.k, nowMs);
+                ctx.translate(cell.cx + ox, cell.cy + oy);
+                ctx.scale(1.05, 1.05);
+                ctx.translate(-cell.cx, -cell.cy);
+                ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
+                // outer half of the stroke is clipped off; widen so the
+                // shaking rock's border still reads full weight
+                ctx.lineJoin    = 'round';
+                ctx.strokeStyle = 'rgb(5,4,7)';
+                ctx.lineWidth   = 0.11 * rockSz;
+                ctx.stroke(cell.path);
+                ctx.restore();
+            }
+            // ══ THE LIVING WALL: cells rising out of their own craters ══
+            // Drawn as their own layer (they're still holes to every other
+            // system) but textured with the SAME rock bitmap the shader just
+            // produced, clipped to the cell outline scaled about its centre.
+            // So a nub isn't a grey blob — it's genuine stone, the exact
+            // stone that will be there when it lands, just smaller.
+            if (this._growing.size) {
+                const many = this._growing.size > 12;   // perf guard: thin the dust
+                for (const [k, g] of this._growing) {
+                    const cell = this._cellPolys.get(k);
+                    if (!cell) continue;
+                    if (cell.cx < tlx - 4 || cell.cx > tlx + tlw + 4 ||
+                        cell.cy < tly - 4 || cell.cy > tly + tlh + 4) continue;
+                    const p  = Math.min(1, Math.max(0, (nowMs - g.start) / GROW_MS));
+                    const sc = GROW_START + (1 - GROW_START) * growEase(p);
+                    // visual-only elastic settle on the last stretch: the
+                    // stone overshoots ~4% and sinks back as it locks in.
+                    // Collision never overshoots; nobody can feel 4%.
+                    const scV = p > 0.85
+                        ? sc * (1 + 0.05 * Math.sin((p - 0.85) / 0.15 * Math.PI) * (1 - p))
+                        : sc;
+                    // straining: it shakes harder than a crumbling rock does
+                    const [tox, toy] = this._trembleOf(k, nowMs);
+                    const ox = tox * 1.5 * (1 - p * 0.6), oy = toy * 1.5 * (1 - p * 0.6);
+
+                    ctx.beginPath();
+                    for (let i = 0; i < cell.poly.length; i++) {
+                        const vx = cell.cx + (cell.poly[i][0] - cell.cx) * scV + ox;
+                        const vy = cell.cy + (cell.poly[i][1] - cell.cy) * scV + oy;
+                        if (i === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+                    }
+                    ctx.closePath();
+
+                    // the forge glow under the rim: hot while it's pushing up,
+                    // gone by the time it lands
+                    const heat = Math.pow(1 - p, 1.6);
+                    if (heat > 0.02) {
+                        ctx.save();
+                        ctx.strokeStyle = `rgba(255,150,60,${0.42 * heat})`;
+                        ctx.lineWidth = 0.24 * rockSz * (0.35 + 0.65 * heat);
+                        ctx.lineJoin = 'round';
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                    // real rock, cut to the growing outline
+                    ctx.save();
+                    ctx.clip();
+                    ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
+                    // fresh stone is dark and wet-looking, lightening as it sets
+                    ctx.fillStyle = `rgba(5,4,7,${0.34 * (1 - p)})`;
+                    ctx.fill();
+                    ctx.restore();
+                    // its own border, same weight as every other rock face
+                    ctx.save();
+                    ctx.lineJoin = 'round';
+                    ctx.strokeStyle = 'rgb(5,4,7)';
+                    ctx.lineWidth = 0.072 * rockSz;
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Cracks show damage taken on the way up — NOT how small it
+                    // still is. A rising rock's health fraction is low simply
+                    // because it isn't finished, so measure it against the
+                    // health the growth curve says it should have by now: a
+                    // fresh nub is pristine, a beaten one is webbed.
+                    const frac = this._rockHealth.get(k);
+                    const expect = Math.max(GROW_START, growEase(p));
+                    const intact = frac === undefined ? 1
+                        : Math.max(0, Math.min(1, frac / expect));
+                    const stage = this._stageOf(intact);
+                    if (stage >= 1) {
+                        const cp = this._getCrackPath(k, stage);
+                        if (cp) {
+                            ctx.save();
+                            ctx.clip();
+                            ctx.translate(cell.cx + ox, cell.cy + oy);
+                            ctx.scale(scV, scV);
+                            ctx.translate(-cell.cx, -cell.cy);
+                            ctx.lineJoin = 'round';
+                            ctx.lineCap = 'round';
+                            const w = 0.035 * rockSz * (0.38 + 0.10 * stage) / scV;
+                            ctx.strokeStyle = 'rgba(5,4,7,0.95)';
+                            ctx.lineWidth = w * 2.4;
+                            ctx.stroke(cp);
+                            const cpal = TerrainRenderer.CRACK_PAL[this._ore.get(k) ?? 0]
+                                      || TerrainRenderer.CRACK_PAL[0];
+                            ctx.strokeStyle = `rgba(${cpal.hot},0.5)`;
+                            ctx.lineWidth = w * 0.55;
+                            ctx.stroke(cp);
+                            ctx.restore();
+                        }
+                    }
+
+                    // displaced ground: dust and grit shoved off the rim as
+                    // the stone widens
+                    if (p < 1 && this._pebbles.length < 80) {
+                        const lt = this._growDust.get(k) || 0;
+                        if (nowMs - lt > (many ? 240 : 120)) {
+                            this._growDust.set(k, nowMs);
+                            const kk = k & 0xffff;
+                            const seq = Math.floor(nowMs / 120) & 0xff;
+                            for (let i = 0; i < (many ? 1 : 2); i++) {
+                                const ei = Math.floor(this._h(seq * 2 + i, kk, 174) * cell.poly.length);
+                                const A = cell.poly[ei % cell.poly.length];
+                                const B = cell.poly[(ei + 1) % cell.poly.length];
+                                const tt = this._h(seq * 2 + i, kk, 175);
+                                const ex = A[0] + (B[0] - A[0]) * tt;
+                                const ey = A[1] + (B[1] - A[1]) * tt;
+                                const sx2 = cell.cx + (ex - cell.cx) * scV;
+                                const sy2 = cell.cy + (ey - cell.cy) * scV;
+                                const dl = Math.hypot(sx2 - cell.cx, sy2 - cell.cy) || 1;
+                                this._pebbles.push({
+                                    x: sx2, y: sy2,
+                                    dx: (sx2 - cell.cx) / dl, dy: (sy2 - cell.cy) / dl,
+                                    born: nowMs, seed: (kk + seq * 17 + i * 71) & 0xffff,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ══ Landing: the moment a cell locks into the wall ══
+            if (this._growFx.length) {
+                ctx.save();
+                ctx.lineJoin = 'round';
+                for (let i = this._growFx.length - 1; i >= 0; i--) {
+                    const fx = this._growFx[i];
+                    const t = (nowMs - fx.born) / 250;
+                    if (t >= 1) { this._growFx.splice(i, 1); continue; }
+                    const cell = this._cellPolys.get(fx.k);
+                    if (!cell) { this._growFx.splice(i, 1); continue; }
+                    const a = Math.pow(1 - t, 1.5);
+                    ctx.strokeStyle = `rgba(255,214,150,${0.7 * a})`;
+                    ctx.lineWidth = 0.16 * rockSz * (0.4 + 0.6 * a);
+                    ctx.stroke(cell.path);
+                    // a shock ring rolling off the new face
+                    ctx.beginPath();
+                    ctx.arc(fx.cx, fx.cy, (0.4 + 1.5 * (1 - Math.pow(1 - t, 3))) * rockSz, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(190,175,205,${0.45 * a})`;
+                    ctx.lineWidth = 0.09 * rockSz * a + 0.01;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            if (rockImgIsBitmap) rockImg.close();
+
+            // ── Damage overlay per rock: darkening + pockmarks, bite notches
+            //    out of the rim, crack webs, stage-5 tremble + spew. ──
+            if (this._rockHealth.size) {
+                ctx.save();
+                ctx.lineJoin = 'round';
+                ctx.lineCap  = 'round';
+                for (const [k, frac] of this._rockHealth) {
+                    if (this._rockDead.has(k)) continue;
+                    const cell = this._cellPolys.get(k);
+                    if (!cell) continue;
+                    if (cell.cx < tlx - 3 || cell.cx > tlx + tlw + 3 ||
+                        cell.cy < tly - 3 || cell.cy > tly + tlh + 3) continue;
+                    const stage = this._stageOf(frac);
+                    const bites = this._getBitePath(k);
+                    const path  = stage >= 1 ? this._getCrackPath(k, stage) : null;
+                    if (!bites && !path) continue;
+                    ctx.save();
+                    ctx.clip(cell.path);
+                    // battle damage: the rock face darkens as it weakens
+                    // (drawn before the tremble so the tint covers the whole
+                    // cell with no slivers)
+                    if (stage >= 1) {
+                        ctx.fillStyle = `rgba(5,4,7,${0.06 * stage})`;
+                        ctx.fill(cell.path);
+                    }
+                    // crumbling rocks: whole overlay shakes with the rock face
+                    // (identical transform to the shaken re-blit, so dents and
+                    // cracks stay glued to the stone)
+                    if (stage >= 5) {
+                        const [ox, oy] = this._trembleOf(k, nowMs);
+                        ctx.translate(cell.cx + ox, cell.cy + oy);
+                        ctx.scale(1.05, 1.05);
+                        ctx.translate(-cell.cx, -cell.cy);
+                    }
+                    // pockmarks: the surface looks beaten up at low health
+                    if (stage >= 3) {
+                        const pocks = this._getPockPath(k, stage);
+                        if (pocks) {
+                            ctx.fillStyle = 'rgba(5,4,7,0.55)';
+                            ctx.fill(pocks);
+                        }
+                    }
+                    // rim bites: the border black eats into the rock where
+                    // bullets have been landing
+                    if (bites) {
+                        ctx.fillStyle = 'rgb(5,4,7)';
+                        ctx.fill(bites);
+                    }
+                    if (path) {
+                        const ht    = this._hitFlash.get(k);
+                        const hitB  = ht !== undefined && nowMs - ht < 150 ? 1 - (nowMs - ht) / 150 : 0;
+                        // a new crack slams in white-hot and over-wide, then
+                        // settles fast — no soft fade-in
+                        const st    = this._crackSnap.get(k);
+                        const snap  = st !== undefined && nowMs - st < 220
+                            ? Math.pow(1 - (nowMs - st) / 220, 2) : 0;
+                        const boost = Math.max(hitB, snap);
+                        // discreet: damage whispers, the ore does the
+                        // talking
+                        const a = 0.42 + 0.045 * stage;
+                        const w = 0.035 * rockSz * (0.38 + 0.10 * stage) * (1 + snap);
+                        // cracks glow in the rock's ore color: molten orange
+                        // for barren stone, copper / azurite / shard hues for
+                        // ore — the payload shows through the damage
+                        const cpal = TerrainRenderer.CRACK_PAL[this._ore.get(k) ?? 0]
+                                  || TerrainRenderer.CRACK_PAL[0];
+                        // crevice shadow (same near-black as the rock borders)
+                        ctx.strokeStyle = 'rgba(5,4,7,0.95)';
+                        ctx.lineWidth   = w * 2.4;
+                        ctx.stroke(path);
+                        // molten depths
+                        ctx.strokeStyle = `rgba(${cpal.deep},${a})`;
+                        ctx.lineWidth   = w * 1.3;
+                        ctx.stroke(path);
+                        // hot core, brightens on hit
+                        ctx.strokeStyle = `rgba(${cpal.hot},${Math.min(1, a + boost * 0.5)})`;
+                        ctx.lineWidth   = w * 0.55;
+                        ctx.stroke(path);
+                        // bright hairline at every stage — glowier on hit
+                        ctx.strokeStyle = `rgba(${cpal.hair},${Math.max(0.13 + 0.04 * stage, boost * 0.8)})`;
+                        ctx.lineWidth   = w * 0.22;
+                        ctx.stroke(path);
+                    }
+                    ctx.restore();
+                    // crumbling rocks SPEW particles off their face
+                    if (stage >= 5 && this._pebbles.length < 80) {
+                        const lt = this._lastTrickle.get(k) || 0;
+                        if (nowMs - lt > 120) {
+                            this._lastTrickle.set(k, nowMs);
+                            const kk = k & 0xffff;
+                            const seq = Math.floor(nowMs / 120) & 0xff;
+                            for (let pi = 0; pi < 2; pi++) {
+                                const ei = Math.floor(this._h(seq * 2 + pi, kk, 150) * cell.poly.length);
+                                const A = cell.poly[ei], B = cell.poly[(ei + 1) % cell.poly.length];
+                                const tt = this._h(seq * 2 + pi, kk, 151);
+                                const px = A[0] + (B[0] - A[0]) * tt;
+                                const py = A[1] + (B[1] - A[1]) * tt;
+                                const dl = Math.hypot(px - cell.cx, py - cell.cy) || 1;
+                                this._pebbles.push({
+                                    x: px, y: py,
+                                    dx: (px - cell.cx) / dl, dy: (py - cell.cy) / dl,
+                                    born: nowMs, seed: (kk + seq * 31 + pi * 47) & 0xffff,
+                                });
+                            }
+                        }
+                    }
+                }
+                ctx.restore();
+            }
+
+            // ── Ore markings: one crystal per deposit, drawn on the rock
+            //    face (clipped to the cell), trembling exactly with the host
+            //    rock and drawn ABOVE the crack overlay — the treasure stays
+            //    readable through the damage, only going half-faint by the
+            //    final stage. Break the rock and each crystal becomes a
+            //    pickup at that same spot. ──
+            if (this._ore.size) {
+                ctx.save();
+                ctx.lineJoin = 'round';
+                ctx.lineCap  = 'round';
+                for (const [k, tier] of this._ore) {
+                    if (this._rockDead.has(k)) continue;
+                    const cell = this._cellPolys.get(k);
+                    if (!cell) continue;
+                    if (cell.cx < tlx - 3 || cell.cx > tlx + tlw + 3 ||
+                        cell.cy < tly - 3 || cell.cy > tly + tlh + 3) continue;
+                    const art = this._getVeinArt(k, tier);
+                    if (!art) continue;
+                    const pal   = TerrainRenderer.ORE_PAL[tier];
+                    const frac  = this._rockHealth.get(k);
+                    const stage = frac === undefined ? 0 : this._stageOf(frac);
+                    // A freshly grown seam doesn't just appear: the rock lands
+                    // first, then its crystals push through the face one at a
+                    // time. `sprout` is 0..1 across that window, else null.
+                    let sprout = null;
+                    const spAt = this._oreSprout.get(k);
+                    if (spAt !== undefined) {
+                        const st = (nowMs - spAt) / GROW_ORE_MS;
+                        if (st >= 1) { this._oreSprout.delete(k); this._sproutArt.delete(k); }
+                        else sprout = Math.max(0, st);
+                    }
+
+                    // the core crystal's aura bleeds a little past its cell —
+                    // treasure glowing through the mountain, kept quiet and
+                    // slow so it marks the spot without screaming
+                    if ((tier === 3 || tier === 4) && art.big) {
+                        // emeralds breathe faster, wider and brighter — the
+                        // rarest thing in the wall should be felt before
+                        // it's seen
+                        const em = tier === 4;
+                        const pulse = 0.5 + 0.5 * Math.sin(nowMs / (em ? 1100 : 1400) + (k % 31));
+                        const gr = rockSz * (em ? 0.68 + 0.14 * pulse : 0.55 + 0.10 * pulse);
+                        const rgb = em ? '111,245,168' : '217,138,240';
+                        // the aura swells in with the crystal, not before it
+                        const a0 = (em ? 0.14 + 0.10 * pulse : 0.10 + 0.07 * pulse)
+                                 * (sprout === null ? 1 : sprout * sprout);
+                        const g = ctx.createRadialGradient(art.big[0], art.big[1], 0,
+                                                           art.big[0], art.big[1], gr);
+                        g.addColorStop(0, `rgba(${rgb},${a0})`);
+                        g.addColorStop(1, `rgba(${rgb},0)`);
+                        ctx.fillStyle = g;
+                        ctx.beginPath();
+                        ctx.arc(art.big[0], art.big[1], gr, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    ctx.save();
+                    ctx.clip(cell.path);
+                    if (stage >= 5) {
+                        const [ox, oy] = this._trembleOf(k, nowMs);
+                        ctx.translate(cell.cx + ox, cell.cy + oy);
+                        ctx.scale(1.05, 1.05);
+                        ctx.translate(-cell.cx, -cell.cy);
+                    }
+                    ctx.globalAlpha = 1 - 0.275 * Math.pow(stage / 5, 2);
+                    const baseA = ctx.globalAlpha;
+
+                    if (sprout !== null) {
+                        // ── the seam pushing through: one stone at a time,
+                        //    each punching out with a little overshoot ──
+                        const parts = this._getSproutParts(k, tier);
+                        if (parts) {
+                            for (let di = 0; di < parts.length; di++) {
+                                const dt = (sprout - di * 0.125) / 0.25; // 150ms apart, 300ms each
+                                if (dt <= 0) continue;
+                                const d = parts[di];
+                                const e = dt >= 1 ? 1 : 1 - Math.pow(1 - dt, 3);
+                                const os = dt >= 1 ? 1 : e * (1 + 0.25 * (1 - dt));
+                                ctx.save();
+                                ctx.translate(d.x, d.y);
+                                ctx.scale(os, os);
+                                ctx.fillStyle = pal.mid;
+                                ctx.fill(d.body);
+                                ctx.strokeStyle = pal.dark;
+                                ctx.lineWidth = 0.022 * rockSz / os;
+                                ctx.stroke(d.body);
+                                ctx.fillStyle = pal.light;
+                                ctx.fill(d.facet);
+                                ctx.fillStyle = pal.core;
+                                ctx.fill(d.core);
+                                ctx.restore();
+                                // the tick of light as it breaks the surface
+                                if (dt < 0.4) {
+                                    const fa = 1 - dt / 0.4;
+                                    ctx.save();
+                                    ctx.globalAlpha = baseA * fa;
+                                    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+                                    ctx.lineWidth = 0.03 * rockSz * fa;
+                                    ctx.beginPath();
+                                    ctx.arc(d.x, d.y, d.r * (1.1 + 1.4 * (1 - fa)), 0, Math.PI * 2);
+                                    ctx.stroke();
+                                    ctx.restore();
+                                }
+                            }
+                        }
+                    } else {
+                    // the layered cut: dark rim, mid body, light table, core
+                    ctx.fillStyle = pal.mid;
+                    ctx.fill(art.body);
+                    ctx.strokeStyle = pal.dark;
+                    ctx.lineWidth = 0.022 * rockSz;
+                    ctx.stroke(art.body);
+                    ctx.fillStyle = pal.light;
+                    ctx.fill(art.facet);
+                    ctx.fillStyle = pal.core;
+                    ctx.fill(art.core);
+
+                    // embedded crystals sit still (free gems get the spin) —
+                    // but rarely, one throws a proper spark: a quick 4-point
+                    // flare, each crystal on its own 9-15s clock
+                    const kk = k & 0xffff;
+                    const baseAlpha = ctx.globalAlpha;
+                    for (let gi = 0; gi < art.glintPts.length; gi++) {
+                        // emeralds throw sparks twice as often as anything else
+                        const period = (tier === 4 ? 4500 : 9000) + this._h(gi, kk, 240) * (tier === 4 ? 3000 : 6000);
+                        const phase  = this._h(gi, kk, 241) * period;
+                        const tt = ((nowMs + phase) % period) / 520;
+                        if (tt >= 1) continue;
+                        const gp = art.glintPts[gi];
+                        const ga = Math.sin(tt * Math.PI);
+                        const gr2 = 0.05 * rockSz * ga;
+                        const spin = tt * 0.9;
+                        ctx.globalAlpha = baseAlpha * ga;
+                        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                        ctx.beginPath();
+                        ctx.arc(gp[0], gp[1], gr2 * 0.45, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+                        ctx.lineWidth = gr2 * 0.32;
+                        ctx.beginPath();
+                        for (let a = 0; a < 4; a++) {
+                            const ang = spin + a * Math.PI / 2;
+                            const arm = gr2 * (a % 2 ? 1.6 : 2.6);
+                            ctx.moveTo(gp[0], gp[1]);
+                            ctx.lineTo(gp[0] + Math.cos(ang) * arm,
+                                       gp[1] + Math.sin(ang) * arm);
+                        }
+                        ctx.stroke();
+                        ctx.globalAlpha = baseAlpha;
+                    }
+                    }   // ← end of the settled-seam branch (sprout === null)
+                    ctx.restore();
+                }
+                ctx.restore();
+            }
+
+            // ── Impact feedback: flash + sparks and dark chips flying back
+            //    off the rock face (cone away from the rock), chips settle on
+            //    the ground and fade. ──
+            if (this._impacts.length || this._pebbles.length) {
+                const CHIPC = ['rgb(5,4,7)', 'rgb(14,12,19)', 'rgb(26,23,33)'];
+                ctx.save();
+                for (let i = this._impacts.length - 1; i >= 0; i--) {
+                    const im = this._impacts[i];
+                    const dt = nowMs - im.born;
+                    const tc = dt / 1800;
+                    if (tc >= 1) { this._impacts.splice(i, 1); continue; }
+                    const baseAng = Math.atan2(im.dy ?? 0, im.dx ?? 1);
+                    // grind scrapes render at half scale with fewer chips
+                    const isc = im.small ? 0.45 : 1;
+                    // brief warm flash at the impact point
+                    const ts = dt / 280;
+                    if (ts < 1) {
+                        ctx.fillStyle = `rgba(255,235,180,${(1 - ts) * (im.small ? 0.45 : 0.9)})`;
+                        ctx.beginPath();
+                        ctx.arc(im.x, im.y, 0.13 * rockSz * isc * (1 - ts * 0.6), 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    // a good spray of rock chips: fly out fast off the rock
+                    // face, then lie on the ground and fade
+                    const fly = Math.min(1, tc / 0.3);
+                    const fe  = 1 - Math.pow(1 - fly, 3);
+                    const al  = tc < 0.5 ? 0.9 : 0.9 * (1 - (tc - 0.5) / 0.5);
+                    ctx.globalAlpha = al;
+                    for (let s = 0; s < (im.small ? 5 : 12); s++) {
+                        const ang = baseAng + (this._h(s, im.seed, 55) - 0.5) * 1.5;
+                        const sp  = (0.2 + this._h(s, im.seed, 56) * 0.75) * rockSz * isc;
+                        const sz  = (0.016 + this._h(s, im.seed, 57) * 0.028) * rockSz * (im.small ? 0.8 : 1);
+                        ctx.save();
+                        ctx.translate(im.x + Math.cos(ang) * fe * sp,
+                                      im.y + Math.sin(ang) * fe * sp);
+                        ctx.rotate(ang + fe * (this._h(s, im.seed, 58) - 0.5) * 8);
+                        ctx.fillStyle = CHIPC[s % 3];
+                        ctx.fillRect(-sz, -sz * 0.7, sz * 2, sz * 1.4);
+                        ctx.restore();
+                    }
+                    ctx.globalAlpha = 1;
+                }
+                // spew particles from crumbling rocks
+                for (let i = this._pebbles.length - 1; i >= 0; i--) {
+                    const pb = this._pebbles[i];
+                    const tp = (nowMs - pb.born) / 1100;
+                    if (tp >= 1) { this._pebbles.splice(i, 1); continue; }
+                    const fe = 1 - Math.pow(1 - Math.min(1, tp / 0.35), 3);
+                    const range = (0.35 + this._h(1, pb.seed, 61) * 0.45) * rockSz;
+                    const sz = (0.018 + this._h(0, pb.seed, 60) * 0.022) * rockSz;
+                    ctx.globalAlpha = tp < 0.4 ? 0.85 : 0.85 * (1 - (tp - 0.4) / 0.6);
+                    ctx.fillStyle = CHIPC[pb.seed % 3];
+                    ctx.fillRect(pb.x + pb.dx * fe * range - sz,
+                                 pb.y + pb.dy * fe * range - sz, sz * 2, sz * 2);
+                }
+                ctx.globalAlpha = 1;
+                ctx.restore();
+            }
+
+            // ── Shatter: brief flash + dust ring, then ~50 black rock chips
+            //    flying outward with spin, eased burst. ──
+            if (this._fx.length) {
+                const CHIPS = ['rgb(5,4,7)', 'rgb(14,12,19)', 'rgb(26,23,33)'];
+                ctx.save();
+                for (let i = this._fx.length - 1; i >= 0; i--) {
+                    const fx = this._fx[i];
+                    const t  = (nowMs - fx.born) / 620;
+                    if (t < 0) continue;   // hit-stop: burst starts after the freeze
+                    if (t >= 1) { this._fx.splice(i, 1); continue; }
+                    const eo   = 1 - Math.pow(1 - t, 4);            // easeOutQuart: violent start
+                    const fade = t < 0.5 ? 1 : 1 - (t - 0.5) / 0.5;
+                    // hard white flash filling the rock's silhouette
+                    if (t < 0.12) {
+                        ctx.fillStyle = `rgba(240,232,250,${(1 - t / 0.12) * 0.9})`;
+                        ctx.fill(fx.path);
+                    }
+                    // fast double dust ring
+                    for (let rgi = 0; rgi < 2; rgi++) {
+                        const rt = rgi === 0 ? t : (t - 0.07) / 0.93;
+                        if (rt <= 0 || rt >= 1) continue;
+                        const rq = 1 - Math.pow(1 - rt, 4);          // easeOutQuart
+                        ctx.beginPath();
+                        ctx.arc(fx.cx, fx.cy, (0.25 + (rgi ? 1.9 : 3.0) * rq) * rockSz, 0, Math.PI * 2);
+                        ctx.strokeStyle = `rgba(110,100,125,${Math.pow(1 - rt, 1.5) * 0.6})`;
+                        ctx.lineWidth   = 0.12 * rockSz * (1 - rt) + 0.01;
+                        ctx.stroke();
+                    }
+                    // colored firework streaks flying out with the debris
+                    if (fx.sparks) {
+                        ctx.lineCap = 'round';
+                        const pal = fx.colors || FW_COLORS;
+                        for (const s of fx.sparks) {
+                            const r2 = eo * s.sp * rockSz, r1 = r2 * 0.6;
+                            const ca = Math.cos(s.ang), sa = Math.sin(s.ang);
+                            ctx.strokeStyle = `rgba(${pal[s.ci]},${fade * 0.9})`;
+                            ctx.lineWidth   = 0.028 * rockSz * (1 - t * 0.5);
+                            ctx.beginPath();
+                            ctx.moveTo(fx.cx + ca * r1, fx.cy + sa * r1);
+                            ctx.lineTo(fx.cx + ca * r2, fx.cy + sa * r2);
+                            ctx.stroke();
+                        }
+                    }
+                    // black rock chips
+                    ctx.globalAlpha = fade;
+                    for (const p of fx.parts) {
+                        const dist = eo * p.sp * rockSz;
+                        const px = fx.cx + p.ox + Math.cos(p.ang) * dist;
+                        const py = fx.cy + p.oy + Math.sin(p.ang) * dist;
+                        const s  = p.size * rockSz * (1 - t * 0.6);
+                        ctx.save();
+                        ctx.translate(px, py);
+                        ctx.rotate(p.ang + p.spin * eo);
+                        ctx.fillStyle = CHIPS[p.shade];
+                        ctx.fillRect(-s, -s * p.sq, s * 2, s * 2 * p.sq);
+                        ctx.restore();
+                    }
+                    ctx.globalAlpha = 1;
+                }
+                ctx.restore();
+            }
         } else {
             const order = [1, 2, 3, 0, 4, 5];
             const drawList = order.map(i => {
@@ -856,6 +2622,28 @@ class TerrainRenderer {
                 }
                 ctx.restore();
             }
+        }
+
+        // ── Collision debug overlay ─────────────────────────────────────────
+        // Toggle from the browser console:  terrainRenderer.debugCollision = true
+        if (this.debugCollision) {
+            const segs = this._buildVoronoiDebugSegs();
+            ctx.save();
+            ctx.strokeStyle = 'yellow';
+            ctx.lineWidth   = 0.12 * (this._cols / 50.0);
+            ctx.lineCap     = 'butt';
+            ctx.beginPath();
+            for (const [ax, ay, bx, by] of segs) {
+                ctx.moveTo(ax, ay);
+                ctx.lineTo(bx, by);
+            }
+            ctx.stroke();
+            if (this._silClip) {
+                ctx.strokeStyle = 'cyan';
+                ctx.lineWidth   = 0.08 * (this._cols / 50.0);
+                ctx.stroke(this._silClip);
+            }
+            ctx.restore();
         }
 
         ctx.restore();

@@ -1,6 +1,6 @@
 const config = {
     graphical: {
-        borderChunk: 6,
+        borderChunk: 7.2,
         barChunk: 5,
         mininumBorderChunk: 0.5,
         deathBlurAmount: 3,
@@ -46,6 +46,12 @@ const config = {
         autoLevelUp: false,
         centeredMinimap: false,
         incognitoMode: false,
+        // Dig Wars toggles
+        gemPopups: true,
+        gemSounds: true,
+        satchelWarning: true,
+        leaderIndicators: true,
+        warBar: true,
     }
   };
   export { config }

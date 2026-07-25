@@ -1217,6 +1217,37 @@ class io_scaleWithMaster extends IO {
     }
 }
 
+// Dig Wars: the rockline is an enemy too. When a drone has no player
+// command (override/autofire off) and no living target, it chews on the
+// nearest rock face instead of just orbiting its master. No-ops in
+// gamemodes without terrain. acceptsFromTop = false so a real target or a
+// player order always wins.
+class io_minesRocks extends IO {
+    constructor(body) {
+        super(body);
+        this.acceptsFromTop = false;
+        this.tick = ran.irandom(8);
+        this.rock = null;
+    }
+    think(input) {
+        if (input.main || input.alt || input.target != null) return {};
+        if (this.body.master.autoOverride) return {};
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        if (!tg || !tg._voronoiMap) return {};
+        if (++this.tick >= 8 || (this.rock && !this.rock.alive)) {
+            this.tick = 0;
+            this.rock = tg.nearestRock(this.body.x, this.body.y, 420);
+        }
+        if (!this.rock || !this.rock.alive) return {};
+        return {
+            target: { x: this.rock.wx - this.body.x, y: this.rock.wy - this.body.y },
+            goal: { x: this.rock.wx, y: this.rock.wy },
+            fire: true,
+            power: 1,
+        };
+    }
+}
+
 let ioTypes = {
     //misc
     zoom: io_zoom,
@@ -1253,6 +1284,7 @@ let ioTypes = {
     hangOutNearMaster: io_hangOutNearMaster,
     fleeAtLowHealth: io_fleeAtLowHealth,
     wanderAroundMap: io_wanderAroundMap,
+    minesRocks: io_minesRocks,
 };
 
 module.exports = { ioTypes, IO };

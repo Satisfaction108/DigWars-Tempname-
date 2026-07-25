@@ -28,7 +28,7 @@ module.exports = {
 
             properties: {
                 teams: 2,
-                bot_cap: 80
+                bot_cap: 0
             }
         },
         {
@@ -172,7 +172,7 @@ module.exports = {
                  + "Please report any bugs you encounter!",
     token_message: "Friendly reminder: Please do not repeatedly kill others with an overpowered tank.",
 
-    chat_message_duration: 15_000,
+    chat_message_duration: 9_000,
     popup_message_duration: 10_000,
     sanitize_chat_input: true,
 
@@ -201,6 +201,16 @@ module.exports = {
 
     level_cap: 100,
     level_cap_cheat: 45,
+
+    // DIG WARS: everyone spawns straight at level 45, full size, with all
+    // skill points — progression lives in the gem economy, not levels.
+    spawn_at_max_level: true,
+    // The old level-up paths (options-menu checkbox + 'L' key) — disabled,
+    // not removed. Flip to true to bring manual leveling back.
+    manual_level_up: false,
+    // Incognito is gone in Dig Wars — wealth is public by design. The
+    // client UI no longer offers it; this also ignores the spawn flag.
+    allow_incognito: false,
 
     skill_cap: 9,
     tier_cap: 100,

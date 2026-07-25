@@ -139,6 +139,7 @@ const global = {
 
     KEY_SCREENSHOT: 81,//Q
     KEY_RECORD: 90,//Z
+    KEY_TOGGLE_MAP: 70,// F
 
     KEY_UPGRADE_ATK: 49,// 1
     KEY_UPGRADE_HTL: 50,// 2
@@ -222,7 +223,10 @@ const global = {
             switchButton: Region(2),
             toggleBoxes: Region(100),
             HoverBoxes: Region(100),
-        }
+        },
+        // Dig Wars vault UI: 10 deposit, 11 cancel (amount comes from the
+        // HTML input overlay)
+        vault: Region(12)
     },
     dailyTankAd: {
         render: undefined,
@@ -268,6 +272,40 @@ const global = {
             active: false,
             color: "#000000"
         },
+    },
+    // Dig Wars satchel state (server 'GEM' messages) + pickup popup queue
+    gems: {
+        carried: 0,
+        cap: 0,
+        banked: 0,
+        combo: 0,
+        lastPickup: -1e9,
+        flashAt: -1e9,
+        fullAt: -1e9,
+        popups: [],
+    },
+    // The #1 player's live position ('LA' messages, 250ms) for the
+    // screen-edge leader arrow
+    leader: { id: -1, x: 0, y: 0, at: -1e9 },
+    // War score: each team's banked vault total ('TB' messages, 250ms)
+    teamBanked: { blue: 0, red: 0, at: -1e9 },
+    // Teammates ('TM' messages, 250ms): [{id, name, x, y}]
+    teammates: [],
+    // Team enemy pings ('EP' messages): [{x, y, at}], expire client-side
+    enemyPings: [],
+    // 'global' | 'team' — which audience chat messages go to
+    chatMode: 'global',
+    // The full-map overlay (Fortnite-style), toggled by KEY_TOGGLE_MAP.
+    // zoom 1..4, (cx, cy) = world-space view center.
+    showBigMap: false,
+    bigMap: { zoom: 1, cx: 0, cy: 0, dragging: false, lastX: 0, lastY: 0 },
+    // Dig Wars vault pads ('TG' snapshot) + the local player's pad state
+    vaults: [],
+    vault: {
+        onPad: false,
+        remaining: 0,       // active channel: dust left to bank
+        total: 0,           // active channel: requested amount (0 = idle)
+        doneAt: -1e9,       // completion flash timestamp
     },
     bandwidth: {
         currentHa: 0,

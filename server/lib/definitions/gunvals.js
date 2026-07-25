@@ -20,11 +20,11 @@ module.exports = {
         recoil: 1.4,
         shudder: 0.1,
         damage: 0.75,
-        speed: 5,
+        speed: 4,
         spray: 15
     },
     drone: {
-        reload: 33,
+        reload: 36,
         recoil: 0.25,
         shudder: 0.1,
         size: 0.6,
@@ -32,17 +32,16 @@ module.exports = {
         spray: 0.1
     },
     swarm: {
-        reload: 300,
+        reload: 23,
         recoil: 0.25,
         shudder: 0.05,
         size: 0.4,
-        health: 0.3,
-        damage: 0.075,
-        speed: 0.25,
+        damage: 0.75,
+        speed: 4,
         spray: 5
     },
     minion: {
-        reload: 8,
+        reload: 48,
         shudder: 0.1,
         size: 0.7,
         damage: 0.75,
@@ -50,15 +49,13 @@ module.exports = {
         spray: 0.1
     },
     trap: {
-        reload: 90,
+        reload: 23,
         shudder: 0.25,
         size: 0.7,
-        health: 200,
-        damage: 0.1,
-        speed: 0.25,
+        damage: 0.75,
+        speed: 3.25,
         resist: 3,
-        spray: 0,
-        recoil: 0,
+        spray: 0
     },
 
     // Spammers
@@ -76,11 +73,9 @@ module.exports = {
     },
     twin: {
         recoil: 0.5,
-        reload: 1,
         shudder: 0.9,
-        health: 1,
-        speed: 0.5,
-        damage: 1,
+        health: 0.9,
+        damage: 0.7,
         spray: 1.2
     },
     doubleTwin: {
@@ -120,8 +115,8 @@ module.exports = {
         spray: 0.25
     },
     triplet: {
-        reload: 1,
-        recoil: 0,
+        reload: 1.2,
+        recoil: 2/3,
         shudder: 0.9,
         health: 0.85,
         damage: 0.85,
@@ -153,16 +148,14 @@ module.exports = {
 
     // Snipers
     sniper: {
-        reload: 1,
+        reload: 1.35,
         shudder: 0.25,
-        health: 0.25,
-        damage: 20,
-        pen: 0.25,
-        speed: 2,
+        damage: 0.8,
+        pen: 1.1,
+        speed: 1.5,
         maxSpeed: 1.5,
         density: 1.5,
         spray: 0.2,
-        size: 0.375,
         resist: 1.15
     },
     crossbow: {
@@ -413,16 +406,13 @@ module.exports = {
         range: 0.6
     },
     triAngleFront: {
-        recoil: 1,
-        speed: 1,
-        reload: 1,
-        damage: 1,
-        health: 1,
-        maxSpeed: 2.5,
+        recoil: 0.2,
+        speed: 1.3,
+        maxSpeed: 1.1,
         range: 1.5
     },
     thruster: {
-        recoil: 10,
+        recoil: 1.5,
         shudder: 2,
         health: 0.5,
         damage: 0.5,
@@ -524,9 +514,9 @@ module.exports = {
         spray: 2
     },
     bigCheese: {
-        reload: 1,
-        size: 4,
-        health: 20,
+        reload: 1.5,
+        size: 1.8,
+        health: 2.5,
         speed: 1.25
     },
     mothership: {
@@ -554,8 +544,7 @@ module.exports = {
         reload: 2,
         recoil: 1.6,
         damage: 2,
-        health: 2,
-        speed: 1.5,
+        speed: 0.85,
         maxSpeed: 0.8,
         density: 1.5,
         resist: 1.15
@@ -565,9 +554,9 @@ module.exports = {
         recoil: 1.8,
         shudder: 0.5,
         health: 2,
-        damage: 0.90,
+        damage: 0.9,
         pen: 1.2,
-        speed: 0.50,
+        speed: 0.5,
         maxSpeed: 0.6,
         density: 2,
         resist: 3
@@ -600,12 +589,12 @@ module.exports = {
         maxSpeed: 0.8
     },
     shotgun: {
-        reload: 40,
-        recoil: 20,
+        reload: 8,
+        recoil: 0.4,
         size: 1.5,
-        damage: 16,
-        pen: 8,
-        speed: 3,
+        damage: 0.4,
+        pen: 0.8,
+        speed: 1.8,
         maxSpeed: 0.6,
         density: 1.2,
         spray: 1.2
@@ -625,13 +614,13 @@ module.exports = {
     // Missiles
     launcher: {
         reload: 1.5,
-        recoil: 5,
+        recoil: 1.5,
         shudder: 0.1,
         size: 0.72,
-        health: 4,
-        damage: 8,
-        speed: 1.5,
-        maxSpeed: 2,
+        health: 1.05,
+        damage: 0.925,
+        speed: 0.9,
+        maxSpeed: 1.2,
         range: 1.1,
         resist: 1.5
     },
@@ -669,14 +658,12 @@ module.exports = {
         spray: 5
     },
     sidewinder: {
-        reload: 7,
-        recoil: 60,
-        health: 60,
-        damage: 40,
-        size: 2.25,
-        speed: 0.05,
-        maxSpeed: 5,
-        spray: 1,
+        reload: 1.5,
+        recoil: 2,
+        health: 1.5,
+        damage: 0.9,
+        speed: 0.15,
+        maxSpeed: 0.5
     },
     rocketeer: {
         reload: 1.4,
@@ -712,15 +699,14 @@ module.exports = {
 
     // Traps and blocks
     setTrap: {
-        reload: 0.25,
-        recoil: 4,
+        reload: 1.1,
+        recoil: 2,
         shudder: 0.1,
-        size: 3,
-        health: 40,
-        damage: 3,
+        size: 1.5,
+        health: 2,
         pen: 1.25,
-        speed: 0.5,
-        maxSpeed: 1,
+        speed: 2.2,
+        maxSpeed: 2.15,
         range: 1.25,
         resist: 1.25
     },

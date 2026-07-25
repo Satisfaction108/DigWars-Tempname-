@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "arras2",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--no-lazy", "index"],
+      "port": 3000,
+      "autoPort": false
+    }
+  ]
+}

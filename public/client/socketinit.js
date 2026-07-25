@@ -2,6 +2,7 @@ import { global } from "./global.js";
 import { util } from "./util.js";
 import { config } from "./config.js";
 import { protocol } from "./protocol.js";
+import { gameSound } from "./sound.js";
 window.fakeLagMS = 0;
 var sync = [];
 var clockDiff = 0;
@@ -601,7 +602,11 @@ const process = (z = {}) => {
             direction = get.next(),
             offset = get.next();
         z.guns.setConfig(i, {color, alpha, strokeWidth, borderless, drawFill, drawAbove, length, width, aspect, angle, direction, offset});
-        if (time > global.player.lastUpdate - global.metrics.rendergap) z.guns.fire(i, power);
+        if (time > global.player.lastUpdate - global.metrics.rendergap) {
+            z.guns.fire(i, power);
+            // soft shot pop, spatialised (turret sub-entities have no x/y)
+            if (z.x !== undefined) gameSound.shoot(z.x, z.y, power);
+        }
     }
 
     let turnumb = get.next();
@@ -863,7 +868,111 @@ let incoming = async function(message, socket) {
             case 'TG': {
                 const cols = m[0], rows = m[1];
                 const cells = JSON.parse(m[2]);
-                if (window.terrainRenderer) window.terrainRenderer.init(cells, cols, rows);
+                const rockState = m[3] ? JSON.parse(m[3]) : [];
+                const oreState  = m[4] ? JSON.parse(m[4]) : [];
+                const oreSalt   = m[5] | 0;
+                global.vaults   = m[6] ? JSON.parse(m[6]) : [];
+                if (window.terrainRenderer) window.terrainRenderer.init(cells, cols, rows, rockState, oreState, oreSalt);
+            } break;
+            case 'EP': {
+                // Enemy ping from a teammate: [x, y, senderId]. One live
+                // ping per player — a new one replaces their old one.
+                const by = m[2];
+                for (let i = global.enemyPings.length - 1; i >= 0; i--) {
+                    if (global.enemyPings[i].by === by) global.enemyPings.splice(i, 1);
+                }
+                global.enemyPings.push({ x: m[0], y: m[1], by, at: performance.now() });
+                if (global.enemyPings.length > 16) global.enemyPings.shift();
+            } break;
+            case 'TM': {
+                // Teammates for the map overlays: [n, id, name, x, y, ...]
+                const n = m[0];
+                const list = [];
+                for (let i = 0; i < n; i++) {
+                    const o = 1 + i * 4;
+                    list.push({ id: m[o], name: m[o + 1], x: m[o + 2], y: m[o + 3] });
+                }
+                global.teammates = list;
+            } break;
+            case 'TB': {
+                // War score: [blue banked total, red banked total]
+                const tb = global.teamBanked;
+                tb.blue = m[0];
+                tb.red = m[1];
+                tb.at = performance.now();
+            } break;
+            case 'LA': {
+                // Leader arrow: [id, x, y] of the current #1, every 250ms
+                const L = global.leader;
+                L.id = m[0];
+                L.x = m[1];
+                L.y = m[2];
+                L.at = performance.now();
+            } break;
+            case 'GEM': {
+                // Satchel state: [carried, cap, delta]. delta > 0 = pickup,
+                // delta < 0 = gems lost (death), 0 = init/refresh.
+                const carried = m[0], cap = m[1], delta = m[2];
+                const g = global.gems;
+                const now = performance.now();
+                if (delta > 0) {
+                    // chained pickups play a rising run and stack one popup;
+                    // the popup remembers its chain depth so the world
+                    // number heats gold → white as the combo climbs
+                    g.combo = now - g.lastPickup < 900 ? g.combo + 1 : 0;
+                    g.lastPickup = now;
+                    if (config.game.gemSounds) gameSound.gemPickup(g.combo);
+                    const last = g.popups[g.popups.length - 1];
+                    if (last && now - last.born < 450) {
+                        last.value += delta;
+                        last.born = now;
+                        last.combo = g.combo;
+                    } else {
+                        g.popups.push({ value: delta, born: now, combo: g.combo,
+                                        drift: (Math.random() - 0.5) * 26 });
+                        if (g.popups.length > 6) g.popups.shift();
+                    }
+                    g.flashAt = now;
+                } else if (delta < 0) {
+                    g.combo = 0;
+                    g.popups.length = 0;
+                }
+                const wasFull = g.carried >= g.cap && g.cap > 0;
+                g.carried = carried;
+                g.cap = cap;
+                g.banked = m[3] | 0;
+                if (!wasFull && cap > 0 && carried >= cap) {
+                    g.fullAt = now;
+                    if (config.game.gemSounds) gameSound.satchelFull();
+                }
+            } break;
+            case 'VU': {
+                // Dig Wars: stepped on/off the team vault pad
+                global.vault.onPad = !!m[0];
+                if (!global.vault.onPad) {
+                    global.vault.remaining = 0;
+                    global.vault.total = 0;
+                }
+            } break;
+            case 'VP': {
+                // Dig Wars: vault channel progress [remaining, total];
+                // total 0 = idle/cancelled, remaining 0 with total = done
+                const v = global.vault;
+                const wasActive = v.total > 0;
+                v.remaining = m[0];
+                v.total = m[1];
+                if (v.total > 0 && v.remaining > 0) {
+                    if (config.game.gemSounds) gameSound.depositTick();
+                } else if (wasActive && v.total > 0 && v.remaining <= 0) {
+                    v.doneAt = performance.now();
+                    v.total = 0;
+                    v.remaining = 0;
+                    if (config.game.gemSounds) gameSound.depositDone();
+                }
+            } break;
+            case 'TR': {
+                // Rock damage/destroy deltas (server-authoritative)
+                if (window.terrainRenderer) window.terrainRenderer.applyRockEvents(JSON.parse(m[0]));
             } break;
             case "temporaryban": {
                 global.message = "You have been temporarily banned from the game. You will be able to rejoin after a server restart.";

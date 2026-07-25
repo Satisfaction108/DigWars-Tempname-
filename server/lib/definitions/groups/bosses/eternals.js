@@ -1,6 +1,7 @@
 const {combineStats, LayeredBoss, makeMenu, setTurretProjectileRecoil} = require('../../facilitators.js')
 const {base} = require('../../constants.js')
 const g = require('../../gunvals.js')
+const preset = require('../../presets.js')
 
 Class.eternal = {
     PARENT: "miniboss",
@@ -18,6 +19,7 @@ Class.eternal = {
         SPEED: base.SPEED * 0.15,
         DAMAGE: 18,
     },
+    ON: [preset.on.retrograde_self_destruct]
 }
 
 Class.menu_eternals = makeMenu("Eternals", {upgrades: [

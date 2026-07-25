@@ -553,12 +553,12 @@ Class.latBase = {
     ]
 }
 Class.literallyATank = {
-    PARENT: "genericTank",
+    PARENT: 'genericTank',
+    LABEL: "Literally A Tank",
     DANGER: 6,
     BODY: {
         HEALTH: base.HEALTH * 1.2,
     },
-    LABEL: "Literally A Tank",
     SHAPE: "M -1 -1 H 0 C 1 -1 1 0 1 0 C 1 0 1 1 0 1 H -1 V -1",
     GUNS: [
         {
@@ -598,7 +598,6 @@ Class.fat456 = {
     SIZE: 30,
     LABEL: "Fat456",
     COLOR: "pureBlack", // should be pureblack but just the outline
-    DRAW_FILL: false,
     FACING_TYPE: "spin",
     BODY: {
         SPEED: base.SPEED * 4
@@ -1215,7 +1214,7 @@ Class.vanquisher = {
         POSITION: [10, 9, 1, 9, 0, 90, 0],
     },{
         POSITION: [17, 13, 1, 0, 0, 90, 0],
-        PROPERTIES: { SHOOT_SETTINGS: combineStats([g.basic, g.pounder, g.artillery, g.artillery]), TYPE: "minimissile", STAT_CALCULATOR: "sustained" }
+        PROPERTIES: { SHOOT_SETTINGS: combineStats([g.basic, g.pounder, g.artillery, g.artillery]), TYPE: "launcherMissile", STAT_CALCULATOR: "sustained" }
 
     //shotgun
     },{
