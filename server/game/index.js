@@ -1,6 +1,7 @@
 const gems = require('./terrain/gems.js');
 const mining = require('./terrain/mining.js');
 const vault = require('./terrain/vault.js');
+const outposts = require('./terrain/outposts.js');
 const { REGROW: TG_REGROW } = require('./terrain/terrainGrid.js');
 
 class gameHandler {
@@ -93,6 +94,38 @@ class gameHandler {
                         break;
                 }
                 break;
+            case instance.isOutpostBanner || other.isOutpostBanner: {
+                // Dig Wars outposts: to your own team the structure simply
+                // isn't there (drive straight over it). To enemies it's a
+                // solid wall that also takes damage: the structure deals
+                // ZERO body damage (ramming it is free), but you can't walk
+                // through it. Projectiles burst on its hide instead of
+                // piercing through for endless per-tick grind.
+                const banner = instance.isOutpostBanner ? instance : other;
+                const body = instance.isOutpostBanner ? other : instance;
+                if (banner.team === body.team) return;
+                if (["bullet", "drone", "trap", "satellite", "swarm"].includes(body.type)) {
+                    // Projectiles: deal their damage, then die on the hide
+                    advancedcollide(instance, other, true, true);
+                    body.velocity.x = 0; body.velocity.y = 0;
+                    body.accel.x = 0;    body.accel.y = 0;
+                    body.kill();
+                } else {
+                    // Enemy tank body: deal damage to the structure, then
+                    // physically BLOCK the tank (firmcollide pushes the
+                    // body away; PUSHABILITY:0 keeps the structure planted)
+                    advancedcollide(instance, other, true, true);
+                    firmcollide(instance, other, 2);
+                    // The structure is permanent & immovable: pin it straight
+                    // back onto its pad after any collision shoved it (also
+                    // re-pinned each terrain tick in outposts.js).
+                    if (banner.pinX !== undefined) {
+                        banner.x = banner.pinX; banner.y = banner.pinY;
+                        banner.velocity.x = 0;  banner.velocity.y = 0;
+                        banner.accel.x = 0;     banner.accel.y = 0;
+                    }
+                }
+            } break;
             case instance.team === other.team &&
                 (instance.settings.hitsOwnType === "pushOnlyTeam" ||
                     other.settings.hitsOwnType === "pushOnlyTeam"):
@@ -596,6 +629,11 @@ class gameHandler {
             for (const instance of global.entities.values()) {
                 if (!instance || instance.isDead?.()) continue;
                 if (instance.noclip || instance.godmode || instance.isArenaCloser) continue;
+                // outpost structures live in their carved pockets and are
+                // exempt from ALL terrain physics — without this, the wall's
+                // push/crush pass ground them down invisibly ("it's getting
+                // hit when nothing is touching it")
+                if (instance.isOutpostBanner) continue;
 
                 if (instance.isGemPickup) {
                     // loot pass: slide out of rock, home toward miners, collect
@@ -619,11 +657,23 @@ class gameHandler {
                         const g = _tg.pushCircleFromGrowing(instance, r, tickNow);
                         entombed = g.entombed;
                         if (g.dx !== 0 || g.dy !== 0) { dx += g.dx; dy += g.dy; }
+                        // swallowed by rising stone: the stone carries you out
+                        // — you do NOT steer through its insides
+                        if (g.buried) {
+                            instance.velocity.x = 0; instance.velocity.y = 0;
+                            instance.accel.x = 0;    instance.accel.y = 0;
+                        }
                     }
-                    // sealed inside stone that finished growing around you:
-                    // the ordinary face push has nowhere to put you
-                    if (!entombed && _tg.pointInRock(instance.x, instance.y)) entombed = true;
-                    if (entombed) crush(instance, tickMs);
+                    // sealed inside stone that FINISHED around you: you are
+                    // encased. You don't stroll through the inside of a
+                    // mountain — no movement, heavy crush, near-certain
+                    // death. (Never teleported out, exactly as decided.)
+                    if (_tg.pointInRock(instance.x, instance.y)) {
+                        entombed = true;
+                        instance.velocity.x = 0; instance.velocity.y = 0;
+                        instance.accel.x = 0;    instance.accel.y = 0;
+                    }
+                    if (entombed && !instance.invuln) crush(instance, tickMs);
                     else instance._crushedNoted = false;
                     if (dx !== 0 || dy !== 0) {
                         const pLen = Math.hypot(dx, dy);
@@ -744,20 +794,19 @@ class gameHandler {
             const vNow = Date.now();
             vault.tick(global.gameManager.socketManager.players,
                        Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
+            // forward outposts: capture channels + 80% field banking pads
+            outposts.tick(global.gameManager.socketManager.players,
+                          Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
             this._lastVaultTick = vNow;
 
             // Broadcast rock damage/destroy deltas so every player sees the
             // same cracks and shatter effects.
-            // Regrow deltas ride the same channel, always LAST in the batch so
-            // an authoritative "it's grown" can't be undone by a stale hit in
-            // the same flush.
-            if (_tg.rockEvents.length || _tg.growEvents.length) {
-                const batch = _tg.growEvents.length
-                    ? _tg.rockEvents.concat(_tg.growEvents)
-                    : _tg.rockEvents;
-                const payload = JSON.stringify(batch);
+            // ONE queue, true chronological order — a destroy can never
+            // overtake the regrow-start it belongs to (that reordering was
+            // the phantom-rock bug).
+            if (_tg.rockEvents.length) {
+                const payload = JSON.stringify(_tg.rockEvents);
                 _tg.rockEvents.length = 0;
-                _tg.growEvents.length = 0;
                 for (const client of global.gameManager.socketManager.clients) {
                     client.talk('TR', payload);
                 }

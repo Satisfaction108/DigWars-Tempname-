@@ -27,19 +27,29 @@ const ORE_HP = { [ORE.NONE]: 1, [ORE.COPPER]: 1.8, [ORE.VEIN]: 2.2,
 
 // ─── THE LIVING WALL ─────────────────────────────────────────────────────
 // Every hole in the wall closes again. A destroyed cell waits, then GROWS
-// back over a few seconds — expanding from its own centre, shoving anything
-// standing there out of the way, hardening as it goes. Nothing about it is
-// cosmetic: the growing stone collides, takes damage, and can be killed
-// before it finishes (in which case it pays nothing — it was never ore yet).
+// back over a few seconds — spreading out of the living rock face beside it
+// (never out of thin air in the middle of a crater), shoving anything
+// standing there out of the way, hardening fast. Nothing about it is
+// cosmetic: the growing stone collides exactly like finished stone, takes
+// damage, and can be killed before it finishes (in which case it pays
+// nothing — its ore never finished forming).
 const REGROW = {
-    BASE_DELAY_MS:      35_000, // a hole's grace period before it heals
-    MIN_DELAY_MS:       15_000, // hard floor, no matter how far behind a side is
+    BASE_DELAY_MS:      23_000, // a hole's grace period before it heals (~1.5× faster)
+    MIN_DELAY_MS:       10_000, // hard floor, no matter how far behind a side is
     DEFICIT_MS_PER_GAP:    300, // the losing side heals faster, per hole of deficit
-    GROW_MS:             7_000, // how long the rise takes
-    START_SCALE:          0.12, // visible, shootable nub the instant it starts
-    HP_FLOOR:             0.15, // fraction of max hp a fresh nub carries
-    CRUSH_DPS_FRAC:       0.06, // of a trapped victim's max health, per second
-    MAX_PUSH_PER_TICK:    0.06, // fraction of a lattice cell, per terrain tick
+    GROW_MS:             8_000, // how long the rise takes
+    START_SCALE:          0.15, // the stone starts as a real, shootable sliver
+    HP_FLOOR:             0.25, // fraction of max hp a fresh sliver carries
+    // idle healing: a rock nobody has touched for a while slowly seals its
+    // own cracks — the wall tends to itself
+    HEAL_IDLE_MS:       30_000, // untouched this long before healing starts
+    HEAL_RATE:           0.008, // fraction of max hp regained per second
+    CRUSH_DPS_FRAC:       0.25, // of a trapped victim's max health, per second —
+                                // caught by the wall means you're nearly dead
+                                // unless you get yourself out FAST
+    CRUSH_DEPTH:          0.30, // squeezed = still overlapping > this ×radius
+                                // AFTER collision fully resolved; plain contact
+                                // resolves to ~0 and never hurts
     PACING_MS:             500, // bookkeeping cadence (NOT the 8ms terrain tick)
     EMERALD_RESPAWN_MS: 60_000, // a mined emerald reappears elsewhere, deep
     ORE_GEN_STRIDE:       7919, // prime salt stride per regrowth generation
@@ -70,7 +80,8 @@ class TerrainGrid {
         this.rocks      = new Map();
         this.rockEvents = [];
         // ── Living wall (regrowth) ──
-        this.growEvents  = [];      // regrow deltas, flushed with rockEvents on TR
+        // Regrow deltas ride this.rockEvents — the ONE chronological event
+        // queue — so a destroy can never overtake the regrow it belongs to.
         this._growing    = [];      // rocks currently rising (tiny list, scanned per tick)
         this._spineMid   = 0;       // lattice mid-column: the wall's spine
         this._pendingEmeralds  = [];// [{ at }] queued emerald replacements
@@ -536,7 +547,6 @@ class TerrainGrid {
         this._spineMid = (viLo + viHi) / 2;
         this._cellWorld = rockSz * cellSize;   // world units across one lattice cell
         this._growing.length = 0;
-        this.growEvents.length = 0;
         this._pendingEmeralds.length = 0;
 
         const BUCKET = this._contourBucket;
@@ -544,16 +554,81 @@ class TerrainGrid {
         this.rocks      = new Map();
         this.rockEvents = [];
 
+        // ─── THE CANYONS ────────────────────────────────────────────────
+        // Two permanent pathways wind base-to-base through the wall — one
+        // arcing through the upper half, one through the lower. They are
+        // carved at boot and can NEVER regrow or narrow: their cells are
+        // born dead with no death timestamp, so the living wall treats them
+        // as geography, not wounds. They pay nothing and give nothing —
+        // they're simply always there.
+        const canyonKeys = new Set();
+        const outpostCells = [];   // [{key, name}] — resolved to world coords below
+        {
+            const spanV = Math.max(1, vjHi - vjLo);
+            const spanH = Math.max(1, viHi - viLo);
+            const viMid = Math.round((viLo + viHi) / 2);
+            const laneNames = ["Upper Canyon Outpost", "Lower Canyon Outpost"];
+            let laneIdx = 0;
+            for (const lane of [0.27, 0.73]) {          // upper + lower route
+                const base  = vjLo + spanV * lane;
+                const amp   = Math.max(1.5, spanV * 0.07);
+                const phase = lane * Math.PI * 2;
+                for (let vi = viLo; vi <= viHi; vi++) {
+                    const t = (vi - viLo) / spanH;
+                    // gentle S-bends: ~2 winds across the wall
+                    const vjMid = base + Math.sin(t * Math.PI * 2.3 + phase) * amp;
+                    for (let w = 0; w < 2; w++) {        // two cells wide
+                        const vj = Math.max(vjLo, Math.min(vjHi, Math.round(vjMid) + w));
+                        canyonKeys.add(vi * 100003 + vj);
+                    }
+                    // OUTPOST SITE: the midpoint cell of each canyon lane
+                    if (vi === viMid) {
+                        const vj = Math.max(vjLo, Math.min(vjHi, Math.round(vjMid)));
+                        outpostCells.push({ key: vi * 100003 + vj, name: laneNames[laneIdx] });
+                    }
+                }
+                laneIdx++;
+            }
+            // the third site: dead center of the wall — solid rock all
+            // around, you dig your way to the greedy prize
+            const cvj = Math.round((vjLo + vjHi) / 2);
+            outpostCells.push({ key: viMid * 100003 + cvj, name: "Deep Core Outpost" });
+            // every site gets its own small carved pocket (a mini-canyon:
+            // born dead, never regrows) so the pad always has open floor
+            for (const s of outpostCells) {
+                const svi = Math.floor(s.key / 100003), svj = s.key % 100003;
+                for (let di = -1; di <= 1; di++)
+                    for (let dj = -1; dj <= 1; dj++) {
+                        const vi2 = Math.max(viLo, Math.min(viHi, svi + di));
+                        const vj2 = Math.max(vjLo, Math.min(vjHi, svj + dj));
+                        canyonKeys.add(vi2 * 100003 + vj2);
+                    }
+            }
+        }
+        this._canyonKeys = canyonKeys;
+        // buffer zone: canyon cells plus everything within 2 lattice cells —
+        // the jackpot never sits on a public highway
+        const canyonNear = new Set();
+        for (const k of canyonKeys) {
+            const vi = Math.floor(k / 100003), vj = k % 100003;
+            for (let di = -2; di <= 2; di++)
+                for (let dj = -2; dj <= 2; dj++)
+                    canyonNear.add((vi + di) * 100003 + (vj + dj));
+        }
+        this._canyonNearKeys = canyonNear;
+
         // EMERALDS — exactly EMERALD_COUNT cells per arena, hand-placed in
         // the deepest band (spine third) with a minimum spread so they never
         // cluster. Deterministic per boot: candidates are ranked by the same
         // salted ore hash, so every client agrees via the ore snapshot.
+        // (Never inside a canyon — those cells are open air.)
         const emeraldKeys = new Set();
         {
             const halfSpan = Math.max(1, (viHi - viLo) / 2);
             const cands = [];
             for (let vj = vjLo; vj <= vjHi; vj++) {
                 for (let vi = viLo; vi <= viHi; vi++) {
+                    if (canyonNear.has(vi * 100003 + vj)) continue;
                     const depth = Math.min(vi - viLo, viHi - vi) / halfSpan;
                     if (depth < 0.7) continue;
                     cands.push({ vi, vj, s: this._oreRoll(vi, vj, this.oreSalt + 13) });
@@ -602,6 +677,9 @@ class TerrainGrid {
                     diedAt: 0,       // when it was destroyed (0 = not dead)
                     worldPoly: null, // full-size outline in world coords (regrowth math)
                     worldCx: 0, worldCy: 0, maxPolyRadius: 0,
+                    // regrowth anchor on the living wall (set at startRegrow)
+                    growAx: 0, growAy: 0,
+                    _cp: null, _cpAt: 0,  // per-tick cache of the risen region
                     tilePoly: null, tileCx: 0, tileCy: 0, // for deposit re-layout
                 };
                 this.rocks.set(rock.k, rock);
@@ -682,6 +760,35 @@ class TerrainGrid {
             }
         }
 
+        // carve the canyons: born dead, diedAt stays 0 so the regrow pacing
+        // skips them forever — no timer, no gap census entry, no narrowing.
+        // Colliders/silhouette already ignore dead rocks, and the boot
+        // snapshot ships them to every client as plain open craters.
+        for (const k of canyonKeys) {
+            const rock = this.rocks.get(k);
+            if (!rock) continue;
+            rock.alive    = false;
+            rock.health   = 0;
+            rock.diedAt   = 0;      // 0 = never queues for regrowth
+            rock.canyon   = true;
+            rock.ore      = ORE.NONE;   // an open pathway pays nothing
+            rock.deposits = null;
+        }
+
+        // resolve the outpost sites to world coordinates (their pockets are
+        // carved above, so each pad sits on permanently open floor)
+        this.outpostSites = [];
+        for (let i = 0; i < outpostCells.length; i++) {
+            const rock = this.rocks.get(outpostCells[i].key);
+            if (!rock || !rock.worldPoly) continue;
+            this.outpostSites.push({
+                id: this.outpostSites.length,
+                name: outpostCells[i].name,
+                x: rock.worldCx,
+                y: rock.worldCy,
+            });
+        }
+
         this._voronoiMap    = vmap;
         this._voronoiBucket = BUCKET;
     }
@@ -721,14 +828,45 @@ class TerrainGrid {
         return Math.max(0, Math.min(1, (now - rock.growStart) / REGROW.GROW_MS));
     }
 
-    // Its collision size right now, as a fraction of the full cell. The
-    // client draws with this exact curve, so what you see is what shoves you.
+    // How much of the cell the risen stone covers right now (START_SCALE→1).
+    // The client draws with the exact same curve, so the stone you see is
+    // the stone that blocks you.
     growthScale(rock, now) {
         return REGROW.START_SCALE +
                (1 - REGROW.START_SCALE) * easeGrowth(this.growthProgress(rock, now));
     }
 
+    // The solid region right now: the full cell shrunk toward its ANCHOR on
+    // the living wall, so the stone expands OUT of the wall beside it.
+    // Cached per terrain tick (growth advances ~0.1% per 8ms tick).
+    _scaledPolyFor(rock, now) {
+        if (!rock.growing || !rock.worldPoly) return null;
+        if (rock._cp && Math.abs((rock._cpAt || 0) - now) < 8) return rock._cp;
+        const s = this.growthScale(rock, now);
+        const ax = rock.growAx, ay = rock.growAy;
+        rock._cpAt = now;
+        rock._cp = rock.worldPoly.map(p => [ax + (p[0] - ax) * s, ay + (p[1] - ay) * s]);
+        return rock._cp;
+    }
+
     growingRocks() { return this._growing; }
+
+    // Nearest point of a polygon's outline to (x, y) + inside test.
+    static _polyFace(poly, x, y) {
+        const inside = TerrainGrid._pointInPoly(poly, x, y);
+        let best = Infinity, px = x, py = y;
+        for (let i = 0; i < poly.length; i++) {
+            const a = poly[i], b = poly[(i + 1) % poly.length];
+            const ex = b[0] - a[0], ey = b[1] - a[1];
+            const L2 = ex * ex + ey * ey || 1e-12;
+            const t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / L2));
+            const cx2 = a[0] + ex * t, cy2 = a[1] + ey * t;
+            const ddx = x - cx2, ddy = y - cy2;
+            const d2 = ddx * ddx + ddy * ddy;
+            if (d2 < best) { best = d2; px = cx2; py = cy2; }
+        }
+        return { dist: Math.sqrt(best), inside, px, py };
+    }
 
     // ── Convex-polygon helpers, all in the rock's UNSCALED frame ──────────
     // Uniform scaling about the centroid means a query point can simply be
@@ -775,17 +913,21 @@ class TerrainGrid {
         return best === Infinity ? 0 : best;
     }
 
-    // Does a circle touch this rising rock at its current size?
-    _circleHitsGrowing(rock, x, y, r, now) {
-        if (!rock.worldPoly) return false;
-        const s = this.growthScale(rock, now);
+    // How deep a circle is into this rising rock's risen region (0 =
+    // clear). The crush rule reads this AFTER collision has fully resolved.
+    _growingPenetration(rock, x, y, r, now) {
+        const sp = this._scaledPolyFor(rock, now);
+        if (!sp || sp.length < 3) return 0;
         const dx = x - rock.worldCx, dy = y - rock.worldCy;
-        const reach = rock.maxPolyRadius * s + r;
-        if (dx * dx + dy * dy > reach * reach) return false;
-        // pull the query back into full-size space (uniform scale, exact)
-        const qx = rock.worldCx + dx / s, qy = rock.worldCy + dy / s;
-        if (TerrainGrid._pointInPoly(rock.worldPoly, qx, qy)) return true;
-        return TerrainGrid._distToPoly(rock.worldPoly, qx, qy) <= r / s;
+        const reach = rock.maxPolyRadius + r;
+        if (dx * dx + dy * dy > reach * reach) return 0;
+        const f = TerrainGrid._polyFace(sp, x, y);
+        return f.inside ? f.dist + r : Math.max(0, r - f.dist);
+    }
+
+    // Does a circle touch this rising rock's revealed region?
+    _circleHitsGrowing(rock, x, y, r, now) {
+        return this._growingPenetration(rock, x, y, r, now) > 0;
     }
 
     // The rising rock a projectile just ran into, or null. Same contract as
@@ -797,73 +939,103 @@ class TerrainGrid {
         return null;
     }
 
-    // Shove a body out of every rising rock it overlaps. Mutates pos.
+    // Collide a body with every rising rock. Mutates pos.
     //
-    // The contract that matters: NOTHING is ever teleported. If the push
-    // can't get the body clear — it's pinned between the growing stone and
-    // something solid — we put it back where it was and report `entombed`,
-    // and the caller starts crushing it instead. A pinned player keeps full
-    // control and can still walk out through any seam; they just bleed.
+    // To a body OUTSIDE the stone this is exactly another rock: push out
+    // along the face normal, slide along it, no damage, no drama.
+    //
+    // A body the stone catches gets BULLDOZED: pushed radially away from the
+    // rock's anchor on the wall — always into the crater the stone hasn't
+    // claimed yet, NEVER through the wall behind it, rate-limited so it
+    // shoves rather than flings. You cannot stroll around inside rock: every
+    // tick the stone carries you back out ahead of itself.
+    //
+    // Only a body the world has no room for — squeezed between the growing
+    // face and other stone so the pushes cancel — stays overlapped after
+    // resolution. That one is entombed: it keeps control (slide out along
+    // the seam!) but it is being crushed hard until it escapes or dies.
     pushCircleFromGrowing(pos, r, now = Date.now()) {
-        if (!this._growing.length) return { dx: 0, dy: 0, entombed: false };
+        if (!this._growing.length) return { dx: 0, dy: 0, entombed: false, buried: false };
         const startX = pos.x, startY = pos.y;
-        const cap = (this._cellWorld || 100) * REGROW.MAX_PUSH_PER_TICK;
-        let touched = false;
 
-        for (const rock of this._growing) {
-            if (!rock.worldPoly) continue;
-            const s = this.growthScale(rock, now);
-            let dx = pos.x - rock.worldCx, dy = pos.y - rock.worldCy;
-            const reach = rock.maxPolyRadius * s + r;
-            if (dx * dx + dy * dy > reach * reach) continue;
-
-            let dist = Math.hypot(dx, dy), ux, uy;
-            if (dist < 1e-6) {
-                // dead centre: leave along the shortest way out
-                let bestT = Infinity, bx = 1, by = 0;
-                for (let i = 0; i < rock.worldPoly.length; i++) {
-                    const a = rock.worldPoly[i], b = rock.worldPoly[(i + 1) % rock.worldPoly.length];
-                    const mx = (a[0] + b[0]) / 2 - rock.worldCx;
-                    const my = (a[1] + b[1]) / 2 - rock.worldCy;
-                    const t = Math.hypot(mx, my) || 1e-9;
-                    if (t < bestT) { bestT = t; bx = mx / t; by = my / t; }
+        let touched = false, buried = false;
+        // budget for carrying a buried body out: a firm visible shove per
+        // tick (never a teleport), shared across all passes of this call.
+        // Growth advances ~20 units/s; this carries ~40× faster, so nothing
+        // ever sinks deeper — but nothing gets flung across the arena either.
+        let carry = Math.max(2, r * 0.15);
+        for (let pass = 0; pass < 3; pass++) {
+            // SUM the pushes instead of applying them one after another:
+            // against a single face the sum IS the exact resolution, and a
+            // body caught between two opposing faces gets mostly-cancelling
+            // pushes that settle it dead on the seam — the same position
+            // every tick, so being squeezed feels like firm stone on both
+            // sides, never like being batted back and forth.
+            let sx = 0, sy = 0, contact = false;
+            for (const rock of this._growing) {
+                const sp = this._scaledPolyFor(rock, now);
+                if (!sp || sp.length < 3) continue;
+                const ddx = pos.x - rock.worldCx, ddy = pos.y - rock.worldCy;
+                const reach = rock.maxPolyRadius + r;
+                if (ddx * ddx + ddy * ddy > reach * reach) continue;
+                const f = TerrainGrid._polyFace(sp, pos.x, pos.y);
+                if (!f.inside && f.dist >= r) continue;
+                let ux, uy, need;
+                if (f.inside) {
+                    buried = true;   // the caller freezes their steering
+                    // bulldozer: out along the anchor ray, into open crater
+                    let dxA = pos.x - rock.growAx, dyA = pos.y - rock.growAy;
+                    let t = Math.hypot(dxA, dyA);
+                    if (t < 1e-6) {
+                        dxA = rock.worldCx - rock.growAx;
+                        dyA = rock.worldCy - rock.growAy;
+                        t = Math.hypot(dxA, dyA) || 1;
+                        ux = dxA / t; uy = dyA / t; t = 0;
+                    } else { ux = dxA / t; uy = dyA / t; }
+                    const exit = TerrainGrid._rayExit(sp, rock.growAx, rock.growAy, ux, uy);
+                    need = Math.min(exit + r - t, carry);
+                    if (need <= 0) continue;
+                    carry -= need;
+                } else {
+                    if (f.dist <= 1e-6) continue;
+                    ux = (pos.x - f.px) / f.dist;
+                    uy = (pos.y - f.py) / f.dist;
+                    need = r - f.dist;
                 }
-                ux = bx; uy = by; dist = 0;
-            } else { ux = dx / dist; uy = dy / dist; }
-
-            // where the rock's face sits along this direction, right now
-            const exit = TerrainGrid._rayExit(rock.worldPoly, rock.worldCx, rock.worldCy, ux, uy);
-            const need = exit * s + r - dist;
-            if (need <= 0) continue;
+                sx += ux * need;
+                sy += uy * need;
+                contact = true;
+            }
+            if (!contact) break;
             touched = true;
-            // rate-limited so a fast-closing face nudges rather than punts
-            pos.x += ux * Math.min(need, cap);
-            pos.y += uy * Math.min(need, cap);
+            pos.x += sx;
+            pos.y += sy;
+            // the finished wall answers back, so a body in a narrowing gap
+            // settles smoothly onto the seam instead of tunnelling into
+            // either side
+            this.pushCircleFromVoronoi(pos, r);
+            // pushes cancelled to nothing: equilibrium — stop, don't spin
+            if (Math.abs(sx) < 1e-3 && Math.abs(sy) < 1e-3) break;
         }
 
-        if (!touched) return { dx: 0, dy: 0, entombed: false };
+        if (!touched) return { dx: 0, dy: 0, entombed: false, buried: false };
 
-        // settle against finished rock too, then judge the outcome by PROGRESS,
-        // not by whether we got fully clear: a body being walked out of the way
-        // moves; a body pinned between two closing faces (or between stone and
-        // a wall) has its pushes cancel and goes nowhere. The second case is
-        // the one that gets crushed — and it keeps its original position, so
-        // nothing is ever flung or teleported.
-        this.pushCircleFromVoronoi(pos, r);
-        const moved = Math.hypot(pos.x - startX, pos.y - startY);
-        if (moved < cap * 0.35) {
-            for (const rock of this._growing) {
-                if (this._circleHitsGrowing(rock, pos.x, pos.y, r, now)) {
-                    pos.x = startX; pos.y = startY;
-                    return { dx: 0, dy: 0, entombed: true };
-                }
+        // squeeze check on the SETTLED position: plain contact resolves to
+        // ~zero penetration; only a body the world literally has no room for
+        // stays buried — that one is being crushed
+        let entombed = false;
+        for (const rock of this._growing) {
+            if (this._growingPenetration(rock, pos.x, pos.y, r, now) > r * REGROW.CRUSH_DEPTH) {
+                entombed = true;
+                break;
             }
         }
-        return { dx: pos.x - startX, dy: pos.y - startY, entombed: false };
+        return { dx: pos.x - startX, dy: pos.y - startY, entombed, buried };
     }
 
     // A hole starts closing: fresh generation, fresh ore roll, fresh crystals.
     startRegrow(rock, now) {
+        if (rock.canyon) return;   // canyons are geography, not wounds
         if (!rock.worldPoly || rock.alive || rock.growing) return;
         rock.gen++;
         rock.growing    = true;
@@ -876,8 +1048,52 @@ class TerrainGrid {
         rock.maxHealth  = ROCK_HEALTH * ORE_HP[rock.ore];
         rock.health     = rock.maxHealth * REGROW.HP_FLOOR;
         rock.deposits   = rock.ore ? this._buildDeposits(rock) : null;
+
+        // Growth ANCHOR: the point on this cell's outline facing its living
+        // neighbours. The stone expands OUT of the wall beside it — the wall
+        // is reclaiming ground, not popping rocks into the middle of
+        // craters. (Eligibility guarantees a living neighbour exists here.)
+        let nx = 0, ny = 0, found = 0, fx = 0, fy = 0;
+        for (const [di, dj] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+            const nb = this.rocks.get((rock.vi + di) * 100003 + (rock.vj + dj));
+            if (nb && nb.alive && nb.worldPoly) {
+                const ddx = nb.worldCx - rock.worldCx, ddy = nb.worldCy - rock.worldCy;
+                if (!found) { fx = ddx; fy = ddy; }
+                nx += ddx; ny += ddy;
+                found++;
+            }
+        }
+        // living rock on exactly opposite sides cancels the average — fall
+        // back to the FIRST living neighbour, so a 1-cell gap still visibly
+        // grows out of one side rather than popping in from nowhere
+        if (found && Math.hypot(nx, ny) < 1e-6) { nx = fx; ny = fy; }
+        if (found && Math.hypot(nx, ny) > 1e-6) {
+            const dl = Math.hypot(nx, ny);
+            const exit = TerrainGrid._rayExit(rock.worldPoly, rock.worldCx, rock.worldCy, nx / dl, ny / dl);
+            rock.growAx = rock.worldCx + (nx / dl) * exit;
+            rock.growAy = rock.worldCy + (ny / dl) * exit;
+        } else {
+            // no living neighbour (shouldn't happen): grow from vertex 0
+            rock.growAx = rock.worldPoly[0][0];
+            rock.growAy = rock.worldPoly[0][1];
+        }
+        rock._cp = null; rock._cpAt = 0;
+
         this._growing.push(rock);
-        this.growEvents.push({ k: rock.k, r: 1, o: rock.ore, gen: rock.gen });
+        // the anchor rides the event in renderer tile units, so every client
+        // grows the stone out of the same spot on the same wall.
+        // IMPORTANT: pushed onto rockEvents — the SAME queue damage/destroy
+        // deltas use — so events always arrive in true chronological order.
+        // (A separate grow queue once let a same-tick "destroy" overtake its
+        // own "regrow started", leaving clients a phantom rock that grew
+        // forever: THE transparent-ghost bug.)
+        const halfW = this.cols * this.cellSize / 2;
+        const halfH = this.rows * this.cellSize / 2;
+        this.rockEvents.push({
+            k: rock.k, r: 1, o: rock.ore, gen: rock.gen,
+            ax: Math.round((rock.growAx + halfW) / this.cellSize * 100) / 100,
+            ay: Math.round((rock.growAy + halfH) / this.cellSize * 100) / 100,
+        });
     }
 
     _unlistGrowing(rock) {
@@ -891,8 +1107,9 @@ class TerrainGrid {
         rock.alive      = true;
         rock.health     = rock.maxHealth;
         rock.growDamage = 0;
+        rock._cp = null;
         this._unlistGrowing(rock);
-        this.growEvents.push({ k: rock.k, r: 2 });
+        this.rockEvents.push({ k: rock.k, r: 2 });
     }
 
     // ── Pacing: timers, the frontier rubber band, completions, emeralds ──
@@ -906,18 +1123,39 @@ class TerrainGrid {
         for (let i = this._growing.length - 1; i >= 0; i--) {
             const rock = this._growing[i];
             if (now - rock.growStart >= REGROW.GROW_MS) { this.completeRegrow(rock); continue; }
-            // 2. harden as it rises — the curve raises the ceiling, and any
-            //    damage taken on the way up is permanently deducted from it
+            // 2. hp scales WITH the rise — the rock is exactly as tough as
+            //    it is big. The curve only raises the ceiling: damage taken
+            //    on the way up is permanently deducted, never healed back.
             const target = rock.maxHealth *
                 Math.max(REGROW.HP_FLOOR, easeGrowth(this.growthProgress(rock, now)));
             rock.health = Math.max(1, target - rock.growDamage);
         }
 
         // 3. count the holes on each side of the spine — this IS the front
-        //    line: no HUD, no marker, purely how fast stone comes back
+        //    line: no HUD, no marker, purely how fast stone comes back.
+        //    (Same sweep also runs the idle heal: a standing rock nobody has
+        //    touched for HEAL_IDLE_MS very slowly seals its cracks.)
         let gap0 = 0, gap1 = 0;
         for (const rock of this.rocks.values()) {
-            if (rock.alive || rock.growing || !rock.diedAt) continue;
+            if (rock.alive) {
+                if (rock.health < rock.maxHealth &&
+                    now - (rock.lastHitAt || 0) >= REGROW.HEAL_IDLE_MS) {
+                    rock.health = Math.min(rock.maxHealth,
+                        rock.health + rock.maxHealth * REGROW.HEAL_RATE * (REGROW.PACING_MS / 1000));
+                    // broadcast sparingly: only when the healed fraction has
+                    // moved ~4% since the last send (or hit full) — clients
+                    // just need the crack stage, not a stream
+                    const h = rock.health / rock.maxHealth;
+                    const bucket = h >= 1 ? 999 : (h * 24) | 0;
+                    if (bucket !== rock._healBucket) {
+                        rock._healBucket = bucket;
+                        // hl flag: clients update quietly (no hit flash)
+                        this.rockEvents.push({ k: rock.k, h, hl: 1 });
+                    }
+                }
+                continue;
+            }
+            if (rock.growing || !rock.diedAt) continue;
             const side = this._sideOf(rock);
             if (side === 0) gap0++; else if (side === 1) gap1++;
         }
@@ -945,11 +1183,14 @@ class TerrainGrid {
     }
 
     // Only fully grown neighbours count — a rising nub can't seed more growth.
+    // The `!r.growing` guard is explicit: a growing rock has alive=false, but
+    // this makes the intent unmistakable and bulletproof against any future
+    // code path that might temporarily set alive=true before clearing growing.
     _hasLivingNeighbour(rock) {
         const { vi, vj } = rock;
         const n = (i, j) => {
             const r = this.rocks.get(i * 100003 + j);
-            return !!(r && r.alive);
+            return !!(r && r.alive && !r.growing);
         };
         return n(vi - 1, vj) || n(vi + 1, vj) || n(vi, vj - 1) || n(vi, vj + 1);
     }
@@ -975,6 +1216,7 @@ class TerrainGrid {
         let best = null, bestScore = Infinity;
         for (const rock of this.rocks.values()) {
             if (!rock.alive || rock.growing || rock.ore !== ORE.NONE) continue;
+            if (this._canyonNearKeys && this._canyonNearKeys.has(rock.k)) continue;
             const depth = Math.min(rock.vi - viLo, viHi - rock.vi) / halfSpan;
             if (depth < 0.7) continue;
             let ok = true;
@@ -993,7 +1235,7 @@ class TerrainGrid {
         best.maxHealth = ROCK_HEALTH * ORE_HP[ORE.EMERALD];
         best.health    = frac * best.maxHealth;
         best.deposits  = this._buildDeposits(best);
-        this.growEvents.push({ k: best.k, e: 1 });
+        this.rockEvents.push({ k: best.k, e: 1 });
         return true;
     }
 
@@ -1092,6 +1334,7 @@ class TerrainGrid {
         // the way up is never healed back by the growth curve
         const wasGrowing = rock.growing;
         if (wasGrowing) rock.growDamage += dmg;
+        rock.lastHitAt = Date.now();   // resets the idle-heal clock
         rock.health -= dmg;
         const destroyed = rock.health <= 0;
         if (destroyed) {
@@ -1099,7 +1342,7 @@ class TerrainGrid {
             rock.alive = false;
             // killed before it finished = a husk. It pays NOTHING (the caller
             // checks `growing` to skip the gem burst) and its clock restarts.
-            if (wasGrowing) { rock.growing = false; this._unlistGrowing(rock); }
+            if (wasGrowing) { rock.growing = false; rock._cp = null; this._unlistGrowing(rock); }
             rock.growDamage = 0;
             rock.diedAt = Date.now();
             // a mined-out emerald reappears elsewhere in the deep — but only
@@ -1136,9 +1379,13 @@ class TerrainGrid {
         const now = Date.now();
         for (const rock of this.rocks.values()) {
             if (rock.growing) {
+                const halfW = this.cols * this.cellSize / 2;
+                const halfH = this.rows * this.cellSize / 2;
                 out.push({ k: rock.k, h: rock.health / rock.maxHealth, d: 1,
                            r: Math.max(0, now - rock.growStart),
-                           o: rock.ore, gen: rock.gen });
+                           o: rock.ore, gen: rock.gen,
+                           ax: Math.round((rock.growAx + halfW) / this.cellSize * 100) / 100,
+                           ay: Math.round((rock.growAy + halfH) / this.cellSize * 100) / 100 });
             } else if (!rock.alive) {
                 out.push({ k: rock.k, h: 0, d: 1 });
             } else if (rock.health < rock.maxHealth || rock.gen > 0) {

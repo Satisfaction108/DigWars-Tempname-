@@ -872,7 +872,20 @@ let incoming = async function(message, socket) {
                 const oreState  = m[4] ? JSON.parse(m[4]) : [];
                 const oreSalt   = m[5] | 0;
                 global.vaults   = m[6] ? JSON.parse(m[6]) : [];
+                global.outposts = m[7] ? JSON.parse(m[7]) : [];
                 if (window.terrainRenderer) window.terrainRenderer.init(cells, cols, rows, rockState, oreState, oreSalt);
+            } break;
+            case 'OP': {
+                // Forward outposts, live state: [{id, t: owner team,
+                // h: banner health frac, c: capture progress, ct: capturing
+                // team}] — every 250ms
+                try { global.outpostState = JSON.parse(m[0]); } catch (e) { /* keep last */ }
+            } break;
+            case 'OU': {
+                // standing on an OWNED OUTPOST pad: reuse the vault deposit
+                // panel, flagged so the UI can note the 80% credit
+                global.vault.onPad = !!m[0];
+                global.vault.isOutpost = !!m[0];
             } break;
             case 'EP': {
                 // Enemy ping from a teammate: [x, y, senderId]. One live
@@ -902,11 +915,13 @@ let incoming = async function(message, socket) {
                 tb.at = performance.now();
             } break;
             case 'LA': {
-                // Leader arrow: [id, x, y] of the current #1, every 250ms
+                // Leader arrow: [id, x, y, team] of the current #1, every
+                // 250ms — team so every crown wears the leader's color
                 const L = global.leader;
                 L.id = m[0];
                 L.x = m[1];
                 L.y = m[2];
+                L.team = m[3];
                 L.at = performance.now();
             } break;
             case 'GEM': {
@@ -949,6 +964,7 @@ let incoming = async function(message, socket) {
             case 'VU': {
                 // Dig Wars: stepped on/off the team vault pad
                 global.vault.onPad = !!m[0];
+                global.vault.isOutpost = false;   // home vault = full credit
                 if (!global.vault.onPad) {
                     global.vault.remaining = 0;
                     global.vault.total = 0;

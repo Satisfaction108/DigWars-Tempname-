@@ -310,6 +310,9 @@ class socketManager {
                             // Vault pads (one per base) so clients can draw
                             // the doors and their UI.
                             JSON.stringify(require('../terrain/vault.js').snapshot()),
+                            // Forward outpost sites (static; live state
+                            // rides the 250ms OP broadcast).
+                            JSON.stringify(require('../terrain/outposts.js').snapshot()),
                         );
                     }
                     return;
@@ -351,14 +354,18 @@ class socketManager {
                 socket.status.lastHeartbeat = util.time();
             } break;
             case 'vd': {
-                // Dig Wars: vault deposit request — cash out N gem dust
+                // Dig Wars: deposit request — cash out N gem dust on
+                // whichever pad the body is standing on (vault or outpost)
                 if (m.length !== 1) { socket.kick("Ill-sized vault deposit."); return 1; }
                 if (typeof m[0] !== "number" || !isFinite(m[0])) { socket.kick("Weird vault deposit."); return 1; }
-                require('../terrain/vault.js').requestDeposit(socket, m[0]);
+                const vBody = socket.player && socket.player.body;
+                if (vBody && vBody.outpostOnPad) require('../terrain/outposts.js').requestDeposit(socket, m[0]);
+                else require('../terrain/vault.js').requestDeposit(socket, m[0]);
             } break;
             case 'vc': {
-                // Dig Wars: cancel an active vault deposit channel
+                // Dig Wars: cancel an active deposit channel (either pad)
                 require('../terrain/vault.js').requestCancel(socket);
+                require('../terrain/outposts.js').requestCancel(socket);
             } break;
             case "d": {
 
@@ -1169,6 +1176,32 @@ class socketManager {
         let { player, loc } = this.getSpawnLocation(socket.rememberedTeam, name);
         if (socket.player.loc && !global.spawnPoint && !Config.clan_wars) loc = socket.player.loc;
 
+        // FORWARD RESPAWN: if the team owns outposts, come back at whichever
+        // spawn point (home roll or owned pad) is nearest to where you died.
+        // Automatic, no UI — you rejoin the fight you were in.
+        if (!global.spawnPoint && !Config.clan_wars &&
+            global.gameManager.terrainGrid && socket.lastDeathX !== undefined) {
+            const pads = require('../terrain/outposts.js').ownedBy(player.team);
+            if (pads.length) {
+                const d2 = (x, y) => {
+                    const dx = x - socket.lastDeathX, dy = y - socket.lastDeathY;
+                    return dx * dx + dy * dy;
+                };
+                let bestD = d2(loc.x, loc.y), bestPad = null;
+                for (const pad of pads) {
+                    const d = d2(pad.x, pad.y);
+                    if (d < bestD) { bestD = d; bestPad = pad; }
+                }
+                if (bestPad) {
+                    const a = Math.random() * Math.PI * 2;
+                    loc = { x: bestPad.x + Math.cos(a) * bestPad.r * 0.4,
+                            y: bestPad.y + Math.sin(a) * bestPad.r * 0.4 };
+                    // never materialize inside the wall next to the pocket
+                    global.gameManager.terrainGrid.pushCircleFromVoronoi(loc, 60);
+                }
+            }
+        }
+
         let body;
         const filter = this.disconnections.filter(r => r.ip === socket.ip && r.body && !r.body.isDead());
         if (filter.length) {
@@ -1556,6 +1589,18 @@ class socketManager {
 
                             if (Config.clan_wars) Config.clan_wars_ft.remove(player.body);
 
+                            // where you fell — forward respawn picks the
+                            // owned pad nearest this spot
+                            socket.lastDeathX = player.body.x;
+                            socket.lastDeathY = player.body.y;
+
+                            // death-cam: if a human killed you, your camera
+                            // glides over to them (chain-hops in the view
+                            // loop if they die too)
+                            const spec = (player.body.finalKillers || [])
+                                .find(e => e && e.isPlayer && !e.isDead());
+                            socket.spectateEntity = spec || null;
+
                             socket.talk("F", ...player.records());
                             purge();
 
@@ -1585,11 +1630,19 @@ class socketManager {
                 if (player.body == null) {
                     fovNow = 2000;
                     camera.scoping = false;
-                    if (socket.spectateEntity != null) {
-                        if (socket.spectateEntity) {
-                            camera.x = socket.spectateEntity.x;
-                            camera.y = socket.spectateEntity.y;
-                        }
+                    // death-cam chain: if the one we're watching dies, hop to
+                    // whoever killed THEM, and so on down the line
+                    let hops = 0;
+                    while (socket.spectateEntity && socket.spectateEntity.isDead() && hops++ < 8) {
+                        const next = (socket.spectateEntity.finalKillers || [])
+                            .find(e => e && e.isPlayer && !e.isDead());
+                        socket.spectateEntity = next || null;
+                    }
+                    if (socket.spectateEntity) {
+                        // glide, never snap — the camera drifts over to its
+                        // new subject
+                        camera.x += (socket.spectateEntity.x - camera.x) * 0.06;
+                        camera.y += (socket.spectateEntity.y - camera.y) * 0.06;
                     }
                 }
 
@@ -2025,7 +2078,7 @@ class socketManager {
             // Leader arrow: the #1 player's live position, resolved once per
             // 250ms tick — clients point a screen-edge arrow at them when
             // they're out of view (slither-style).
-            let leaderID = -1, leaderX = 0, leaderY = 0;
+            let leaderID = -1, leaderX = 0, leaderY = 0, leaderTeam = 0;
             {
                 const topId = global.gameManager.room.topPlayerID;
                 const leader = topId !== -1 ? entities.get(topId) : null;
@@ -2033,8 +2086,12 @@ class socketManager {
                     leaderID = topId;
                     leaderX = Math.round(leader.x);
                     leaderY = Math.round(leader.y);
+                    leaderTeam = leader.team | 0;   // crowns wear team colors
                 }
             }
+            // outpost state, resolved once per tick for everyone
+            const opState = gemMode ? JSON.stringify(
+                require('../terrain/outposts.js').stateSnapshot()) : null;
             for (let socket of subscribers) {
                 minimapTeamUpdates = minimapTeams.update(socket.id, socket.player.body ? socket.player.body.team : socket.player.team);
                 if (!socket.status.selectedLeaderboard) socket.status.selectedLeaderboard = "global";
@@ -2081,12 +2138,13 @@ class socketManager {
                     socket.talk("RL");
                     socket.status.needsNewBroadcast = true;
                 }
-                socket.talk("LA", leaderID, leaderX, leaderY);
+                socket.talk("LA", leaderID, leaderX, leaderY, leaderTeam);
                 if (gemMode) {
                     socket.talk("TB", bankBlue, bankRed);
                     const myTeam = socket.player && (socket.player.body ? socket.player.body.team : socket.player.team);
                     const tm = myTeam === TEAM_RED ? tmRed : tmBlue;
                     socket.talk("TM", tm.length, ...tm.flat());
+                    if (opState) socket.talk("OP", opState);
                 }
             }
             logs.minimap.mark();

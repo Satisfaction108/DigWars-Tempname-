@@ -131,3 +131,58 @@ Class.gemHoardShard = {
     STROKE_WIDTH: 1.1,
 };
 Class.gemHoardShardFacet = { LABEL: "Hoard", SHAPE: GEM_CUT, COLOR: "#d98af0", BORDERLESS: true };
+
+// ─── FORWARD OUTPOSTS ────────────────────────────────────────────────────
+// The outpost structure: a permanent mini-base standing on each site —
+// grey while neutral, team-colored once conquered. You take it by
+// DESTROYING it (it rebuilds instantly in the killer team's colors).
+// Weaponless and immovable, and with near-zero density so it never shoves
+// bodies away — rammers grind it point-blank and teammates can sit on it.
+// Styled after the vault: octagonal foundation, recessed plate, gold gem
+// crest.
+Class.outpostBanner = {
+    PARENT: "genericTank",
+    LABEL: "Outpost",
+    TYPE: "miniboss",
+    ON_MINIMAP: false,
+    DANGER: 5,
+    LEVEL: 45,
+    LEVEL_CAP: 45,
+    SIZE: 60,
+    // a compact slowly-spinning octagon — the client mounts the mini vault
+    // door on top. (Octagon matches the vault's foundation language; 70%
+    // of the former hexagon's size keeps the pad tight and readable.)
+    SHAPE: 8,
+    // No INTANGIBLE: enemies are physically BLOCKED by the structure (like a
+    // wall), while teammates pass straight through (handled in the collision
+    // dispatcher). The structure deals ZERO body damage, so ramming it is
+    // free — you just can't walk through it. Projectiles burst on its hide
+    // instead of piercing through.
+    BODY: {
+        RESIST: 50,
+        SPEED: 0,
+        ACCELERATION: 0,
+        // DAMAGE 0: ramming it costs you NOTHING — and it also means the
+        // engine's mutual-death scaling can't shrink incoming bullet damage
+        // (a bullet the structure instakilled only delivered a sliver of
+        // its damage — that was the "1000 bullets to kill" bug). Bullets
+        // are killed manually in the collision dispatcher instead.
+        HEALTH: 9000,
+        DAMAGE: 0,
+        PENETRATION: 0.25,
+        FOV: 0.5,
+        PUSHABILITY: 0,
+        REGEN: 0,
+        SHIELD: 0,
+    },
+    FACING_TYPE: ["spin", { speed: 0.02 }],
+    CONTROLLERS: [],
+    // the client's label above the door is the ONE name — no nameplate
+    DISPLAY_NAME: false,
+    DRAW_HEALTH: true,
+    CAN_BE_ON_LEADERBOARD: false,
+    GIVE_KILL_MESSAGE: false,
+    ACCEPTS_SCORE: false,
+    IGNORED_BY_AI: true,
+    HITS_OWN_TYPE: "pushOnlyTeam",
+};

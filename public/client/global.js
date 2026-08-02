@@ -286,7 +286,7 @@ const global = {
     },
     // The #1 player's live position ('LA' messages, 250ms) for the
     // screen-edge leader arrow
-    leader: { id: -1, x: 0, y: 0, at: -1e9 },
+    leader: { id: -1, x: 0, y: 0, team: 0, at: -1e9 },
     // War score: each team's banked vault total ('TB' messages, 250ms)
     teamBanked: { blue: 0, red: 0, at: -1e9 },
     // Teammates ('TM' messages, 250ms): [{id, name, x, y}]
@@ -303,10 +303,14 @@ const global = {
     vaults: [],
     vault: {
         onPad: false,
+        isOutpost: false,   // pad under us is an outpost (80% credit note)
         remaining: 0,       // active channel: dust left to bank
         total: 0,           // active channel: requested amount (0 = idle)
         doneAt: -1e9,       // completion flash timestamp
     },
+    // Forward outposts: static sites from TG, live state from OP (250ms)
+    outposts: [],
+    outpostState: [],
     bandwidth: {
         currentHa: 0,
         currentFa: 0,

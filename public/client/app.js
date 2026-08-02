@@ -2302,10 +2302,12 @@ import { gameSound } from "./sound.js";
         drawGuiRect(x, y, len, height, true);
     }
 
-    // Dig Wars: the cavern floor — a seamless, world-locked dirt texture
-    // (mottled mud blotches + pebble specks) built once on an offscreen
-    // tile. Kept close to the stock floor's luminance so readability of
-    // tanks, bullets and borders is untouched.
+    // Dig Wars: the cavern floor — a seamless tile drawn in the GAME'S OWN
+    // vector language: flat fills only, hard edges, no gradients, no alpha
+    // haze. Exactly how a professional flat-2D floor asset is authored —
+    // big blobby two-tone earth patches (like the rocks' facets, laid flat)
+    // and a few outlined pebbles that share the wall's border color. Built
+    // once on an offscreen tile, world-locked, deterministic.
     let floorPattern = null;
     function makeFloorPattern(context) {
         const S = 256;
@@ -2318,7 +2320,11 @@ import { gameSound } from "./sound.js";
             seed = (Math.imul(seed, 1597334677) + 926135893) | 0;
             return ((seed >>> 8) & 0xffffff) / 0x1000000;
         };
-        t.fillStyle = "#221c16"; // near-black cavern dirt
+        // the floor's three flat tones: base, a step lighter, a step darker.
+        // Neutral near-black so the cool teal wall and team colors own all
+        // the contrast.
+        const BASE = "#1e1d1b", LIGHT = "#232220", DARK = "#191817";
+        t.fillStyle = BASE;
         t.fillRect(0, 0, S, S);
         // toroidal draw: paint each feature at all 9 wrap offsets so the
         // tile is seamless when repeated. All randomness is rolled BEFORE
@@ -2332,79 +2338,66 @@ import { gameSound } from "./sound.js";
                     t.restore();
                 }
         };
-        // big soft dirt blotches, some lighter earth, some deeper shadow
-        for (let i = 0; i < 30; i++) {
-            const x = rng() * S, y = rng() * S, r = 22 + rng() * 48;
-            const light = rng() < 0.55;
-            const a = 0.12 + rng() * 0.12;
-            wrapped(() => {
-                const g = t.createRadialGradient(x, y, 0, x, y, r);
-                g.addColorStop(0, light ? `rgba(88,73,55,${a})` : `rgba(5,4,3,${a})`);
-                g.addColorStop(1, "rgba(0,0,0,0)");
-                t.fillStyle = g;
+        // an irregular rounded blob: N points around a centre with jittered
+        // radius, joined by quadratic curves — the universal flat-game-art
+        // "patch of ground" shape
+        const blob = (x, y, r) => {
+            const n = 7 + (rng() * 3 | 0);
+            const pts = [];
+            for (let i = 0; i < n; i++) {
+                const a = (i / n) * Math.PI * 2 + rng() * 0.4;
+                const rr = r * (0.62 + rng() * 0.55);
+                pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+            }
+            return () => {
                 t.beginPath();
-                t.arc(x, y, r, 0, Math.PI * 2);
-                t.fill();
-            });
+                for (let i = 0; i < n; i++) {
+                    const p = pts[i], q = pts[(i + 1) % n];
+                    const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+                    i ? t.quadraticCurveTo(p[0], p[1], mx, my)
+                      : t.moveTo((pts[n - 1][0] + p[0]) / 2, (pts[n - 1][1] + p[1]) / 2);
+                    if (i) continue;
+                    t.quadraticCurveTo(p[0], p[1], mx, my);
+                }
+                t.closePath();
+            };
+        };
+        // ── layer 1: large flat earth patches, dark then light, so the
+        //    ground is visibly mottled but in only three quiet tones ──
+        for (let i = 0; i < 9; i++) {
+            const path = blob(rng() * S, rng() * S, 26 + rng() * 34);
+            wrapped(() => { path(); t.fillStyle = DARK; t.fill(); });
         }
-        // fine grain: a dusting of 1px dirt specks
-        for (let i = 0; i < 260; i++) {
-            const x = rng() * S, y = rng() * S;
-            const s = 0.5 + rng() * 0.9;
-            const light = rng() < 0.55;
-            const a = 0.14 + rng() * 0.14;
-            wrapped(() => {
-                t.globalAlpha = a;
-                t.fillStyle = light ? "#6b5a45" : "#000000";
-                t.fillRect(x, y, s, s);
-                t.globalAlpha = 1;
-            });
+        for (let i = 0; i < 9; i++) {
+            const path = blob(rng() * S, rng() * S, 20 + rng() * 28);
+            wrapped(() => { path(); t.fillStyle = LIGHT; t.fill(); });
         }
-        // pebbles: small stones catching what little light there is
-        for (let i = 0; i < 70; i++) {
+        // ── layer 2: small flat dirt clods — tiny light blobs sitting on
+        //    the patches, pure flat fill, like a tileset's detail pass ──
+        for (let i = 0; i < 26; i++) {
+            const path = blob(rng() * S, rng() * S, 2.5 + rng() * 4.5);
+            const tone = rng() < 0.5 ? "#262521" : "#161514";
+            wrapped(() => { path(); t.fillStyle = tone; t.fill(); });
+        }
+        // ── layer 3: a few pebbles in the wall's own visual language —
+        //    flat stone fill + the SAME dark border every rock wears ──
+        for (let i = 0; i < 12; i++) {
             const x = rng() * S, y = rng() * S;
-            const r = 1.2 + rng() * 3.2, rot = rng() * Math.PI;
-            const squish = 0.6 + rng() * 0.4;
-            const shade = rng();
-            const a = 0.35 + rng() * 0.25;
-            const col = shade < 0.4 ? "#3c332a" : shade < 0.75 ? "#4e4234" : "#6a5a46";
+            const r = 2.2 + rng() * 2.8, rot = rng() * Math.PI;
+            const squish = 0.65 + rng() * 0.3;
+            const col = rng() < 0.5 ? "#393732" : "#454239";
             wrapped(() => {
                 t.save();
                 t.translate(x, y);
                 t.rotate(rot);
-                t.globalAlpha = a * 0.6;
-                t.fillStyle = "#000000";
-                t.beginPath();
-                t.ellipse(r * 0.25, r * 0.3, r, r * squish, 0, 0, Math.PI * 2);
-                t.fill();
-                t.globalAlpha = a;
                 t.fillStyle = col;
                 t.beginPath();
                 t.ellipse(0, 0, r, r * squish, 0, 0, Math.PI * 2);
                 t.fill();
-                t.restore();
-            });
-        }
-        // a few faint cracks in the packed ground
-        for (let i = 0; i < 9; i++) {
-            const x0 = rng() * S, y0 = rng() * S;
-            const segs = 3 + (rng() * 3 | 0);
-            const pts = [[x0, y0]];
-            let ang = rng() * Math.PI * 2;
-            for (let sgi = 0; sgi < segs; sgi++) {
-                ang += (rng() - 0.5) * 1.4;
-                const len = 8 + rng() * 16;
-                const [lx, ly] = pts[pts.length - 1];
-                pts.push([lx + Math.cos(ang) * len, ly + Math.sin(ang) * len]);
-            }
-            wrapped(() => {
-                t.strokeStyle = "rgba(0,0,0,0.35)";
-                t.lineWidth = 1.1;
-                t.lineCap = "round";
-                t.beginPath();
-                t.moveTo(pts[0][0], pts[0][1]);
-                for (let pi = 1; pi < pts.length; pi++) t.lineTo(pts[pi][0], pts[pi][1]);
+                t.lineWidth = 1.4;
+                t.strokeStyle = "rgb(5,4,7)";
                 t.stroke();
+                t.restore();
             });
         }
         return context.createPattern(tile, "repeat");
@@ -2626,6 +2619,9 @@ import { gameSound } from "./sound.js";
                     });
                 }
             }
+            // a small white "Vault" label floats above the door
+            drawText("Vault", sx, sy - R * 1.38, R * 0.24, color.guiwhite, "center", false, 1, true, c);
+
             if (doneFlash > 0) {
                 // completion burst: one-off ring of gold sparks
                 if (!v0._burstDone) {
@@ -2677,10 +2673,184 @@ import { gameSound } from "./sound.js";
         }
     }
 
+    // Dig Wars: forward outpost pads — flat octagonal foundations in the
+    // same visual language as the vault, carved into the wall's pockets.
+    // Grey while neutral, ringed in the owner's color once a banner stands
+    // (the banner itself is a real entity and draws like any tank). A gold
+    // arc shows capture progress on a contested neutral pad.
+    function drawOutposts(roomX, roomY, ratio) {
+        if (!global.outposts.length) return;
+        const now = performance.now();
+        const halfW = global.gameWidth / 2, halfH = global.gameHeight / 2;
+        const c = ctx[0];
+        for (const o of global.outposts) {
+            const st = global.outpostState.find(s => s.id === o.id) || {};
+            const sx = roomX + (o.x + halfW) * ratio;
+            const sy = roomY + (o.y + halfH) * ratio;
+            const R = o.r * ratio;
+            if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
+                sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
+            const ownCol = st.t === -1 ? gameDraw.getColor("blue")
+                        : st.t === -2 ? gameDraw.getColor("red")
+                        : "#6a6f7a";
+            // the capturable structure's body color: team blue/red, neutral yellow
+            const bodyCol = st.t === -1 ? gameDraw.getColor("blue")
+                         : st.t === -2 ? gameDraw.getColor("red")
+                         : gameDraw.getColor("yellow");
+            c.save();
+            c.translate(sx, sy);
+            c.lineJoin = "round";
+            // flat octagonal foundation (the vault's structural language)
+            c.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+                const ox = Math.cos(a) * R * 1.08, oy = Math.sin(a) * R * 1.08;
+                i ? c.lineTo(ox, oy) : c.moveTo(ox, oy);
+            }
+            c.closePath();
+            c.fillStyle = "#23262d";
+            c.fill();
+            c.lineWidth = Math.max(3, R * 0.06);
+            c.strokeStyle = "#111318";
+            c.stroke();
+            // recessed inner disc
+            c.fillStyle = "#31363f";
+            c.beginPath(); c.arc(0, 0, R * 0.74, 0, Math.PI * 2); c.fill();
+            c.lineWidth = Math.max(2, R * 0.045);
+            c.strokeStyle = "#16181d";
+            c.stroke();
+            // the capturable STRUCTURE: a big team-colored octagon standing on
+            // the pad, drawn semi-transparent so it reads as a built thing.
+            // the real banner entity is suppressed in drawEntities so players
+            // always render ON TOP of the outpost (like the base vaults).
+            if (st.t || st.h) {
+                const bodyR = R * 1.33;   // matches the banner entity's realSize
+                c.globalAlpha = 0.6;
+                c.beginPath();
+                for (let i = 0; i < 8; i++) {
+                    const a = (i / 8) * Math.PI * 2;
+                    const ox = Math.cos(a) * bodyR, oy = Math.sin(a) * bodyR;
+                    i ? c.lineTo(ox, oy) : c.moveTo(ox, oy);
+                }
+                c.closePath();
+                c.fillStyle = bodyCol;
+                c.fill();
+                c.lineWidth = Math.max(3, R * 0.06);
+                c.strokeStyle = "rgba(0,0,0,0.35)";
+                c.stroke();
+                c.globalAlpha = 1;
+                // health ring: a thin arc around the structure showing its HP
+                if (st.h > 0) {
+                    const frac = Math.max(0, Math.min(1, st.h));
+                    c.lineWidth = Math.max(3, R * 0.05);
+                    c.lineCap = "round";
+                    c.strokeStyle = "#ffffff";
+                    c.globalAlpha = 0.8;
+                    c.beginPath();
+                    c.arc(0, 0, bodyR * 1.12, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+                    c.stroke();
+                    c.globalAlpha = 1;
+                }
+            }
+            // ownership ring: breathes in the owner's color, dim grey neutral
+            const pulse = 0.5 + 0.5 * Math.sin(now / 700 + o.id);
+            c.globalAlpha = st.t ? 0.55 + 0.25 * pulse : 0.35;
+            c.lineWidth = Math.max(2.5, R * 0.055);
+            c.strokeStyle = ownCol;
+            c.beginPath(); c.arc(0, 0, R * 0.92, 0, Math.PI * 2); c.stroke();
+            c.globalAlpha = 1;
+            c.restore();
+            // CONQUEST BLAST: ownership just changed hands — a big double
+            // shockwave in the new owner's color rolls off the site
+            if (o._lastTeam === undefined) o._lastTeam = st.t;
+            if (st.t !== o._lastTeam) {
+                o._lastTeam = st.t;
+                if (st.t) o._blastAt = now;           // captured (not the fall to grey)
+            }
+            if (o._blastAt && now - o._blastAt < 900) {
+                const t = (now - o._blastAt) / 900;
+                const eo = 1 - Math.pow(1 - t, 3);
+                const a = Math.pow(1 - t, 1.4);
+                c.save();
+                for (let ring = 0; ring < 2; ring++) {
+                    const rt = ring ? Math.max(0, eo - 0.18) : eo;
+                    c.beginPath();
+                    c.arc(sx, sy, R * (0.6 + 2.6 * rt), 0, Math.PI * 2);
+                    c.strokeStyle = ownCol;
+                    c.globalAlpha = a * (ring ? 0.35 : 0.7);
+                    c.lineWidth = Math.max(3, R * 0.12 * (1 - t));
+                    c.stroke();
+                }
+                // spark burst riding the wave
+                for (let i = 0; i < 14; i++) {
+                    const ang = (i / 14) * Math.PI * 2 + o.id;
+                    const rr = R * (0.5 + 2.4 * eo);
+                    c.globalAlpha = a * 0.85;
+                    c.fillStyle = i % 3 ? ownCol : "#ffd75e";
+                    c.beginPath();
+                    c.arc(sx + Math.cos(ang) * rr, sy + Math.sin(ang) * rr,
+                          Math.max(1.5, R * 0.045 * (1 - t)), 0, Math.PI * 2);
+                    c.fill();
+                }
+                c.restore();
+            }
+        }
+    }
+
+    // The outposts' mini vault doors — the EXACT vault art from the bases,
+    // at ~60% size, drawn over the octagon foundation. Ring + label colored
+    // by the current owner. Rendered on the BACKGROUND layer (below all
+    // players/entities) so the player always appears on top of the outpost.
+    function drawOutpostDoors(px, py, ratio) {
+        if (!global.outposts.length) return;
+        if (!vaultSprites) vaultSprites = makeVaultSprites();
+        const now = performance.now();
+        const halfW = global.gameWidth / 2, halfH = global.gameHeight / 2;
+        const roomX = -px + global.screenWidth / 2 - ratio * global.gameWidth / 2;
+        const roomY = -py + global.screenHeight / 2 - ratio * global.gameHeight / 2;
+        const c = ctx[0];   // drawn on the background layer so players stay on top
+        for (const o of global.outposts) {
+            const st = global.outpostState.find(s => s.id === o.id) || {};
+            const sx = roomX + (o.x + halfW) * ratio;
+            const sy = roomY + (o.y + halfH) * ratio;
+            const R = o.r * 0.85 * ratio;  // the door: big, front and center
+                                           // (~2× the old footprint)
+            if (sx < -R * 3 || sx > global.screenWidth + R * 3 ||
+                sy < -R * 3 || sy > global.screenHeight + R * 3) continue;
+            const ownCol = st.t === -1 ? gameDraw.getColor("blue")
+                        : st.t === -2 ? gameDraw.getColor("red")
+                        : gameDraw.getColor("yellow");
+            c.save();
+            c.translate(sx, sy);
+            // ownership claim ring, exactly like the base vaults wear
+            const pulse = 0.5 + 0.5 * Math.sin(now / 650 + o.id);
+            c.globalAlpha = st.t ? 0.55 + 0.25 * pulse : 0.35;
+            c.lineWidth = Math.max(2.5, R * 0.06);
+            c.strokeStyle = ownCol;
+            c.beginPath(); c.arc(0, 0, R * 1.06, 0, Math.PI * 2); c.stroke();
+            c.globalAlpha = 1;
+            // the same three door layers the base vaults use
+            const spin = now / 6000;
+            c.drawImage(vaultSprites.plate, -R, -R, R * 2, R * 2);
+            c.save(); c.rotate(spin * 0.7);
+            c.drawImage(vaultSprites.cog, -R, -R, R * 2, R * 2);
+            c.restore();
+            c.save(); c.rotate(-spin * 0.4);
+            c.drawImage(vaultSprites.wheel, -R, -R, R * 2, R * 2);
+            c.restore();
+            c.restore();
+            // the site name: plain, fully white, clearly ABOVE everything —
+            // bigger so it reads from across the arena
+            drawText(o.name, sx, sy - o.r * ratio * 1.55,
+                     Math.min(32, o.r * ratio * 0.42),
+                     color.guiwhite, "center", false, 1, true, c);
+        }
+    }
+
     function drawFloor(px, py, ratio, tick) {
 
         // out-of-bounds void: even darker than the cavern floor
-        clearScreen("#0e0c0a", 1, ctx[0]);
+        clearScreen("#0d0d0c", 1, ctx[0]);
 
         let gameWidth = global.gameWidth = global.player.roomAnim.x.get(tick);
         let gameHeight = global.gameHeight = global.player.roomAnim.y.get(tick);
@@ -2688,7 +2858,7 @@ import { gameSound } from "./sound.js";
         ctx[0].globalAlpha = 1;
         // room base = the dirt tile's ground color, so even if the pattern
         // ever fails to build the floor is dark, never white
-        ctx[0].fillStyle = "#221c16";
+        ctx[0].fillStyle = "#1e1d1b";
 
         let roomX = -px + global.screenWidth / 2 - ratio * gameWidth / 2,
             roomY = -py + global.screenHeight / 2 - ratio * gameHeight / 2,
@@ -2802,6 +2972,11 @@ import { gameSound } from "./sound.js";
         }
         // Dig Wars: team vault doors, set into the base floors
         drawVaults(roomX, roomY, ratio);
+        // Dig Wars: forward outpost pads, carved into the wall
+        drawOutposts(roomX, roomY, ratio);
+        // the outposts' mini vault doors — drawn here in the FLOOR layer (below
+        // players) so the player always renders on top of the outpost
+        drawOutpostDoors(px, py, ratio);
 
         if (window.terrainRenderer && window.terrainRenderer.ready) {
             // near-opaque on the dark cavern floor — the old 0.5 wash only
@@ -2821,6 +2996,15 @@ import { gameSound } from "./sound.js";
         for (let instance of global.entities) {
             if (!instance.render.draws) {
                 continue;
+            }
+            // Dig Wars: the outpost structure is a real server entity (for HP /
+            // capture combat) but its OCTAGON + door are drawn on the background
+            // layer (see drawOutposts/drawOutpostDoors) so players render on
+            // top of it. Skip the opaque banner entity here to avoid a big
+            // colored octagon covering tanks standing on the pad.
+            {
+                const _obM = global.mockups[parseInt(instance.index.split("-")[0])];
+                if (_obM && _obM.name === "Outpost") continue;
             }
             let motion = compensation();
             let rst = instance.render.status.getFade();
@@ -3519,19 +3703,29 @@ import { gameSound } from "./sound.js";
     // ── Leader crown: the classic simple 2D game crown — three equal
     // triangular spikes on a flat band, balls on the tips, flat gold with a
     // dark outline. Everyone sees it on the #1 player, themselves included.
+    // The crown wears the LEADER'S TEAM COLOR (blue leader = blue crown,
+    // red leader = red crown) everywhere it appears: overhead, the screen
+    // edge indicator, and both maps. Gold only as a fallback.
+    function crownColor() {
+        const t = global.leader && global.leader.team;
+        if (t === -1) return gameDraw.getColor("blue");
+        if (t === -2) return gameDraw.getColor("red");
+        return color.gold;
+    }
     function drawCrown(x, y, g, a, c = ctx[1]) {
-        // The crown: flat solid gold, three ball tips melting into the
+        // The crown: flat solid color, three ball tips melting into the
         // spikes, softly rounded silhouette — matches the reference art.
         const w = 1.05 * g, h = 0.72 * g;
         const sideY = y - h * 0.92;  // outer tip centers
         const midY  = y - h * 1.12;  // center tip sits higher
         const tipR  = 0.155 * g;
+        const cc = crownColor();
         c.save();
         c.globalAlpha = a;
         c.lineJoin = "round";
         c.lineCap = "round";
-        c.fillStyle = color.gold;
-        c.strokeStyle = color.gold;
+        c.fillStyle = cc;
+        c.strokeStyle = cc;
         // body: base → left tip → valley → center tip → valley → right tip
         c.beginPath();
         c.moveTo(x - 0.38 * w, y);
@@ -3831,7 +4025,8 @@ import { gameSound } from "./sound.js";
         c.strokeStyle = teamCol;
         optionsMenu_drawRoundedRect(x, y, W, H, 12);
         c.stroke();
-        drawText("TEAM VAULT", x + W / 2, y + 21, 15, "#ffd75e", "center");
+        drawText(v.isOutpost ? "OUTPOST BANK · 80% CREDIT" : "TEAM VAULT",
+                 x + W / 2, y + 21, 15, "#ffd75e", "center");
         c.fillStyle = teamCol;
         c.fillRect(x + W / 2 - 56, y + 28, 112, 2.5);
         drawText("Banked  " + util.formatLargeNumber(g.banked | 0), x + 16, y + 46, 12, color.teal, "left");
@@ -4094,7 +4289,10 @@ import { gameSound } from "./sound.js";
             const cols = tr._cols, rows = tr._rows;
             const alive = new Path2D(), dead = new Path2D();
             for (const [k, cell] of tr._cellPolys) {
-                const p = tr._rockDead.has(k) ? dead : alive;
+                // regrowing cells count as rock on the maps once the slide is
+                // halfway home (the renderer flips mapDirty at that moment)
+                const backAsRock = tr._growing && tr._growing.get(k)?.mapped;
+                const p = (tr._rockDead.has(k) && !backAsRock) ? dead : alive;
                 const poly = cell.poly;
                 p.moveTo((poly[0][0] / cols - 0.5) * gw, (poly[0][1] / rows - 0.5) * gh);
                 for (let i = 1; i < poly.length; i++)
@@ -4229,10 +4427,44 @@ import { gameSound } from "./sound.js";
 
     // Markers shared by both maps: teammates (team-colored dots with tiny
     // names) and yourself (a soft rounded team-colored arrow).
-    function drawMapMarkers(T, rx, ry, rw, rh, nameSize, dotR) {
+    function drawMapMarkers(T, rx, ry, rw, rh, nameSize, dotR, skipNameId, hoverOutpostId) {
         const c = ctx[2];
         const inside = (x, y) => x > rx - 8 && x < rx + rw + 8 && y > ry - 8 && y < ry + rh + 8;
         const teamCol = myTeamColor();
+        // ── forward outposts: diamond in owner color, HP bar underneath ──
+        for (const o of global.outposts) {
+            const st = global.outpostState.find(s => s.id === o.id) || {};
+            const mx = T.X(o.x), my = T.Y(o.y);
+            if (!inside(mx, my)) continue;
+            const ownCol = st.t === -1 ? gameDraw.getColor("blue")
+                        : st.t === -2 ? gameDraw.getColor("red")
+                        : gameDraw.getColor("yellow");   // neutral team yellow
+            const s2 = dotR * 1.2;
+            c.save();
+            c.translate(mx, my);
+            c.rotate(Math.PI / 4);
+            c.fillStyle = ownCol;
+            c.strokeStyle = color.black;
+            c.lineWidth = 1.6;
+            c.beginPath();
+            c.rect(-s2, -s2, s2 * 2, s2 * 2);
+            c.fill();
+            c.stroke();
+            c.restore();
+            // structure HP bar (neutral included — chipping a grey outpost
+            // shows on every map) — small; the big map enlarges it on hover
+            if (st.h > 0 && o.id !== hoverOutpostId) {
+                const bw = dotR * 5, bh = 2.5, bx = mx - bw / 2, by = my + s2 + 3;
+                c.fillStyle = color.black;
+                c.fillRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
+                c.fillStyle = ownCol;
+                c.fillRect(bx, by, bw * st.h, bh);
+            }
+            // small white label on the big map (hover pass draws gold)
+            if (nameSize > 0 && o.id !== hoverOutpostId) {
+                drawText(o.name, Math.round(mx), Math.round(my - s2 - 6), nameSize * 0.85, color.guiwhite, "center");
+            }
+        }
         // the reigning leader's live position wears the crown — but the
         // king himself doesn't need a map marker for his own head
         const L = global.leader;
@@ -4254,6 +4486,10 @@ import { gameSound } from "./sound.js";
         }
         for (const t of global.teammates) {
             if (t.id === gui.playerid) continue;
+            // a friendly leader is marked by the crown ALONE — drawing the
+            // dot underneath reads as two players
+            if (config.game.leaderIndicators && L && t.id === L.id &&
+                performance.now() - L.at < 1200) continue;
             const sp = (sm && sm.mates.get(t.id)) || t;
             const mx = T.X(sp.x), my = T.Y(sp.y);
             if (!inside(mx, my)) continue;
@@ -4268,7 +4504,9 @@ import { gameSound } from "./sound.js";
             c.arc(mx, my, dotR * 0.38, 0, Math.PI * 2);
             c.fillStyle = "rgba(255,255,255,0.85)";
             c.fill();
-            if (nameSize > 0) {
+            // the hovered teammate's name is drawn once, gold, by the hover
+            // pass — not twice in two colors
+            if (nameSize > 0 && t.id !== skipNameId) {
                 drawText(t.name || "Player", Math.round(mx), Math.round(my - dotR - 5), nameSize, color.guiwhite, "center");
             }
         }
@@ -4430,20 +4668,57 @@ import { gameSound } from "./sound.js";
         optionsMenu_drawRoundedRect(px0, py0, panelW, panelH, 11);
         ctx[2].clip();
         const T = drawWorldWindow(ctx[2], px0, py0, panelW, panelH, wx0, wy0, span);
-        drawMapMarkers(T, px0, py0, panelW, panelH, 10, 4.6);
-        // hover: ring + bolder name on the teammate under the cursor
+        // find the teammate under the cursor FIRST, so the marker pass can
+        // skip their white label — the hover pass draws it once, in gold
         const mScale = global.canvas ? global.canvas.height / global.screenHeight : 1;
         const hx = global.mouse.x / mScale, hy = global.mouse.y / mScale;
+        let hoverMate = null;
         for (const t of global.teammates) {
             if (t.id === gui.playerid) continue;
-            const mx = T.X(t.x), my = T.Y(t.y);
-            if (Math.hypot(mx - hx, my - hy) < 22) {
-                ctx[2].beginPath();
-                ctx[2].arc(mx, my, 8.5, 0, Math.PI * 2);
-                ctx[2].strokeStyle = color.gold;
-                ctx[2].lineWidth = 2.5;
-                ctx[2].stroke();
-                drawText(t.name || "Player", Math.round(mx), Math.round(my - 17), 14, color.gold, "center");
+            if (Math.hypot(T.X(t.x) - hx, T.Y(t.y) - hy) < 22) { hoverMate = t; break; }
+        }
+        let hoverOutpost = null;
+        if (!hoverMate) for (const o of global.outposts) {
+            if (Math.hypot(T.X(o.x) - hx, T.Y(o.y) - hy) < 24) { hoverOutpost = o; break; }
+        }
+        drawMapMarkers(T, px0, py0, panelW, panelH, 10, 4.6,
+                       hoverMate ? hoverMate.id : undefined,
+                       hoverOutpost ? hoverOutpost.id : undefined);
+        // hover: ring + bolder name on the teammate under the cursor
+        if (hoverMate) {
+            const mx = T.X(hoverMate.x), my = T.Y(hoverMate.y);
+            ctx[2].beginPath();
+            ctx[2].arc(mx, my, 8.5, 0, Math.PI * 2);
+            ctx[2].strokeStyle = color.gold;
+            ctx[2].lineWidth = 2.5;
+            ctx[2].stroke();
+            drawText(hoverMate.name || "Player", Math.round(mx), Math.round(my - 17), 14, color.gold, "center");
+        }
+        // hovered outpost: one big gold label + an ENLARGED banner HP bar
+        // (the small white label + tiny bar are suppressed in the marker pass)
+        if (hoverOutpost) {
+            const st = global.outpostState.find(s => s.id === hoverOutpost.id) || {};
+            const mx = T.X(hoverOutpost.x), my = T.Y(hoverOutpost.y);
+            drawText(hoverOutpost.name, Math.round(mx), Math.round(my - 16), 14, color.gold, "center");
+            if (st.h > 0) {
+                const ownCol = st.t === -1 ? gameDraw.getColor("blue")
+                            : st.t === -2 ? gameDraw.getColor("red") : gameDraw.getColor("yellow");
+                const bw = 52, bh = 5, bx = mx - bw / 2, by = my + 10;
+                ctx[2].fillStyle = color.black;
+                ctx[2].fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+                ctx[2].fillStyle = ownCol;
+                ctx[2].fillRect(bx, by, bw * st.h, bh);
+            }
+        }
+        // vault labels: a small white "Vault" over each pad; hovering one
+        // swaps it for a single big gold label (never both — no overlap)
+        for (const v of global.vaults) {
+            const mx = T.X(v.x), my = T.Y(v.y);
+            const vr = Math.max(6, v.r * (bm._panel.s || 1));
+            if (Math.hypot(mx - hx, my - hy) < Math.max(18, vr)) {
+                drawText("Vault", Math.round(mx), Math.round(my - vr - 10), 16, color.gold, "center");
+            } else {
+                drawText("Vault", Math.round(mx), Math.round(my - vr - 6), 10, color.guiwhite, "center");
             }
         }
         ctx[2].restore();
@@ -5337,7 +5612,7 @@ import { gameSound } from "./sound.js";
         scaleScreenRatio(ratio, true);
 
         drawEntity(baseColor, (xx - 190 - len / 2 + 0.5) | 0, (yy - -5 + 0.5) | 0, picture, 1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
-        drawText("Level " + gui.__s.getLevel(), x - 275, y - -80, 14, color.guiwhite, "center");
+        // (no level line — everyone lives at 45 in Dig Wars, it says nothing)
         drawText(picture.name, x - 275, y - -110, 24, color.guiwhite, "center");
         drawText(name == "" ? "Your Score: " : name + "'s Score: ", x - 170, y - 30, 24, color.guiwhite);
         drawText(util.formatLargeNumber(Math.round(global.finalScore.get())), x - 170, y + 25, 50, color.gold);
@@ -5471,12 +5746,16 @@ import { gameSound } from "./sound.js";
                 drawSelfInfo(max);
                 drawGemPopups();   // +N numbers + pickup ring over the tank
                 drawVaultUI();     // deposit panel while on the vault pad
-                drawLeaderArrow(); // screen-edge pointer at the #1 player
-                drawEnemyPings();  // team danger markers (G key)
             }
             drawMinimapAndDebug(spacing, alcoveSize, global.GRAPHDATA, tick);
             if (global.GUIStatus.renderLeaderboard) drawLeaderboard(spacing, alcoveSize, max);
             if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
+            if (global.GUIStatus.renderPlayerBars) {
+                // danger + leader indicators ride ABOVE every other HUD
+                // element — nothing may cover a threat marker
+                drawLeaderArrow(); // screen-edge pointer at the #1 player
+                drawEnemyPings();  // team danger markers (G key)
+            }
         } else if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
         drawBigMap(); // full-map overlay rides above the HUD
         if (global.showTree) {

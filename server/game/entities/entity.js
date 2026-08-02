@@ -1072,6 +1072,9 @@ class Entity extends EventEmitter {
             }
             // Remove duplicates
             killers = killers.filter((elem, index, self) => index == self.indexOf(elem));
+            // remembered for the death-cam: whoever killed me is who my
+            // spectator camera follows (and if THEY die, whoever killed them)
+            this.finalKillers = killers;
             killers.forEach((e) => e.emit('kill', { body: e, entity: this }));
             // If there's no valid killers (you were killed by food), change the message to be more passive
             let killText = notJustFood ? "" : "You have been killed by ",
@@ -1160,9 +1163,10 @@ class Entity extends EventEmitter {
             }
             // If I'm the leader, broadcast it:
             if (this.id === global.gameManager.room.topPlayerID) {
-                let usurptText = this.name === "" ? "The leader" : this.name;
-                if (notJustFood) {
-                    usurptText += " has been usurped by";
+                let usurptText;
+                if (notJustFood && killers.length) {
+                    // slain by a player (or players): name the usurper(s)
+                    usurptText = "The Leader has been killed by";
                     for (let i = 0; i < killers.length; i++) {
                         usurptText += " ";
                         usurptText += killers[i].name === "" ? "an unnamed player" : killers[i].name;
@@ -1170,7 +1174,8 @@ class Entity extends EventEmitter {
                     }
                     usurptText = usurptText.slice(0, -4) + "!";
                 } else {
-                    usurptText += " fought a polygon... and the polygon won.";
+                    // died to the world — rocks, polygons, the living wall
+                    usurptText = "The Leader did not survive the fight.";
                 }
                 global.gameManager.socketManager.broadcast(usurptText);
             }

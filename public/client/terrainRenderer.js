@@ -6,13 +6,15 @@ const CELL_BASALT = 0;
 const CELL_EMPTY  = 1;
 
 // ─── THE LIVING WALL (mirrors server/game/terrain/terrainGrid.js REGROW) ──
-// A destroyed cell comes back by GROWING: it rises from its own centre over
-// GROW_MS, starting at GROW_START of full size. The scale curve here is the
-// exact one the server collides with, so the stone you see is the stone that
-// shoves you. Everything else in this file's growth path is pure spectacle.
-const GROW_MS      = 7000;
-const GROW_START   = 0.12;
-const GROW_ORE_MS  = 1200;   // crystals sprout AFTER the body lands
+// A destroyed cell comes back by EXPANDING out of the living wall beside
+// it: the full-size stone (texture, border, ore crystals in their final
+// places) shown scaled about its ANCHOR — the point on the neighbouring
+// wall it grows from — swelling from a sliver to the whole cell. The curve
+// here is the exact one the server collides with, so the stone you see is
+// the stone that blocks you.
+const GROW_MS      = 8000;   // mirrors the server's GROW_MS
+const GROW_SCALE0  = 0.15;   // mirrors the server's START_SCALE
+const GROW_ORE_MS  = 1200;   // emerald-plant reveal window (e:1 events)
 const GROW_GEN_STRIDE = 7919;
 const growEase = (p) => p * p * (3 - 2 * p);
 // Same palette as the menu fireworks easter egg
@@ -108,7 +110,9 @@ class TerrainRenderer {
         this._veinCache  = new Map();   // key -> per-cell vein artwork
         this._oreSalt    = 0;           // per-boot layout salt (TG snapshot)
         // ── The living wall ──
-        this._growing    = new Map();   // key -> { start, tier, gen } while rising
+        this._growing    = new Map();   // key -> { start, tier, gen, ax, ay } while rising
+        this._landed     = new Set();   // grown cells awaiting the silhouette rebuild —
+                                        // drawn full-size so there is never a hole flash
         this._gen        = new Map();   // key -> regrowth generation (crystal layout salt)
         this._oreSprout  = new Map();   // key -> time its crystals began sprouting
         this._sproutArt  = new Map();   // key -> per-deposit paths (short-lived)
@@ -174,6 +178,7 @@ class TerrainRenderer {
         this._damageDirty = true;
         this._damageBatch = null;
         this._growing.clear();
+        this._landed.clear();
         this._gen.clear();
         this._oreSprout.clear();
         this._sproutArt.clear();
@@ -189,7 +194,12 @@ class TerrainRenderer {
             // of the server already is (r = milliseconds elapsed)
             if (ev.r !== undefined) {
                 if (ev.r < GROW_MS) {
-                    this._growing.set(ev.k, { start: nowInit - ev.r, tier: ev.o | 0, gen: ev.gen | 0 });
+                    // anchor may be missing/unusable here — _cellPolys isn't
+                    // built yet during init; the draw loop repairs it on
+                    // first sight of the cell
+                    this._growing.set(ev.k, { start: nowInit - ev.r, tier: ev.o | 0,
+                                              gen: ev.gen | 0, ax: ev.ax, ay: ev.ay,
+                                              mapped: false });
                 } else {
                     this._rockDead.delete(ev.k);   // stale snapshot: treat as grown
                 }
@@ -258,13 +268,32 @@ class TerrainRenderer {
             // ore markings, both maps) keeps doing exactly that, and the
             // growth is drawn as its own layer on top. It only rejoins the
             // rock when it lands.
-            if (ev.r === 1) { this._beginGrowth(ev.k, ev.o | 0, ev.gen | 0, now); continue; }
+            if (ev.r === 1) {
+                // regrow implies the server considers this cell DEAD; if the
+                // client somehow still thinks it's whole (missed destroy),
+                // force the crater first so the slide reveals over floor,
+                // not over a phantom full rock
+                if (!this._rockDead.has(ev.k)) {
+                    this._rockDead.add(ev.k);
+                    this.mapDirty = true;
+                    rebuilt = true;
+                }
+                this._beginGrowth(ev.k, ev.o | 0, ev.gen | 0, now, ev.ax, ev.ay);
+                continue;
+            }
             if (ev.r === 2) { this._finishGrowth(ev.k, now); continue; }
             if (ev.e === 1) { this._revealOre(ev.k, 4, now); continue; }
-            if (ev.d && this._growing.has(ev.k)) { this._collapseGrowth(ev.k, now); continue; }
+            if (ev.d && this._growing.has(ev.k)) {
+                this._collapseGrowth(ev.k, now);
+                rebuilt = true;   // the crater must punch out of the wall NOW
+                continue;
+            }
             const prev = this._rockHealth.get(ev.k);
             const oldStage = prev === undefined ? 0 : this._stageOf(prev);
             this._rockHealth.set(ev.k, ev.h);
+            // idle heal deltas update quietly: no hit flash, no crack snap,
+            // no sparks — the cracks just fade a stage when they're ready
+            if (ev.hl) continue;
             if (ev.d && !this._rockDead.has(ev.k)) {
                 const cell = this._cellPolys.get(ev.k);
                 this._rockDead.add(ev.k);
@@ -335,6 +364,8 @@ class TerrainRenderer {
         if (rebuilt) {
             this._silClip = this._buildVoronoiBoundary();
             this._debugVoronoiSegs = null;
+            this._landed.clear();   // freshly grown cells are in the boundary now
+            this._silRebuildAt = 0;
         }
     }
 
@@ -342,10 +373,18 @@ class TerrainRenderer {
     // A hole starts closing. Everything the previous rock left behind (its
     // cracks, its dents, its seam) is thrown away: this is a NEW rock that
     // happens to occupy the same cell, with its own ore rolled server-side.
-    _beginGrowth(k, tier, gen, now) {
-        this._growing.set(k, { start: now, tier, gen });
+    _beginGrowth(k, tier, gen, now, ax, ay) {
+        // the anchor arrives from the server in tile units — the exact spot
+        // on the living wall the new stone expands out of; fall back to the
+        // cell centre for old payloads or missing geometry
+        const cell = this._cellPolys.get(k);
+        if (!(Number.isFinite(ax) && Number.isFinite(ay))) {
+            ax = cell ? cell.cx : 0; ay = cell ? cell.cy : 0;
+        }
+        this._growing.set(k, { start: now, tier, gen, ax, ay, mapped: false });
+        this._landed.delete(k);
         this._gen.set(k, gen);
-        this._rockHealth.set(k, GROW_START);
+        this._rockHealth.set(k, 0.25);   // mirrors the server's HP_FLOOR
         for (let st = 0; st <= 5; st++) {   // crack/pock caches are stage-keyed
             this._crackCache.delete(`${k}:${st}`);
             this._pockCache.delete(`${k}:${st}`);
@@ -361,16 +400,16 @@ class TerrainRenderer {
         this._oreSprout.delete(k);
         if (tier) this._ore.set(k, tier); else this._ore.delete(k);
         this._damageDirty = true;
-        // telegraph: the crater floor stirs a beat before the stone arrives
-        const cell = this._cellPolys.get(k);
+        // telegraph: the ground stirs around the anchor — the wall is about
+        // to reclaim this crater, starting from its own face
         if (cell && this._onScreen(cell.cx, cell.cy) && this._pebbles.length < 70) {
             const kk = k & 0xffff;
             for (let i = 0; i < 7; i++) {
                 const a = this._h(i, kk, 170) * Math.PI * 2;
-                const rr = (0.25 + this._h(i, kk, 171) * 0.5) * (this._cols / 50.0);
+                const rr = (0.2 + this._h(i, kk, 171) * 0.4) * (this._cols / 50.0);
                 this._pebbles.push({
-                    x: cell.cx + Math.cos(a) * rr,
-                    y: cell.cy + Math.sin(a) * rr,
+                    x: ax + Math.cos(a) * rr,
+                    y: ay + Math.sin(a) * rr,
                     // inward: the ground is being drawn INTO the rising rock
                     dx: -Math.cos(a) * 0.5, dy: -Math.sin(a) * 0.5,
                     born: now, seed: (kk + i * 53) & 0xffff,
@@ -389,17 +428,24 @@ class TerrainRenderer {
         this._rockHealth.set(k, 1);
         this._damageDirty = true;
         this.mapDirty = true;               // crater → rock on both maps
+        // hold the cell in _landed until the silhouette actually includes it
+        // again — it keeps drawing at full size, so the stone NEVER flickers
+        // transparent or vanishes for a frame while the boundary rebuilds
+        this._landed.add(k);
         // coalesced: a catching-up frontier can land several cells a second
         this._silRebuildAt = this._silRebuildAt
             ? Math.min(this._silRebuildAt, now + 120) : now + 120;
+        // the rock lands FIRST as plain stone; its crystals then push
+        // through the fresh face one at a time (staggered pop-in)
         const tier = g ? g.tier : (this._ore.get(k) || 0);
         if (tier) {
             this._ore.set(k, tier);
-            this._oreSprout.set(k, now);    // crystals grow AFTER the body
+            this._oreSprout.set(k, now);
         }
         const cell = this._cellPolys.get(k);
         if (cell && this._onScreen(cell.cx, cell.cy)) {
-            this._growFx.push({ k, cx: cell.cx, cy: cell.cy, born: now });
+            // a small ground thump + a gold rim flash (no shock ring)
+            this._growFx.push({ k, born: now });
             if (this._growFx.length > 24) this._growFx.shift();
             this._shake(3, 160);
             // birth debris: a ring of chips thrown off the new face
@@ -426,20 +472,24 @@ class TerrainRenderer {
         this._ore.delete(k);
         this._veinCache.delete(k);
         this._rockHealth.set(k, 0);
+        // back to being a CRATER, immediately — this line missing was the
+        // "ghost rock" bug: without it the cell stayed in the silhouette and
+        // rendered as a full-size see-through rock until its next life
+        this._rockDead.add(k);
+        this._landed.delete(k);
+        this.mapDirty = true;
         this._damageDirty = true;
         const cell = this._cellPolys.get(k);
-        if (!cell || !this._onScreen(cell.cx, cell.cy)) return;
-        // dust and a few chips at the size it actually reached
-        const scale = g ? GROW_START + (1 - GROW_START) *
-            growEase(Math.min(1, (now - g.start) / GROW_MS)) : 0.5;
-        const kk = k & 0xffff;
-        for (let i = 0; i < 9 && this._pebbles.length < 80; i++) {
-            const a = this._h(i, kk, 173) * Math.PI * 2;
-            this._pebbles.push({
-                x: cell.cx + Math.cos(a) * scale, y: cell.cy + Math.sin(a) * scale,
-                dx: Math.cos(a) * 0.6, dy: Math.sin(a) * 0.6,
-                born: now, seed: (kk + i * 37) & 0xffff,
-            });
+        if (!cell) return;
+        // killing a growing rock is a KILL — full shatter celebration
+        // (hit-stop, chips, camera kick), just never ore-colored and never
+        // paying gems. A husk dies loudly; it just dies broke.
+        const onscreen = this._onScreen(cell.cx, cell.cy);
+        const delay = onscreen ? 55 : 0;
+        this._spawnShatter(cell, now + delay, 0);
+        if (onscreen) {
+            global.hitStop = Date.now() + delay;
+            this._shake(7, 350, delay);
         }
     }
 
@@ -1910,6 +1960,14 @@ class TerrainRenderer {
             this._silRebuildAt = 0;
             this._silClip = this._buildVoronoiBoundary();
             this._debugVoronoiSegs = null;
+            this._landed.clear();   // the boundary owns these cells again
+            // CRITICAL: the damage batch caches a COPY of the silhouette as
+            // its clip. Without this line that copy stays stale, the freshly
+            // grown cell stays punched out of the base blit, and the rock
+            // reads as transparent until some unrelated event rebuilt the
+            // batch — the "reaches max health, goes see-through, then
+            // recolors" bug.
+            this._damageDirty = true;
         }
 
         // tile -> world conversion for spatial audio (rock events arrive in
@@ -2063,129 +2121,161 @@ class TerrainRenderer {
                 ctx.stroke(cell.path);
                 ctx.restore();
             }
-            // ══ THE LIVING WALL: cells rising out of their own craters ══
-            // Drawn as their own layer (they're still holes to every other
-            // system) but textured with the SAME rock bitmap the shader just
-            // produced, clipped to the cell outline scaled about its centre.
-            // So a nub isn't a grey blob — it's genuine stone, the exact
-            // stone that will be there when it lands, just smaller.
-            if (this._growing.size) {
+            // ══ THE LIVING WALL: the rock reclaiming its craters ══
+            // A regrowing cell is REAL, fully opaque stone from its first
+            // frame — the same shader texture, the same border weight, its
+            // ore crystals already in their final places — the whole thing
+            // scaled about its ANCHOR on the neighbouring wall, swelling
+            // from a sliver to the full cell. The wall visibly extends
+            // itself into the hole. No glow, no transparency, no pop.
+            //
+            // Cells that just finished (_landed) also draw here at full size
+            // until the silhouette rebuild absorbs them — so the stone never
+            // blinks or fades for even one frame at the handoff.
+            if (this._growing.size || this._landed.size) {
                 const many = this._growing.size > 12;   // perf guard: thin the dust
-                for (const [k, g] of this._growing) {
+                ctx.save();
+                ctx.lineJoin = 'round';
+                const tracePoly = (poly) => {
+                    ctx.beginPath();
+                    for (let i = 0; i < poly.length; i++)
+                        i ? ctx.lineTo(poly[i][0], poly[i][1]) : ctx.moveTo(poly[i][0], poly[i][1]);
+                    ctx.closePath();
+                };
+                const drawRockPoly = () => {   // current path = the outline
+                    ctx.save();
+                    ctx.clip();
+                    ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
+                    ctx.restore();
+                    ctx.strokeStyle = 'rgb(5,4,7)';
+                    ctx.lineWidth = 0.072 * rockSz;
+                    ctx.stroke();
+                };
+                // finished cells first (full size, zero effects)
+                for (const k of this._landed) {
                     const cell = this._cellPolys.get(k);
                     if (!cell) continue;
                     if (cell.cx < tlx - 4 || cell.cx > tlx + tlw + 4 ||
                         cell.cy < tly - 4 || cell.cy > tly + tlh + 4) continue;
-                    const p  = Math.min(1, Math.max(0, (nowMs - g.start) / GROW_MS));
-                    const sc = GROW_START + (1 - GROW_START) * growEase(p);
-                    // visual-only elastic settle on the last stretch: the
-                    // stone overshoots ~4% and sinks back as it locks in.
-                    // Collision never overshoots; nobody can feel 4%.
-                    const scV = p > 0.85
-                        ? sc * (1 + 0.05 * Math.sin((p - 0.85) / 0.15 * Math.PI) * (1 - p))
-                        : sc;
-                    // straining: it shakes harder than a crumbling rock does
+                    tracePoly(cell.poly);
+                    drawRockPoly();
+                }
+                for (const [k, g] of this._growing) {
+                    const cell = this._cellPolys.get(k);
+                    if (!cell) continue;
+                    const p = Math.min(1, Math.max(0, (nowMs - g.start) / GROW_MS));
+                    // self-heal: a growing record with no completion long past
+                    // its due date is a desync leftover — fall back to the
+                    // crater and let server truth repaint it later. This can
+                    // never strand a real rock: the server always sends r:2.
+                    if (nowMs - g.start > GROW_MS + 4000) {
+                        this._growing.delete(k);
+                        this._growDust.delete(k);
+                        this._damageDirty = true;
+                        if (g.mapped) this.mapDirty = true;
+                        continue;
+                    }
+                    // the maps flip this cell from crater to rock once it's
+                    // substantially there — halfway through the rise
+                    if (p >= 0.5 && !g.mapped) { g.mapped = true; this.mapDirty = true; }
+                    if (cell.cx < tlx - 4 || cell.cx > tlx + tlw + 4 ||
+                        cell.cy < tly - 4 || cell.cy > tly + tlh + 4) continue;
+                    // late-joiner records may carry no usable anchor — repair
+                    if (!(Number.isFinite(g.ax) && Number.isFinite(g.ay))) {
+                        g.ax = cell.cx; g.ay = cell.cy;
+                    }
+                    // the same region the server collides with
+                    const sc = GROW_SCALE0 + (1 - GROW_SCALE0) * growEase(p);
+                    // strain-tremble: a gentle shudder as the stone forces
+                    // its way up, easing off as it settles into place
                     const [tox, toy] = this._trembleOf(k, nowMs);
-                    const ox = tox * 1.5 * (1 - p * 0.6), oy = toy * 1.5 * (1 - p * 0.6);
-
-                    ctx.beginPath();
-                    for (let i = 0; i < cell.poly.length; i++) {
-                        const vx = cell.cx + (cell.poly[i][0] - cell.cx) * scV + ox;
-                        const vy = cell.cy + (cell.poly[i][1] - cell.cy) * scV + oy;
-                        if (i === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
-                    }
-                    ctx.closePath();
-
-                    // the forge glow under the rim: hot while it's pushing up,
-                    // gone by the time it lands
-                    const heat = Math.pow(1 - p, 1.6);
-                    if (heat > 0.02) {
-                        ctx.save();
-                        ctx.strokeStyle = `rgba(255,150,60,${0.42 * heat})`;
-                        ctx.lineWidth = 0.24 * rockSz * (0.35 + 0.65 * heat);
-                        ctx.lineJoin = 'round';
-                        ctx.stroke();
-                        ctx.restore();
-                    }
-                    // real rock, cut to the growing outline
+                    const shx = tox * 0.7 * (1 - p * 0.6), shy = toy * 0.7 * (1 - p * 0.6);
+                    const ax2 = g.ax + shx, ay2 = g.ay + shy;
+                    const spoly = cell.poly.map(pt => [ax2 + (pt[0] - g.ax) * sc,
+                                                       ay2 + (pt[1] - g.ay) * sc]);
+                    tracePoly(spoly);
+                    // TRUE growth: the stone's own artwork inflates with it.
+                    // Instead of the outline acting as a window onto the
+                    // finished rock's pixels, the texture is drawn through
+                    // the same anchor-scale transform — a facet starts tiny
+                    // at the wall and genuinely stretches outward as the
+                    // rock swells. (It reunites with the wall's shading the
+                    // moment it lands at scale 1.)
                     ctx.save();
                     ctx.clip();
+                    ctx.translate(ax2, ay2);
+                    ctx.scale(sc, sc);
+                    ctx.translate(-g.ax, -g.ay);
                     ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
-                    // fresh stone is dark and wet-looking, lightening as it sets
-                    ctx.fillStyle = `rgba(5,4,7,${0.34 * (1 - p)})`;
-                    ctx.fill();
                     ctx.restore();
-                    // its own border, same weight as every other rock face
-                    ctx.save();
-                    ctx.lineJoin = 'round';
                     ctx.strokeStyle = 'rgb(5,4,7)';
                     ctx.lineWidth = 0.072 * rockSz;
                     ctx.stroke();
-                    ctx.restore();
 
-                    // Cracks show damage taken on the way up — NOT how small it
-                    // still is. A rising rock's health fraction is low simply
-                    // because it isn't finished, so measure it against the
-                    // health the growth curve says it should have by now: a
-                    // fresh nub is pristine, a beaten one is webbed.
+                    // Cracks show damage taken on the way up — NOT how far
+                    // along it is. Measure health against what the fast ramp
+                    // says it should be: a fresh sliver is pristine, a
+                    // shot-up one is webbed. They ride the same inflating
+                    // transform as the stone they're cut into.
                     const frac = this._rockHealth.get(k);
-                    const expect = Math.max(GROW_START, growEase(p));
+                    // mirrors the server: hp scales WITH the rise
+                    const expect = Math.max(0.25, growEase(p));
                     const intact = frac === undefined ? 1
                         : Math.max(0, Math.min(1, frac / expect));
                     const stage = this._stageOf(intact);
                     if (stage >= 1) {
-                        const cp = this._getCrackPath(k, stage);
-                        if (cp) {
+                        const cpath = this._getCrackPath(k, stage);
+                        if (cpath) {
                             ctx.save();
+                            tracePoly(spoly);
                             ctx.clip();
-                            ctx.translate(cell.cx + ox, cell.cy + oy);
-                            ctx.scale(scV, scV);
-                            ctx.translate(-cell.cx, -cell.cy);
-                            ctx.lineJoin = 'round';
+                            ctx.translate(ax2, ay2);
+                            ctx.scale(sc, sc);
+                            ctx.translate(-g.ax, -g.ay);
                             ctx.lineCap = 'round';
-                            const w = 0.035 * rockSz * (0.38 + 0.10 * stage) / scV;
-                            ctx.strokeStyle = 'rgba(5,4,7,0.95)';
-                            ctx.lineWidth = w * 2.4;
-                            ctx.stroke(cp);
+                            const w = 0.035 * rockSz * (0.28 + 0.075 * stage) / sc;
+                            ctx.strokeStyle = 'rgba(5,4,7,0.8)';
+                            ctx.lineWidth = w * 2.1;
+                            ctx.stroke(cpath);
                             const cpal = TerrainRenderer.CRACK_PAL[this._ore.get(k) ?? 0]
                                       || TerrainRenderer.CRACK_PAL[0];
-                            ctx.strokeStyle = `rgba(${cpal.hot},0.5)`;
-                            ctx.lineWidth = w * 0.55;
-                            ctx.stroke(cp);
+                            ctx.strokeStyle = `rgba(${cpal.hot},0.4)`;
+                            ctx.lineWidth = w * 0.5;
+                            ctx.stroke(cpath);
                             ctx.restore();
                         }
                     }
 
-                    // displaced ground: dust and grit shoved off the rim as
-                    // the stone widens
+                    // displaced ground: dust and grit shoved off the leading
+                    // edge as the stone claims more floor
                     if (p < 1 && this._pebbles.length < 80) {
                         const lt = this._growDust.get(k) || 0;
-                        if (nowMs - lt > (many ? 240 : 120)) {
+                        if (nowMs - lt > (many ? 260 : 130)) {
                             this._growDust.set(k, nowMs);
                             const kk = k & 0xffff;
-                            const seq = Math.floor(nowMs / 120) & 0xff;
+                            const seq = Math.floor(nowMs / 130) & 0xff;
                             for (let i = 0; i < (many ? 1 : 2); i++) {
-                                const ei = Math.floor(this._h(seq * 2 + i, kk, 174) * cell.poly.length);
-                                const A = cell.poly[ei % cell.poly.length];
-                                const B = cell.poly[(ei + 1) % cell.poly.length];
+                                const ei = Math.floor(this._h(seq * 2 + i, kk, 174) * spoly.length);
+                                const A = spoly[ei % spoly.length];
+                                const B = spoly[(ei + 1) % spoly.length];
                                 const tt = this._h(seq * 2 + i, kk, 175);
                                 const ex = A[0] + (B[0] - A[0]) * tt;
                                 const ey = A[1] + (B[1] - A[1]) * tt;
-                                const sx2 = cell.cx + (ex - cell.cx) * scV;
-                                const sy2 = cell.cy + (ey - cell.cy) * scV;
-                                const dl = Math.hypot(sx2 - cell.cx, sy2 - cell.cy) || 1;
+                                const dl = Math.hypot(ex - g.ax, ey - g.ay) || 1;
                                 this._pebbles.push({
-                                    x: sx2, y: sy2,
-                                    dx: (sx2 - cell.cx) / dl, dy: (sy2 - cell.cy) / dl,
+                                    x: ex, y: ey,
+                                    dx: (ex - g.ax) / dl * 0.8, dy: (ey - g.ay) / dl * 0.8,
                                     born: nowMs, seed: (kk + seq * 17 + i * 71) & 0xffff,
                                 });
                             }
                         }
                     }
                 }
+                ctx.restore();
             }
 
-            // ══ Landing: the moment a cell locks into the wall ══
+            // ══ Landing: a warm gold rim traces the new face for a beat.
+            //    (Shock ring removed by decision — rim flash only.) ══
             if (this._growFx.length) {
                 ctx.save();
                 ctx.lineJoin = 'round';
@@ -2199,12 +2289,6 @@ class TerrainRenderer {
                     ctx.strokeStyle = `rgba(255,214,150,${0.7 * a})`;
                     ctx.lineWidth = 0.16 * rockSz * (0.4 + 0.6 * a);
                     ctx.stroke(cell.path);
-                    // a shock ring rolling off the new face
-                    ctx.beginPath();
-                    ctx.arc(fx.cx, fx.cy, (0.4 + 1.5 * (1 - Math.pow(1 - t, 3))) * rockSz, 0, Math.PI * 2);
-                    ctx.strokeStyle = `rgba(190,175,205,${0.45 * a})`;
-                    ctx.lineWidth = 0.09 * rockSz * a + 0.01;
-                    ctx.stroke();
                 }
                 ctx.restore();
             }
@@ -2245,14 +2329,9 @@ class TerrainRenderer {
                         ctx.scale(1.05, 1.05);
                         ctx.translate(-cell.cx, -cell.cy);
                     }
-                    // pockmarks: the surface looks beaten up at low health
-                    if (stage >= 3) {
-                        const pocks = this._getPockPath(k, stage);
-                        if (pocks) {
-                            ctx.fillStyle = 'rgba(5,4,7,0.55)';
-                            ctx.fill(pocks);
-                        }
-                    }
+                    // (pockmarks removed by decision — the little in-rock
+                    // circles read as craters; damage speaks through cracks
+                    // and flying chips alone)
                     // rim bites: the border black eats into the rock where
                     // bullets have been landing
                     if (bites) {
@@ -2269,29 +2348,29 @@ class TerrainRenderer {
                             ? Math.pow(1 - (nowMs - st) / 220, 2) : 0;
                         const boost = Math.max(hitB, snap);
                         // discreet: damage whispers, the ore does the
-                        // talking
-                        const a = 0.42 + 0.045 * stage;
-                        const w = 0.035 * rockSz * (0.38 + 0.10 * stage) * (1 + snap);
+                        // talking — thin, quiet seams, not lava rivers
+                        const a = 0.30 + 0.035 * stage;
+                        const w = 0.035 * rockSz * (0.28 + 0.075 * stage) * (1 + snap);
                         // cracks glow in the rock's ore color: molten orange
                         // for barren stone, copper / azurite / shard hues for
                         // ore — the payload shows through the damage
                         const cpal = TerrainRenderer.CRACK_PAL[this._ore.get(k) ?? 0]
                                   || TerrainRenderer.CRACK_PAL[0];
                         // crevice shadow (same near-black as the rock borders)
-                        ctx.strokeStyle = 'rgba(5,4,7,0.95)';
-                        ctx.lineWidth   = w * 2.4;
+                        ctx.strokeStyle = 'rgba(5,4,7,0.8)';
+                        ctx.lineWidth   = w * 2.1;
                         ctx.stroke(path);
                         // molten depths
                         ctx.strokeStyle = `rgba(${cpal.deep},${a})`;
-                        ctx.lineWidth   = w * 1.3;
+                        ctx.lineWidth   = w * 1.2;
                         ctx.stroke(path);
                         // hot core, brightens on hit
-                        ctx.strokeStyle = `rgba(${cpal.hot},${Math.min(1, a + boost * 0.5)})`;
-                        ctx.lineWidth   = w * 0.55;
+                        ctx.strokeStyle = `rgba(${cpal.hot},${Math.min(1, a * 0.9 + boost * 0.45)})`;
+                        ctx.lineWidth   = w * 0.5;
                         ctx.stroke(path);
-                        // bright hairline at every stage — glowier on hit
-                        ctx.strokeStyle = `rgba(${cpal.hair},${Math.max(0.13 + 0.04 * stage, boost * 0.8)})`;
-                        ctx.lineWidth   = w * 0.22;
+                        // faint hairline at every stage — glowier on hit
+                        ctx.strokeStyle = `rgba(${cpal.hair},${Math.max(0.08 + 0.025 * stage, boost * 0.6)})`;
+                        ctx.lineWidth   = w * 0.2;
                         ctx.stroke(path);
                     }
                     ctx.restore();
