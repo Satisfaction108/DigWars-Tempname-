@@ -753,7 +753,7 @@ class gameHandler {
                         let mb = mineBudget.get(owner.id);
                         if (!mb || nowT - mb.t >= 1000) {
                             // 1.5 rocks' worth of HP per player per second
-                            mb = { t: nowT, left: _tg.baseRockHealth * 1.5 };
+                            mb = { t: nowT, left: _tg.baseRockHealth * 3 };
                             mineBudget.set(owner.id, mb);
                         }
                         // Mining power = HITS-TO-BREAK per tank family

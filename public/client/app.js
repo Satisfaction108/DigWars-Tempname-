@@ -2725,7 +2725,21 @@ import { gameSound } from "./sound.js";
             // always render ON TOP of the outpost (like the base vaults).
             if (st.t || st.h) {
                 const bodyR = R * 1.33;   // matches the banner entity's realSize
-                c.globalAlpha = 0.6;
+                const tgtH = Math.max(0, Math.min(1, st.h || 0));
+                if (o._smoothH === undefined) o._smoothH = tgtH;
+                o._smoothH += (tgtH - o._smoothH) * 0.12;
+                const frac = o._smoothH;
+                const corePulse = 0.5 + 0.5 * Math.sin(now / 500 + o.id * 2);
+                const coreAlpha = (0.18 + 0.12 * corePulse) * (0.4 + 0.6 * frac);
+                const coreGrad = c.createRadialGradient(0, 0, 0, 0, 0, bodyR * 1.3);
+                coreGrad.addColorStop(0, bodyCol);
+                coreGrad.addColorStop(0.5, bodyCol);
+                coreGrad.addColorStop(1, "rgba(0,0,0,0)");
+                c.globalAlpha = coreAlpha;
+                c.fillStyle = coreGrad;
+                c.beginPath(); c.arc(0, 0, bodyR * 1.3, 0, Math.PI * 2); c.fill();
+                c.globalAlpha = 1;
+                c.globalAlpha = 0.55;
                 c.beginPath();
                 for (let i = 0; i < 8; i++) {
                     const a = (i / 8) * Math.PI * 2;
@@ -2736,21 +2750,47 @@ import { gameSound } from "./sound.js";
                 c.fillStyle = bodyCol;
                 c.fill();
                 c.lineWidth = Math.max(3, R * 0.06);
-                c.strokeStyle = "rgba(0,0,0,0.35)";
+                c.strokeStyle = "rgba(0,0,0,0.4)";
                 c.stroke();
-                c.globalAlpha = 1;
-                // health ring: a thin arc around the structure showing its HP
-                if (st.h > 0) {
-                    const frac = Math.max(0, Math.min(1, st.h));
-                    c.lineWidth = Math.max(3, R * 0.05);
-                    c.lineCap = "round";
-                    c.strokeStyle = "#ffffff";
-                    c.globalAlpha = 0.8;
+                c.globalAlpha = 0.15;
+                c.lineWidth = Math.max(1.5, R * 0.025);
+                c.strokeStyle = "#ffffff";
+                for (let i = 0; i < 8; i++) {
+                    const a = (i / 8) * Math.PI * 2;
                     c.beginPath();
-                    c.arc(0, 0, bodyR * 1.12, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+                    c.moveTo(0, 0);
+                    c.lineTo(Math.cos(a) * bodyR, Math.sin(a) * bodyR);
                     c.stroke();
-                    c.globalAlpha = 1;
                 }
+                c.globalAlpha = 1;
+                const orbSpin = now / 4000 + o.id;
+                c.save();
+                c.rotate(orbSpin);
+                c.globalAlpha = 0.4 + 0.2 * corePulse;
+                c.lineWidth = Math.max(2, R * 0.03);
+                c.strokeStyle = bodyCol;
+                for (let i = 0; i < 6; i++) {
+                    const a = (i / 6) * Math.PI * 2;
+                    c.beginPath();
+                    c.arc(0, 0, bodyR * 1.18, a - 0.12, a + 0.12);
+                    c.stroke();
+                }
+                c.restore();
+                c.globalAlpha = 1;
+                const ringR = bodyR * 1.12;
+                c.lineWidth = Math.max(3, R * 0.05);
+                c.lineCap = "round";
+                c.globalAlpha = 0.2;
+                c.strokeStyle = "#000000";
+                c.beginPath(); c.arc(0, 0, ringR, 0, Math.PI * 2); c.stroke();
+                if (frac > 0.001) {
+                    c.globalAlpha = 0.85;
+                    c.strokeStyle = "#ffffff";
+                    c.beginPath();
+                    c.arc(0, 0, ringR, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+                    c.stroke();
+                }
+                c.globalAlpha = 1;
             }
             // ownership ring: breathes in the owner's color, dim grey neutral
             const pulse = 0.5 + 0.5 * Math.sin(now / 700 + o.id);
@@ -2767,30 +2807,64 @@ import { gameSound } from "./sound.js";
                 o._lastTeam = st.t;
                 if (st.t) o._blastAt = now;           // captured (not the fall to grey)
             }
-            if (o._blastAt && now - o._blastAt < 900) {
-                const t = (now - o._blastAt) / 900;
+            if (o._blastAt && now - o._blastAt < 1200) {
+                const t = (now - o._blastAt) / 1200;
                 const eo = 1 - Math.pow(1 - t, 3);
                 const a = Math.pow(1 - t, 1.4);
                 c.save();
-                for (let ring = 0; ring < 2; ring++) {
-                    const rt = ring ? Math.max(0, eo - 0.18) : eo;
+                for (let ring = 0; ring < 3; ring++) {
+                    const rt = Math.max(0, eo - ring * 0.12);
+                    if (rt <= 0) continue;
                     c.beginPath();
-                    c.arc(sx, sy, R * (0.6 + 2.6 * rt), 0, Math.PI * 2);
-                    c.strokeStyle = ownCol;
-                    c.globalAlpha = a * (ring ? 0.35 : 0.7);
-                    c.lineWidth = Math.max(3, R * 0.12 * (1 - t));
+                    c.arc(sx, sy, R * (0.5 + 3.0 * rt), 0, Math.PI * 2);
+                    c.strokeStyle = ring === 0 ? "#ffffff" : ownCol;
+                    c.globalAlpha = a * (ring === 0 ? 0.8 : 0.5 - ring * 0.12);
+                    c.lineWidth = Math.max(2, R * (0.14 - ring * 0.03) * (1 - t));
                     c.stroke();
                 }
-                // spark burst riding the wave
-                for (let i = 0; i < 14; i++) {
-                    const ang = (i / 14) * Math.PI * 2 + o.id;
-                    const rr = R * (0.5 + 2.4 * eo);
-                    c.globalAlpha = a * 0.85;
-                    c.fillStyle = i % 3 ? ownCol : "#ffd75e";
+                const beamH = R * (1.5 + 3.5 * eo);
+                const beamGrad = c.createLinearGradient(0, sy, 0, sy - beamH);
+                beamGrad.addColorStop(0, ownCol);
+                beamGrad.addColorStop(0.4, ownCol);
+                beamGrad.addColorStop(1, "rgba(0,0,0,0)");
+                c.globalAlpha = a * 0.5;
+                c.fillStyle = beamGrad;
+                const beamW = R * 0.35 * (1 - t * 0.5);
+                c.beginPath();
+                c.moveTo(sx - beamW, sy);
+                c.lineTo(sx + beamW, sy);
+                c.lineTo(sx + beamW * 0.3, sy - beamH);
+                c.lineTo(sx - beamW * 0.3, sy - beamH);
+                c.closePath();
+                c.fill();
+                c.globalAlpha = a * 0.4;
+                const glowGrad = c.createRadialGradient(sx, sy, 0, sx, sy, R * (1 + eo));
+                glowGrad.addColorStop(0, "#ffffff");
+                glowGrad.addColorStop(0.3, ownCol);
+                glowGrad.addColorStop(1, "rgba(0,0,0,0)");
+                c.fillStyle = glowGrad;
+                c.beginPath(); c.arc(sx, sy, R * (1 + eo), 0, Math.PI * 2); c.fill();
+                for (let i = 0; i < 22; i++) {
+                    const ang = (i / 22) * Math.PI * 2 + o.id;
+                    const rr = R * (0.4 + 2.8 * eo);
+                    const sz = Math.max(1.5, R * 0.06 * (1 - t * 0.7));
+                    c.globalAlpha = a * (0.7 + 0.3 * Math.sin(i * 1.7));
+                    c.fillStyle = i % 4 === 0 ? "#ffffff" : i % 3 ? ownCol : "#ffd75e";
                     c.beginPath();
-                    c.arc(sx + Math.cos(ang) * rr, sy + Math.sin(ang) * rr,
-                          Math.max(1.5, R * 0.045 * (1 - t)), 0, Math.PI * 2);
+                    c.arc(sx + Math.cos(ang) * rr, sy + Math.sin(ang) * rr, sz, 0, Math.PI * 2);
                     c.fill();
+                }
+                c.globalAlpha = a * 0.5;
+                c.lineWidth = Math.max(1.5, R * 0.03);
+                c.strokeStyle = ownCol;
+                for (let i = 0; i < 16; i++) {
+                    const ang = (i / 16) * Math.PI * 2 + o.id + 0.1;
+                    const rr = R * (0.4 + 2.6 * eo);
+                    const tr = R * (0.4 + 2.2 * eo);
+                    c.beginPath();
+                    c.moveTo(sx + Math.cos(ang) * tr, sy + Math.sin(ang) * tr);
+                    c.lineTo(sx + Math.cos(ang) * rr, sy + Math.sin(ang) * rr);
+                    c.stroke();
                 }
                 c.restore();
             }
@@ -2830,17 +2904,33 @@ import { gameSound } from "./sound.js";
             c.beginPath(); c.arc(0, 0, R * 1.06, 0, Math.PI * 2); c.stroke();
             c.globalAlpha = 1;
             // the same three door layers the base vaults use
-            const spin = now / 6000;
+            const spin = now / 2200;
             c.drawImage(vaultSprites.plate, -R, -R, R * 2, R * 2);
             c.save(); c.rotate(spin * 0.7);
             c.drawImage(vaultSprites.cog, -R, -R, R * 2, R * 2);
             c.restore();
-            c.save(); c.rotate(-spin * 0.4);
+            c.save(); c.rotate(-spin * 0.5);
             c.drawImage(vaultSprites.wheel, -R, -R, R * 2, R * 2);
             c.restore();
+            c.globalCompositeOperation = "source-atop";
+            c.globalAlpha = 0.28;
+            c.fillStyle = ownCol;
+            c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.fill();
+            c.globalAlpha = 1;
+            c.globalCompositeOperation = "source-over";
             c.restore();
-            // the site name: plain, fully white, clearly ABOVE everything —
-            // bigger so it reads from across the arena
+        }
+    }
+
+    function drawOutpostLabels(px, py, ratio) {
+        if (!global.outposts.length) return;
+        const c = ctx[2];
+        for (const o of global.outposts) {
+            const sx = -px + global.screenWidth / 2 + ratio * (o.x);
+            const sy = -py + global.screenHeight / 2 + ratio * (o.y);
+            const R = o.r * ratio;
+            if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
+                sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
             drawText(o.name, sx, sy - o.r * ratio * 1.55,
                      Math.min(32, o.r * ratio * 0.42),
                      color.guiwhite, "center", false, 1, true, c);
@@ -5716,6 +5806,7 @@ import { gameSound } from "./sound.js";
 
         drawFloor(px, py, ratio, tick);
         drawEntities(px, py, ratio, tick, spacing);
+        drawOutpostLabels(px, py, ratio);
     };
 
     const drawGUI = (tick, scaleRatio) => {
