@@ -3,3 +3,9 @@ package-lock.json
 *.lnk
 .DS_Store
 .claude/
+.clinerules
+DESIGN.md 
+diary.md 
+REGROWTH_PLAN.md  
+plan.md 
+TASKS.md
