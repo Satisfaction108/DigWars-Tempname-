@@ -2,7 +2,49 @@ const gems = require('./terrain/gems.js');
 const mining = require('./terrain/mining.js');
 const vault = require('./terrain/vault.js');
 const outposts = require('./terrain/outposts.js');
+const coreChambers = require('./terrain/coreChambers.js');
 const { REGROW: TG_REGROW } = require('./terrain/terrainGrid.js');
+const { chamberRingHit, chamberFaceRadius, octagonNormal } = coreChambers;
+
+function deflectBullet(chamber, body) {
+    const dx = body.x - chamber.x, dy = body.y - chamber.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const ang = Math.atan2(dy, dx);
+    const { nx, ny } = octagonNormal(chamber.chamberRot || 0, ang);
+    const vn = body.velocity.x * nx + body.velocity.y * ny;
+    if (vn < 0) {
+        body.velocity.x -= 2 * vn * nx;
+        body.velocity.y -= 2 * vn * ny;
+    }
+    body.accel.x = 0;
+    body.accel.y = 0;
+    const outR = chamberFaceRadius(chamber, ang) + (body.realSize || body.size || 1) + 1;
+    body.x = chamber.x + nx * outR;
+    body.y = chamber.y + ny * outR;
+}
+
+function pushOutOfChamberRing(chamber, body) {
+    const dx = body.x - chamber.x, dy = body.y - chamber.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const ang = Math.atan2(dy, dx);
+    const { nx, ny } = octagonNormal(chamber.chamberRot || 0, ang);
+    const r = body.realSize || body.size || 1;
+    const rest = chamberFaceRadius(chamber, ang) + r;
+    if (d < rest) {
+        body.x += nx * (rest - d);
+        body.y += ny * (rest - d);
+        const vn = body.velocity.x * nx + body.velocity.y * ny;
+        if (vn < 0) {
+            body.velocity.x -= vn * nx;
+            body.velocity.y -= vn * ny;
+        }
+        const an = body.accel.x * nx + body.accel.y * ny;
+        if (an < 0) {
+            body.accel.x -= an * nx;
+            body.accel.y -= an * ny;
+        }
+    }
+}
 
 class gameHandler {
     constructor() {
@@ -18,16 +60,16 @@ class gameHandler {
         this.active = false;
     }
     checkUsers = () => global.gameManager.clients.length >= 1;
-    // Collision stuff
+    
     collide = (instance, other) => {
 
-        // Fast exit for noclip or ghosts
+        
         if (instance.noclip || other.noclip) return 0;
 
-        // Emit collision events
+        
         instance.emit('collide', { body: instance, instance, other });
         other.emit('collide', { body: other, instance: other, other: instance });
-        // Custom tick handlers for bullet entities
+        
         if (instance.tickHandler) instance.tickHandler(instance, instance, other);
         if (other.tickHandler) other.tickHandler(other, other, instance);
 
@@ -37,7 +79,7 @@ class gameHandler {
             other.master.master.settings.no_collisions
         )  return 0;
 
-        // Ghost checks (merged for less code repetition)
+        
         for (const obj of [instance, other]) {
             if (obj.isGhost || obj.isDead()) {
                 if (obj.isInGrid) {
@@ -47,13 +89,13 @@ class gameHandler {
             }
         }
 
-        // Fast exit for inactive or invisible entities
+        
         if (
             (instance.isArenaCloser && !instance.alpha) ||
             (other.isArenaCloser && !other.alpha)
         ) return 0;
 
-        // Fast exit for wall-vs-wall with never-collide
+        
         if (
             instance.settings.hitsOwnType === "never" &&
             other.settings.hitsOwnType === "never" &&
@@ -95,34 +137,78 @@ class gameHandler {
                 }
                 break;
             case instance.isOutpostBanner || other.isOutpostBanner: {
-                // Dig Wars outposts: to your own team the structure simply
-                // isn't there (drive straight over it). To enemies it's a
-                // solid wall that also takes damage: the structure deals
-                // ZERO body damage (ramming it is free), but you can't walk
-                // through it. Projectiles burst on its hide instead of
-                // piercing through for endless per-tick grind.
+                
+                
+                
+                
+                
+                
                 const banner = instance.isOutpostBanner ? instance : other;
                 const body = instance.isOutpostBanner ? other : instance;
                 if (banner.team === body.team) return;
                 if (["bullet", "drone", "trap", "satellite", "swarm"].includes(body.type)) {
-                    // Projectiles: deal their damage, then die on the hide
+                    
                     advancedcollide(instance, other, true, true);
                     body.velocity.x = 0; body.velocity.y = 0;
                     body.accel.x = 0;    body.accel.y = 0;
                     body.kill();
                 } else {
-                    // Enemy tank body: deal damage to the structure, then
-                    // physically BLOCK the tank (firmcollide pushes the
-                    // body away; PUSHABILITY:0 keeps the structure planted)
+                    
+                    
+                    
                     advancedcollide(instance, other, true, true);
                     firmcollide(instance, other, 2);
-                    // The structure is permanent & immovable: pin it straight
-                    // back onto its pad after any collision shoved it (also
-                    // re-pinned each terrain tick in outposts.js).
+                    
+                    
+                    
                     if (banner.pinX !== undefined) {
                         banner.x = banner.pinX; banner.y = banner.pinY;
                         banner.velocity.x = 0;  banner.velocity.y = 0;
                         banner.accel.x = 0;     banner.accel.y = 0;
+                    }
+                }
+            } break;
+            case instance.isCoreChamber || other.isCoreChamber: {
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                const chamber = instance.isCoreChamber ? instance : other;
+                const body = instance.isCoreChamber ? other : instance;
+                if (chamber.isDead?.()) break;
+                if (!chamberRingHit(chamber, body)) break;
+                if (["bullet", "drone", "trap", "satellite", "swarm"].includes(body.type)) {
+                    const enemy = chamber.team !== body.team;
+                    if (enemy && chamber.chamberAlive) {
+                        
+                        
+                        advancedcollide(instance, other, true, true);
+                        body.velocity.x = 0; body.velocity.y = 0;
+                        body.accel.x = 0;    body.accel.y = 0;
+                        body.kill();
+                    } else {
+                        
+                        
+                        deflectBullet(chamber, body);
+                    }
+                } else {
+                    
+                    
+                    pushOutOfChamberRing(chamber, body);
+                    
+                    
+                    if (chamber.pinX !== undefined) {
+                        chamber.x = chamber.pinX; chamber.y = chamber.pinY;
+                        chamber.velocity.x = 0;  chamber.velocity.y = 0;
+                        chamber.accel.x = 0;     chamber.accel.y = 0;
                     }
                 }
             } break;
@@ -132,7 +218,7 @@ class gameHandler {
                 {
                     let pusher = instance.settings.hitsOwnType === "pushOnlyTeam" ? instance : other;
                     let entity = instance.settings.hitsOwnType === "pushOnlyTeam" ? other : instance;
-                    // Dominator / Mothership collisions
+                    
                     if (
                         instance.settings.hitsOwnType === other.settings.hitsOwnType ||
                         entity.settings.hitsOwnType === "never"
@@ -155,7 +241,7 @@ class gameHandler {
                 break;
             case instance.team !== other.team ||
                 (instance.team === other.team && (instance.healer && instance.master.id !== other.id) || (other.healer && other.master.id !== instance.id)):
-                // Exits if the aura is not hitting a boss, tank, food, or crasher
+                
                 if (instance.type === "aura") {
                     if (!(this.auraCollideTypes.includes(other.type))) return;
                 } else if (other.type === "aura") {
@@ -179,7 +265,7 @@ class gameHandler {
                                 target1.parent.id != null &&
                                 target2.parent.id != null)
                         ) {
-                            advancedcollide(instance, other, false, false); // continue push
+                            advancedcollide(instance, other, false, false); 
                             break;
                         }
                         const better = (state) => (target1[state] > target2[state] ? target1[state] : target2[state]);
@@ -423,7 +509,7 @@ class gameHandler {
                 o.skill.score += Config.bot_xp_gain;            
             }
         }
-        // Spawn bosses
+        
         if (this.checkUsers() && Config.enable_bosses && !this.naturallySpawnedBosses.length && this.bossTimer++ > Config.boss_spawn_cooldown) {
             this.bossTimer = -Config.boss_spawn_delay - 2;
             let selection = Config.boss_types[ran.chooseChance(...Config.boss_types.map((selection) => selection.chance))],
@@ -456,7 +542,7 @@ class gameHandler {
     };
 
     quickMaintainLoop = () => {
-        // Auto get score
+        
         for (let i = 0; i < this.bots.length; i++) {
             let o = this.bots[i];
             o.skill.maintain();
@@ -466,10 +552,10 @@ class gameHandler {
                 o.leftoverUpgrades--;
             }
         }
-        // Add new bots if arena is open
+        
         if (!global.gameManager.arenaClosed && !global.cannotRespawn && this.bots.length < Config.bot_cap) {
             let team = Config.mode === "tdm" || Config.mode === "tag" ? getWeakestTeam(global.gameManager) : undefined,
-            limit = 20, // give up after 20 attempts and just pick whatever is currently chosen
+            limit = 20, 
             loc;
             do {
                 loc = getSpawnableArea(team, global.gameManager);
@@ -505,7 +591,7 @@ class gameHandler {
         this.bots.push(o);
         if (Config.tag) Config.tag_data.addBot(o), global.nextTagBotTeam = null;
         setTimeout(() => {
-            // allow them to move
+            
             let CC = Class[o.defs[0]];
             if (!CC) CC = {};
             o.controllers = [];
@@ -535,7 +621,7 @@ class gameHandler {
                         AI: Class.bot.AI,
                     }, false, true, false);
                 }
-                o.define({ FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE, AI: Class.bot.AI, }, false, true, false) // Just reoverride the facing type.
+                o.define({ FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE, AI: Class.bot.AI, }, false, true, false) 
             })
         }, 3000 + Math.floor(Math.random() * 7000));
         o.on('dead', () => {
@@ -582,13 +668,13 @@ class gameHandler {
             this.regenHealthAndShield();
         }, Config.regenerate_tick);
 
-        // Mining budget: each player may remove at most ONE rock's worth of
-        // HP per second, no matter the build — an octo can't strip the wall.
-        // Overflow damage is discarded (bullets still die on the face), so
-        // damage just abruptly stops until the next second.
-        const mineBudget = new Map(); // ownerId -> { t: windowStart, left: hp }
-        // Emerald ticker: cracking one of the arena's three emerald cells is
-        // a server-wide event, just like a boss arrival.
+        
+        
+        
+        
+        const mineBudget = new Map(); 
+        
+        
         const announceEmerald = (miner) => {
             const who = miner && miner.name ? miner.name : "An unnamed player";
             global.gameManager.socketManager.broadcast(`${who} has destroyed an emerald shard!`);
@@ -598,10 +684,10 @@ class gameHandler {
             while (m.master && m.master !== m && hops++ < 4) m = m.master;
             return m;
         };
-        // Being crushed: a body pinned by rising stone (or sealed inside a
-        // rock that finished growing around it) bleeds out slowly instead of
-        // being teleported anywhere. It keeps full control the whole time —
-        // walk out through a seam and the bleeding stops.
+        
+        
+        
+        
         const crush = (instance, ms) => {
             if (!instance.health || !(instance.health.max > 0)) return;
             const dmg = instance.health.max * TG_REGROW.CRUSH_DPS_FRAC * (ms / 1000);
@@ -618,56 +704,61 @@ class gameHandler {
             const _tg = global.gameManager.terrainGrid;
             if (!_tg || !_tg._voronoiMap) return;
             if (mineBudget.size > 256) mineBudget.clear(); // stale-id backstop
-            // THE LIVING WALL: timers, the frontier rubber band, completions
-            // and emerald reseeding — self-throttled to 2Hz inside.
+            
+            
             const tickNow = Date.now();
             const tickMs = Math.min(50, tickNow - lastTerrainTick) || 8;
             lastTerrainTick = tickNow;
             _tg.regrowTick(tickNow);
             const growingNow = _tg.growingRocks().length > 0;
-            const liveGems = [];
             for (const instance of global.entities.values()) {
                 if (!instance || instance.isDead?.()) continue;
                 if (instance.noclip || instance.godmode || instance.isArenaCloser) continue;
-                // outpost structures live in their carved pockets and are
-                // exempt from ALL terrain physics — without this, the wall's
-                // push/crush pass ground them down invisibly ("it's getting
-                // hit when nothing is touching it")
-                if (instance.isOutpostBanner) continue;
+                
+                
+                
+                
+                
+                if (instance.isOutpostBanner || instance.isCoreChamber) continue;
 
                 if (instance.isGemPickup) {
-                    // loot pass: slide out of rock, home toward miners, collect
-                    gems.tickGem(instance, _tg, global.gameManager.socketManager.players);
-                    // rising stone shoves loose gems aside too (never crushes
-                    // them — they just get nudged out of the way)
-                    if (growingNow) _tg.pushCircleFromGrowing(instance, instance.realSize, tickNow);
-                    if (instance.gemValue > 0) liveGems.push(instance);
+                    
+                    
+                    if (instance.chamberHome !== undefined) {
+                        coreChambers.tickContainedGem(instance);
+                    } else {
+                        
+                        gems.tickGem(instance, _tg, global.gameManager.socketManager.players);
+                        
+                        
+                        if (growingNow) _tg.pushCircleFromGrowing(instance, instance.realSize, tickNow);
+                    }
                 } else if (instance.type === 'tank' || instance.type === 'miniboss' ||
                            instance.type === 'minion') {
                     const r = instance.realSize;
                     const p = _tg.pushCircleFromVoronoi(instance, r);
                     let dx = p.dx, dy = p.dy;
                     const nowT = Date.now();
-                    // ── THE LIVING WALL pushes back ──
-                    // Rising stone displaces bodies along its own outline. If
-                    // it can't get you clear you're pinned, not teleported:
-                    // you keep control and bleed until you slip out or die.
+                    
+                    
+                    
+                    
                     let entombed = false;
                     if (growingNow) {
                         const g = _tg.pushCircleFromGrowing(instance, r, tickNow);
                         entombed = g.entombed;
                         if (g.dx !== 0 || g.dy !== 0) { dx += g.dx; dy += g.dy; }
-                        // swallowed by rising stone: the stone carries you out
-                        // — you do NOT steer through its insides
+                        
+                        
                         if (g.buried) {
                             instance.velocity.x = 0; instance.velocity.y = 0;
                             instance.accel.x = 0;    instance.accel.y = 0;
                         }
                     }
-                    // sealed inside stone that FINISHED around you: you are
-                    // encased. You don't stroll through the inside of a
-                    // mountain — no movement, heavy crush, near-certain
-                    // death. (Never teleported out, exactly as decided.)
+                    
+                    
+                    
+                    
                     if (_tg.pointInRock(instance.x, instance.y)) {
                         entombed = true;
                         instance.velocity.x = 0; instance.velocity.y = 0;
@@ -683,25 +774,25 @@ class gameHandler {
                             instance.velocity.x -= vDot * nx;
                             instance.velocity.y -= vDot * ny;
                         }
-                        // remember the wall contact: physics only shoves the
-                        // tank on GAME ticks (30Hz), so displacement is only
-                        // seen on ~1 in 4 terrain ticks — grinding must keep
-                        // accumulating between them or it runs at 1/4 rate
+                        
+                        
+                        
+                        
                         instance.grindTouchUntil = nowT + 300;
                         instance.grindNx = nx;
                         instance.grindNy = ny;
                     }
-                    // Body grinding: a tank pressing its hull into the face
-                    // chips it — how ram tanks (and ram builds) mine. Pure
-                    // body-damage scaling (mining.js): 0 pts = harmless
-                    // hull, 1 pt = crawl, 12 pts ≈ 3s/rock. Damage lands in
-                    // 150ms chunks flagged as grind events so the client
-                    // renders soft grinding sparks, not bullet impacts.
+                    
+                    
+                    
+                    
+                    
+                    
                     if (instance.type === 'tank' && instance.grindTouchUntil > nowT) {
                         const gsec = mining.grindSecondsFor(instance);
                         if (gsec) {
                             instance.grindAcc = Math.min(
-                                _tg.baseRockHealth * 0.6, // no banking huge charges
+                                _tg.baseRockHealth * 0.6, 
                                 (instance.grindAcc || 0) + (_tg.baseRockHealth / gsec) * 0.008
                             );
                             if (!instance.grindLast || nowT - instance.grindLast >= 150) {
@@ -724,8 +815,8 @@ class gameHandler {
                                             instance.x - (instance.grindNx || 0) * r,
                                             instance.y - (instance.grindNy || 0) * r,
                                             true);
-                                        // a rock killed mid-rise pays nothing:
-                                        // its seam never finished forming
+                                        
+                                        
                                         if (destroyed && rock.ore && !wasGrowing) {
                                             gems.spawnOreBurst(rock, instance);
                                             if (rock.ore === 4) announceEmerald(instance);
@@ -738,13 +829,13 @@ class gameHandler {
                 } else if (instance.type === 'bullet' || instance.type === 'drone' ||
                            instance.type === 'trap'   || instance.type === 'satellite' ||
                            instance.type === 'swarm') {
-                    // Same Voronoi geometry the bodies collide with: touching a
-                    // rock face (or spawning inside one — e.g. a long barrel
-                    // poking into the rock) kills the projectile like hitting
-                    // a polygon, and chips the rock's health. One rule, no
-                    // special cases.
-                    // rising stone is stone: a nub eats bullets exactly like a
-                    // finished rock does (and dies fast, since it's soft)
+                    
+                    
+                    
+                    
+                    
+                    
+                    
                     const rock = _tg.rockHitByCircle(instance.x, instance.y, instance.realSize)
                         || (growingNow ? _tg.growingRockHitByCircle(instance.x, instance.y, instance.realSize, tickNow) : null);
                     if (rock) {
@@ -752,17 +843,17 @@ class gameHandler {
                         const nowT = Date.now();
                         let mb = mineBudget.get(owner.id);
                         if (!mb || nowT - mb.t >= 1000) {
-                            // 1.5 rocks' worth of HP per player per second
+                            
                             mb = { t: nowT, left: _tg.baseRockHealth * 3 };
                             mineBudget.set(owner.id, mb);
                         }
-                        // Mining power = HITS-TO-BREAK per tank family
-                        // (terrain/mining.js): each contact removes
-                        // (barren rock HP / hits) × a bounded skill factor.
-                        // Bullet damage/pen/health investment matters, but
-                        // only within 0.6×..1× — the table stays the truth
-                        // (its numbers are the maxed-build hit counts). Ore
-                        // HP tiers and the budget stack on top.
+                        
+                        
+                        
+                        
+                        
+                        
+                        
                         const raw = _tg.baseRockHealth / mining.rockHitsFor(owner, instance)
                                   * mining.skillFactor(owner);
                         const dmg = Math.min(raw, mb.left);
@@ -770,16 +861,16 @@ class gameHandler {
                             mb.left -= dmg;
                             const wasGrowing = rock.growing;
                             const destroyed = _tg.damageRock(rock, dmg, instance.x, instance.y);
-                            // breaking an ore cell erupts its gem payout —
-                            // unless it was still rising, in which case there
-                            // was nothing in it to spill yet
+                            // breaking an ore cell erupts its gem payout -
+                            
+                            
                             if (destroyed && rock.ore && !wasGrowing) {
                                 gems.spawnOreBurst(rock, owner);
                                 if (rock.ore === 4) announceEmerald(owner);
                             }
                         }
-                        // Freeze the projectile so its death fade stays at the
-                        // rock face instead of drifting into the rock.
+                        
+                        
                         instance.velocity.x = 0; instance.velocity.y = 0;
                         instance.accel.x = 0;    instance.accel.y = 0;
                         instance.kill();
@@ -787,23 +878,22 @@ class gameHandler {
                 }
             }
 
-            // loot keeps its personal space — no two gems overlap
-            if (liveGems.length > 1) gems.separateGems(liveGems);
-
-            // vault pads: pad presence + active deposit channels
+            
             const vNow = Date.now();
             vault.tick(global.gameManager.socketManager.players,
                        Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
-            // forward outposts: capture channels + 80% field banking pads
+            
             outposts.tick(global.gameManager.socketManager.players,
                           Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
+            
+            coreChambers.tick(Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
             this._lastVaultTick = vNow;
 
-            // Broadcast rock damage/destroy deltas so every player sees the
-            // same cracks and shatter effects.
-            // ONE queue, true chronological order — a destroy can never
-            // overtake the regrow-start it belongs to (that reordering was
-            // the phantom-rock bug).
+            
+            
+            
+            
+            
             if (_tg.rockEvents.length) {
                 const payload = JSON.stringify(_tg.rockEvents);
                 _tg.rockEvents.length = 0;

@@ -89,11 +89,17 @@ the game live and better. Check them off as they land.
     when destroyed
 
 ## Phase 5 — Cores & heists
-26. [ ] **Core chambers:** map-gen sealed pockets in the deep rock on each
-    side; Core structure entity (huge HP, permanent)
-27. [ ] **Heist logic:** Core exposure announcement at 50%; on death the
-    Core erupts a gem fountain split among attackers present, goes dormant
-    ~10 min, and that side's rock regrows at 3× until resealed
+26. [x] **Core chambers:** map-gen sealed pockets in the deep rock on each
+    side, same row as the Deep Core Outpost, 2–3 lattice cells in from each
+    rock face; destroyable team-colored octagon boulder (18k HP, bullet-only
+    damage) packed with 4000 dust of unsuckable gems that spin/drift inside;
+    out-of-combat self-repair after 60s
+27. [x] **Heist logic:** Core exposure announcement at 50%; on death the
+    chamber shatters (announced) and erupts its gems - they flee the owner
+    team and home toward attackers, then despawn if unclaimed; the pocket
+    stays empty ~20s, then a sliver regrows over ~5 min as the gems return
+    in waves (reform announced at completion); deflected bullets and
+    invulnerability during regrow
 28. [ ] **Base protection audit:** confirm enemy-base lethality plays fair
     with tunnels dug near base edges and outpost respawns
 

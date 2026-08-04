@@ -96,9 +96,9 @@ import { gameSound } from "./sound.js";
         selectedElement.element.parentNode.parentNode.classList.remove("editing");
         resetButton.classList.add("active");
         if (keyCode !== selectedElement.keyCode) {
-            // a key can only ever belong to ONE action: whatever previously
-            // used it becomes unbound (shown as · in the grid), never a
-            // silent swap
+            
+            
+            
             let otherElement = controlsArray.find(c => c.keyCode === keyCode);
             if (keyCode !== -1 && otherElement) {
                 otherElement.keyName = "";
@@ -170,16 +170,16 @@ import { gameSound } from "./sound.js";
         util.retrieveFromLocalStorage("optOptimizeMode");
         util.retrieveFromLocalStorage("optCenterMinimap");
         util.retrieveFromLocalStorage("optBorders");
-        // default-ON toggles — only pull a stored value if the player has
-        // actually saved one (a blind retrieve reads missing keys as
-        // unchecked)
+        
+        
+        
         for (const id of ["optSatchelWarning", "optLeaderIndicators", "optWarBar", "optChatMessages"]) {
             if (localStorage.getItem(id + "Checked") !== null) util.retrieveFromLocalStorage(id);
         }
         util.retrieveFromLocalStorage("optRenderKillbar");
         util.retrieveFromLocalStorage("separatedHealthbars");
         util.retrieveFromLocalStorage("autoLevelUp");
-        localStorage.removeItem("optMobileValue"); // legacy device-mode override, now auto-detected
+        localStorage.removeItem("optMobileValue"); 
 
         util.retrieveFromLocalStorage("optRenderGui");
         util.retrieveFromLocalStorage("optRenderLeaderboard");
@@ -248,17 +248,17 @@ import { gameSound } from "./sound.js";
 
         document.getElementById("optColors").addEventListener("change", () => loadSettings());
 
-        // One-time keybind reset: a since-fixed bug in the settings grid
-        // could silently scramble stored bindings — restore stock defaults
-        // once, then never touch them again.
+        
+        
+        
         if (localStorage.getItem("keybindsSanitized") !== "1") {
             localStorage.removeItem("keybinds");
             localStorage.setItem("keybindsSanitized", "1");
         }
         getKeybinds();
         getElements(keybinds, true);
-        // Rebinding works anywhere the settings panel is open — including
-        // mid-game (the panel steals focus, so the game never sees the key)
+        
+        
         const settingsPanelOpen = () => {
             const p = document.getElementById("homeSettingsPanel");
             return !!(p && p.classList.contains("open"));
@@ -269,8 +269,8 @@ import { gameSound } from "./sound.js";
                 if (selectedElement) {
                     const prev = selectedElement;
                     unselectElement();
-                    // clicking a DIFFERENT key switches to it directly;
-                    // clicking the same key (or anywhere else) just cancels
+                    
+                    
                     if (element && element !== prev) selectElement(element);
                 } else if (element) selectElement(element);
             }
@@ -352,8 +352,8 @@ import { gameSound } from "./sound.js";
                         }
                     } else {
                         setKeybind(e.key.toUpperCase(), e.keyCode);
-                        // one key per click — don't stay armed and eat
-                        // every keystroke after the bind lands
+                        
+                        
                         unselectElement();
                     }
                 } else if (key === global.KEY_ENTER && !global.gameStart) {
@@ -534,7 +534,7 @@ import { gameSound } from "./sound.js";
             Id =
             (11 === currentDate.getMonth() && 31 === currentDate.getDate()) ||
             (0 === currentDate.getMonth() && 3 >= currentDate.getDate());
-        // Fireworks year-round (was July 4th + New Year's only)
+        
         if (!global.mobile) {
             let fireworkCanvas = document.createElement("canvas");
             fireworkCanvas.style.position = "absolute";
@@ -998,10 +998,10 @@ import { gameSound } from "./sound.js";
             const ng = document.getElementById("optNoGrid");
             config.graphical.showGrid = !(ng && ng.checked);
         }
-        config.graphical.coloredHealthbars = true; // always on
+        config.graphical.coloredHealthbars = true; 
         config.graphical.separatedHealthbars = document.getElementById("separatedHealthbars").checked;
         config.graphical.lowResolution = document.getElementById("optLowResolution").checked;
-        config.graphical.coloredNest = true;      // always on
+        config.graphical.coloredNest = true;      
         config.graphical.slowerFOV = document.getElementById("optSlowerFOV").checked;
         config.graphical.optimizeMode = document.getElementById("optOptimizeMode").checked;
 
@@ -1021,7 +1021,7 @@ import { gameSound } from "./sound.js";
 
         config.game.incognitoMode = document.getElementById("optIncognitoMode").checked;
 
-        // Dig Wars HUD toggles (default ON when the element is missing)
+        
         const dwOpt = (id) => { const el = document.getElementById(id); return el ? el.checked : true; };
         config.game.satchelWarning = dwOpt("optSatchelWarning");
         config.game.leaderIndicators = dwOpt("optLeaderIndicators");
@@ -1044,9 +1044,9 @@ import { gameSound } from "./sound.js";
                 config.graphical.darkBorders = config.graphical.neon = true;
                 break;
         }
-        // Device mode is auto-detected from the user agent — the old
-        // selector could silently force desktop players into mobile mode
-        global.autoScale = false; // auto UI scale removed
+        
+        
+        global.autoScale = false; 
         switch (document.getElementById("optUiScale").value) {
             case "small":
                 global.UIscale = 2560;
@@ -2049,7 +2049,7 @@ import { gameSound } from "./sound.js";
                 if (t.isProp) t = util.requestEntityImage(t);
                 if (!t.sizeFactor) continue; // zero-size prop
                 // Dig Wars: the hoard prop broadcasts carried load but is
-                // never drawn — the on-tank wealth visual is shelved until
+                // never drawn - the on-tank wealth visual is shelved until
                 // skins land (the HUD wallet bar carries the info)
                 {
                     const pm = global.mockups[parseInt(t.index)];
@@ -2194,7 +2194,7 @@ import { gameSound } from "./sound.js";
                 if (t.isProp) t = util.requestEntityImage(t);
                 if (!t.sizeFactor) continue; // zero-size prop
                 // Dig Wars: the hoard prop broadcasts carried load but is
-                // never drawn — the on-tank wealth visual is shelved until
+                // never drawn - the on-tank wealth visual is shelved until
                 // skins land (the HUD wallet bar carries the info)
                 {
                     const pm = global.mockups[parseInt(t.index)];
@@ -2302,9 +2302,9 @@ import { gameSound } from "./sound.js";
         drawGuiRect(x, y, len, height, true);
     }
 
-    // Dig Wars: the cavern floor — a seamless tile drawn in the GAME'S OWN
+    // Dig Wars: the cavern floor - a seamless tile drawn in the GAME'S OWN
     // vector language: flat fills only, hard edges, no gradients, no alpha
-    // haze. Exactly how a professional flat-2D floor asset is authored —
+    // haze. Exactly how a professional flat-2D floor asset is authored -
     // big blobby two-tone earth patches (like the rocks' facets, laid flat)
     // and a few outlined pebbles that share the wall's border color. Built
     // once on an offscreen tile, world-locked, deterministic.
@@ -2339,7 +2339,7 @@ import { gameSound } from "./sound.js";
                 }
         };
         // an irregular rounded blob: N points around a centre with jittered
-        // radius, joined by quadratic curves — the universal flat-game-art
+        // radius, joined by quadratic curves - the universal flat-game-art
         // "patch of ground" shape
         const blob = (x, y, r) => {
             const n = 7 + (rng() * 3 | 0);
@@ -2372,14 +2372,14 @@ import { gameSound } from "./sound.js";
             const path = blob(rng() * S, rng() * S, 20 + rng() * 28);
             wrapped(() => { path(); t.fillStyle = LIGHT; t.fill(); });
         }
-        // ── layer 2: small flat dirt clods — tiny light blobs sitting on
+        // ── layer 2: small flat dirt clods - tiny light blobs sitting on
         //    the patches, pure flat fill, like a tileset's detail pass ──
         for (let i = 0; i < 26; i++) {
             const path = blob(rng() * S, rng() * S, 2.5 + rng() * 4.5);
             const tone = rng() < 0.5 ? "#262521" : "#161514";
             wrapped(() => { path(); t.fillStyle = tone; t.fill(); });
         }
-        // ── layer 3: a few pebbles in the wall's own visual language —
+        // ── layer 3: a few pebbles in the wall's own visual language -
         //    flat stone fill + the SAME dark border every rock wears ──
         for (let i = 0; i < 12; i++) {
             const x = rng() * S, y = rng() * S;
@@ -2403,14 +2403,30 @@ import { gameSound } from "./sound.js";
         return context.createPattern(tile, "repeat");
     }
 
-    // Dig Wars: the team Vault — THE bank, drawn in the game's own flat
+    // Dig Wars: the team Vault - THE bank, drawn in the game's own flat
     // style: bold shapes, dark outlines, gem-gold heart. Pre-rendered
-    // layers keep the per-frame cost at a few drawImages; a rotating shine
-    // sweep, sparkles and a pulsing gold aura make it unmistakably the
-    // most valuable object in the base.
+    // layers keep the per-frame cost at a few drawImages; sparkles and a
+    // pulsing gold aura make it unmistakably the most valuable object in
+    // the base.
     let vaultSprites = null;
     let vaultDust = [];   // deposit stream + completion burst particles
-    function makeVaultSprites() {
+    // Team palettes for the vault heart + gold accents. The base vaults use
+    // the classic gold; outpost doors swap in the owner's color (or the
+    // neutral yellow while contested).
+    const GOLD_PAL   = { main: "#efc74b", light: "#f7dd8a", high: "#fff6d8" };
+    const BLUE_PAL   = { main: "#4a7bff", light: "#8fb0ff", high: "#c8d9ff" };
+    const RED_PAL    = { main: "#e04848", light: "#f28b8b", high: "#f8c4c4" };
+    const YELLOW_PAL = { main: "#d9c24a", light: "#efe09a", high: "#fbf4d6" };
+    const vaultSpritesTeam = {};   // team-keyed door sprite sets
+    function getVaultSpritesForTeam(team) {
+        const key = team === -1 ? "blue" : team === -2 ? "red" : "yellow";
+        if (!vaultSpritesTeam[key]) {
+            const pal = team === -1 ? BLUE_PAL : team === -2 ? RED_PAL : YELLOW_PAL;
+            vaultSpritesTeam[key] = makeVaultSprites(pal);
+        }
+        return vaultSpritesTeam[key];
+    }
+    function makeVaultSprites(pal = GOLD_PAL) {
         const S = 256, C = S / 2;
         const GEM = [[-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95]];
         const layer = (draw) => {
@@ -2436,11 +2452,11 @@ import { gameSound } from "./sound.js";
             c.fillStyle = "#474e5c";
             c.beginPath(); c.arc(0, 0, S * 0.47, 0, Math.PI * 2); c.fill();
             c.lineWidth = 7; c.strokeStyle = "#16181d"; c.stroke();
-            // gold stud bolts on the rim
+            // team-colored stud bolts on the rim
             for (let i = 0; i < 8; i++) {
                 const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
                 const bx = Math.cos(a) * S * 0.415, by = Math.sin(a) * S * 0.415;
-                c.fillStyle = "#efc74b";
+                c.fillStyle = pal.main;
                 c.beginPath(); c.arc(bx, by, S * 0.026, 0, Math.PI * 2); c.fill();
                 c.lineWidth = 3; c.strokeStyle = "#16181d"; c.stroke();
             }
@@ -2449,21 +2465,21 @@ import { gameSound } from "./sound.js";
             c.beginPath(); c.arc(0, 0, S * 0.33, 0, Math.PI * 2); c.fill();
             c.lineWidth = 5; c.strokeStyle = "#16181d"; c.stroke();
         });
-        // rotating lock ring: flat teeth, gold-tipped
+        // rotating lock ring: flat teeth, team-tipped
         const cog = layer((c) => {
             ring(c, S * 0.375, S * 0.045, "#565e6e", "#16181d", 4);
             for (let i = 0; i < 12; i++) {
                 c.save();
                 c.rotate((i / 12) * Math.PI * 2);
-                c.fillStyle = i % 3 === 0 ? "#efc74b" : "#6a7385";
+                c.fillStyle = i % 3 === 0 ? pal.main : "#6a7385";
                 c.fillRect(S * 0.345, -S * 0.016, S * 0.062, S * 0.032);
                 c.lineWidth = 3; c.strokeStyle = "#16181d";
                 c.strokeRect(S * 0.345, -S * 0.016, S * 0.062, S * 0.032);
                 c.restore();
             }
         });
-        // the heart: a big gold gem-cut emblem + three flat handles.
-        // Same silhouette as every gem in the game — this is where they go.
+        // the heart: a big team-color gem-cut emblem + three flat handles.
+        // Same silhouette as every gem in the game - this is where they go.
         const wheel = layer((c) => {
             c.lineCap = "round";
             for (let i = 0; i < 3; i++) {
@@ -2490,10 +2506,10 @@ import { gameSound } from "./sound.js";
                 });
                 c.closePath(); c.fill();
             };
-            drawGem(0.155, "#efc74b");
+            drawGem(0.155, pal.main);
             c.lineWidth = 5; c.strokeStyle = "#16181d"; c.stroke();
-            drawGem(0.085, "#f7dd8a");
-            drawGem(0.038, "#fff6d8");
+            drawGem(0.085, pal.light);
+            drawGem(0.038, pal.high);
         });
         return { plate, cog, wheel };
     }
@@ -2521,7 +2537,7 @@ import { gameSound } from "./sound.js";
             c.fillStyle = "rgba(0,0,0,0.45)";
             c.beginPath(); c.arc(3, 5, R, 0, Math.PI * 2); c.fill();
             // flat octagonal foundation: tanks are round, structures are
-            // not — the pad keeps the vault from reading as one more tank
+            // not - the pad keeps the vault from reading as one more tank
             c.beginPath();
             for (let i = 0; i < 8; i++) {
                 const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
@@ -2558,18 +2574,6 @@ import { gameSound } from "./sound.js";
             c.drawImage(vaultSprites.wheel, -R, -R, R * 2, R * 2);
             c.restore();
 
-            // shine: a soft specular sweep gliding around the door
-            c.save();
-            c.beginPath(); c.arc(0, 0, R * 0.96, 0, Math.PI * 2); c.clip();
-            c.rotate(now / 1800);
-            const sh = c.createLinearGradient(-R, 0, R, 0);
-            sh.addColorStop(0.42, "rgba(255,255,255,0)");
-            sh.addColorStop(0.5, "rgba(255,255,255,0.10)");
-            sh.addColorStop(0.58, "rgba(255,255,255,0)");
-            c.fillStyle = sh;
-            c.fillRect(-R, -R, R * 2, R * 2);
-            c.restore();
-
             // sparkle: the gold heart glints on its own clock
             const sparkT = ((now / 2600 + (v.team === -1 ? 0 : 0.5)) % 1);
             if (sparkT < 0.16) {
@@ -2603,7 +2607,7 @@ import { gameSound } from "./sound.js";
             c.restore();
 
             // deposit dust: gold motes streaming from the player into the
-            // vault heart, each swallowed with a tiny flash — the money is
+            // vault heart, each swallowed with a tiny flash - the money is
             // visibly leaving your bag and entering the door
             if (depositing) {
                 const px0 = global.screenWidth / 2, py0 = global.screenHeight / 2;
@@ -2619,8 +2623,8 @@ import { gameSound } from "./sound.js";
                     });
                 }
             }
-            // a small white "Vault" label floats above the door
-            drawText("Vault", sx, sy - R * 1.38, R * 0.24, color.guiwhite, "center", false, 1, true, c);
+            // a small fully-opaque white "Vault" label floats above the door
+            drawText("Vault", sx, sy - R * 1.38, R * 0.24, "#ffffff", "center", false, 1, 10, c);
 
             if (doneFlash > 0) {
                 // completion burst: one-off ring of gold sparks
@@ -2673,7 +2677,7 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // Dig Wars: forward outpost pads — flat octagonal foundations in the
+    // Dig Wars: forward outpost pads - flat octagonal foundations in the
     // same visual language as the vault, carved into the wall's pockets.
     // Grey while neutral, ringed in the owner's color once a banner stands
     // (the banner itself is a real entity and draws like any tank). A gold
@@ -2791,6 +2795,18 @@ import { gameSound } from "./sound.js";
                     c.stroke();
                 }
                 c.globalAlpha = 1;
+                // HP bar: sits ~5-6 px below the structure octagon's bottom edge
+                const barW = R * 2.6, barH = Math.max(3, R * 0.06);
+                const barY = bodyR + 5.5;
+                c.fillStyle = "rgba(0,0,0,0.6)";
+                c.fillRect(-barW / 2, barY, barW, barH);
+                if (frac > 0.003) {
+                    c.fillStyle = bodyCol;
+                    c.fillRect(-barW / 2 + 1, barY + 1, (barW - 2) * frac, barH - 2);
+                }
+                c.lineWidth = 1.5;
+                c.strokeStyle = "rgba(0,0,0,0.7)";
+                c.strokeRect(-barW / 2, barY, barW, barH);
             }
             // ownership ring: breathes in the owner's color, dim grey neutral
             const pulse = 0.5 + 0.5 * Math.sin(now / 700 + o.id);
@@ -2800,7 +2816,7 @@ import { gameSound } from "./sound.js";
             c.beginPath(); c.arc(0, 0, R * 0.92, 0, Math.PI * 2); c.stroke();
             c.globalAlpha = 1;
             c.restore();
-            // CONQUEST BLAST: ownership just changed hands — a big double
+            // CONQUEST BLAST: ownership just changed hands - a big double
             // shockwave in the new owner's color rolls off the site
             if (o._lastTeam === undefined) o._lastTeam = st.t;
             if (st.t !== o._lastTeam) {
@@ -2871,13 +2887,13 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // The outposts' mini vault doors — the EXACT vault art from the bases,
-    // at ~60% size, drawn over the octagon foundation. Ring + label colored
-    // by the current owner. Rendered on the BACKGROUND layer (below all
-    // players/entities) so the player always appears on top of the outpost.
+    // The outposts' mini vault doors - the EXACT vault art from the bases,
+    // drawn large and ON TOP of the octagon foundation. Ring + door recolored
+    // for the owner (blue / red) or neutral yellow. Rendered on the
+    // BACKGROUND layer (below all players/entities) so the player always
+    // appears on top of the outpost.
     function drawOutpostDoors(px, py, ratio) {
         if (!global.outposts.length) return;
-        if (!vaultSprites) vaultSprites = makeVaultSprites();
         const now = performance.now();
         const halfW = global.gameWidth / 2, halfH = global.gameHeight / 2;
         const roomX = -px + global.screenWidth / 2 - ratio * global.gameWidth / 2;
@@ -2887,8 +2903,8 @@ import { gameSound } from "./sound.js";
             const st = global.outpostState.find(s => s.id === o.id) || {};
             const sx = roomX + (o.x + halfW) * ratio;
             const sy = roomY + (o.y + halfH) * ratio;
-            const R = o.r * 0.85 * ratio;  // the door: big, front and center
-                                           // (~2× the old footprint)
+            const R = o.r * 0.92 * ratio;  // the door: big, front and center,
+                                           // clearly ON TOP of the structure
             if (sx < -R * 3 || sx > global.screenWidth + R * 3 ||
                 sy < -R * 3 || sy > global.screenHeight + R * 3) continue;
             const ownCol = st.t === -1 ? gameDraw.getColor("blue")
@@ -2903,27 +2919,156 @@ import { gameSound } from "./sound.js";
             c.strokeStyle = ownCol;
             c.beginPath(); c.arc(0, 0, R * 1.06, 0, Math.PI * 2); c.stroke();
             c.globalAlpha = 1;
-            // the same three door layers the base vaults use
+            // the same three door layers the base vaults use, recolored for
+            // the owner (blue / red) or the neutral yellow while contested
+            const doorSprites = getVaultSpritesForTeam(st.t);
             const spin = now / 2200;
-            c.drawImage(vaultSprites.plate, -R, -R, R * 2, R * 2);
+            c.drawImage(doorSprites.plate, -R, -R, R * 2, R * 2);
             c.save(); c.rotate(spin * 0.7);
-            c.drawImage(vaultSprites.cog, -R, -R, R * 2, R * 2);
+            c.drawImage(doorSprites.cog, -R, -R, R * 2, R * 2);
             c.restore();
             c.save(); c.rotate(-spin * 0.5);
-            c.drawImage(vaultSprites.wheel, -R, -R, R * 2, R * 2);
+            c.drawImage(doorSprites.wheel, -R, -R, R * 2, R * 2);
             c.restore();
-            c.globalCompositeOperation = "source-atop";
-            c.globalAlpha = 0.28;
-            c.fillStyle = ownCol;
-            c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.fill();
-            c.globalAlpha = 1;
-            c.globalCompositeOperation = "source-over";
             c.restore();
         }
     }
 
+    // ── Core chamber rock art ───────────────────────────────────────────────
+    // The chambers render as a clean black octagon - no team halo, no facet
+    // fill, no embedded crystal art and no damage cracks (the treasury gems
+    // are real entities that drift inside the ring and render on top of this
+    // floor-layer rock). The octagon's rotation is seeded deterministically
+    // per chamber (id + site) so the two chambers don't sit at identical
+    // angles, and the shape is built in UNIT space + scaled at draw time so
+    // zoom changes never invalidate the cache.
+    // art caches, keyed to the chamber list signature (ids recycle between
+    // maps, so the whole cache drops whenever the sites change)
+    const chamberArt = { sig: "", rock: new Map() };
+    // the drawn ring's hollow inner edge (world units) - must match
+    // CHAMBER_INNER in server/game/terrain/coreChambers.js
+    const CHAMBER_INNER = 136;
+
+    function chamberHash(id, x, y) {
+        const base = (Math.imul(id + 1013, 2654435761) +
+                      Math.imul(Math.round(x), 40503) +
+                      Math.imul(Math.round(y), 45131)) >>> 0;
+        return (i, s) => {
+            let n = (base + Math.imul(i + 1, 374761393) + Math.imul(s + 7, 668265263)) >>> 0;
+            n = Math.imul(n ^ (n >>> 13), 1274126177) >>> 0;
+            return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+        };
+    }
+
+    // A classic octagon RING (hollow border, not a filled boulder): 8 equal
+    // sides on the unit circle, rotated by a per-chamber angle so the two
+    // chambers don't sit at identical angles. Built in UNIT space + scaled at
+    // draw time so zoom changes never invalidate the cache. `ring` is the two
+    // outlines in one path so a single evenodd fill punches the hollow center
+    // out - the treasury gems drift inside it and stay on show.
+    function chamberRockPath(h) {
+        const rot = (h(0, 110) - 0.5) * 0.6;
+        const outer = new Path2D();
+        const inner = new Path2D();
+        const ring = new Path2D();
+        const inR = CHAMBER_INNER / 160;
+        for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2 + rot;
+            const x = Math.cos(a), y = Math.sin(a);
+            if (i) outer.lineTo(x, y); else outer.moveTo(x, y);
+        }
+        outer.closePath();
+        for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2 + rot;
+            const x = Math.cos(a) * inR, y = Math.sin(a) * inR;
+            if (i) inner.lineTo(x, y); else inner.moveTo(x, y);
+        }
+        inner.closePath();
+        ring.addPath(outer);
+        ring.addPath(inner);
+        return { outer, inner, ring };
+    }
+
+    function drawChambers(roomX, roomY, ratio) {
+        if (!global.chambers.length) return;
+        const halfW = global.gameWidth / 2, halfH = global.gameHeight / 2;
+        const c = ctx[0];   // BACKGROUND layer - players and gems stay on top
+        // cache invalidation: chamber ids recycle between maps, so drop the
+        // whole art cache whenever the site list changes
+        const sig = global.chambers.map(ch => ch.id + "@" + ch.x + "," + ch.y + "," + ch.team).join("|");
+        if (sig !== chamberArt.sig) {
+            chamberArt.sig = sig;
+            chamberArt.rock.clear();
+        }
+        for (const ch of global.chambers) {
+            const st = global.chamberState.find(s => s.id === ch.id) || {};
+            const sx = roomX + (ch.x + halfW) * ratio;
+            const sy = roomY + (ch.y + halfH) * ratio;
+            const R = ch.r * ratio;
+            if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
+                sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
+            const teamCol = ch.team === -1 ? gameDraw.getColor("blue") : gameDraw.getColor("red");
+            // before the first CC broadcast lands, assume the boulder is up
+            const mode = st.st === undefined ? 0 : st.st;
+            const alive = mode === 0;
+            const regrowing = mode === 2;
+            const scale = regrowing ? Math.max(0.1, st.s || 0.15) : 1;
+            const h = chamberHash(ch.id, ch.x, ch.y);
+
+            let rock = chamberArt.rock.get(ch.id);
+            if (!rock) {
+                rock = chamberRockPath(h);
+                chamberArt.rock.set(ch.id, rock);
+            }
+            c.save();
+            c.translate(sx, sy);
+            c.lineJoin = "round";
+
+            if (mode === 1) {
+                // empty pocket: a faint grey ghost of the ring
+                c.scale(R, R);
+                c.globalAlpha = 0.14;
+                c.strokeStyle = "#6a6f7a";
+                c.lineWidth = 0.03;
+                c.stroke(rock.outer);
+                c.stroke(rock.inner);
+                c.restore();
+                continue;
+            }
+
+            // the ring itself: a hollow black octagon border - the interior is
+            // punched out with an evenodd fill so the treasury gems inside (real
+            // entities, drawn on top of this floor layer) stay on show. A faint
+            // cool rim keeps both silhouettes off the dark floor.
+            const s = R * scale;
+            if (s !== 1) c.scale(s, s);
+            c.globalAlpha = regrowing ? 0.55 : 1;
+            c.fillStyle = "#000000";
+            c.fill(rock.ring, "evenodd");
+            c.strokeStyle = "rgba(160,160,178,0.16)";
+            c.lineWidth = 0.018;
+            c.stroke(rock.outer);
+            c.stroke(rock.inner);
+            c.globalAlpha = 1;
+            c.restore();
+
+            // HP bar: below the boulder, filled with the owning team's color
+            // (hidden while the pocket is empty or the ring is still forming)
+            if (alive && st.h !== undefined && st.h > 0.003) {
+                const barW = R * 2.6, barH = Math.max(3, R * 0.06);
+                const barY = R * scale + 8;
+                c.fillStyle = "rgba(0,0,0,0.6)";
+                c.fillRect(sx - barW / 2, sy + barY, barW, barH);
+                c.fillStyle = teamCol;
+                c.fillRect(sx - barW / 2 + 1, sy + barY + 1, (barW - 2) * st.h, barH - 2);
+                c.lineWidth = 1.5;
+                c.strokeStyle = "rgba(0,0,0,0.7)";
+                c.strokeRect(sx - barW / 2, sy + barY, barW, barH);
+            }
+        }
+    }
+
     function drawOutpostLabels(px, py, ratio) {
-        if (!global.outposts.length) return;
         const c = ctx[2];
         for (const o of global.outposts) {
             const sx = -px + global.screenWidth / 2 + ratio * (o.x);
@@ -2931,9 +3076,28 @@ import { gameSound } from "./sound.js";
             const R = o.r * ratio;
             if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
                 sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
-            drawText(o.name, sx, sy - o.r * ratio * 1.55,
+            drawText(o.name, sx, sy - o.r * ratio * 1.55 - 4.5,
                      Math.min(32, o.r * ratio * 0.42),
                      color.guiwhite, "center", false, 1, true, c);
+        }
+        // core chambers wear their name above the boulder too (hidden while
+        // the pocket is empty - there's nothing to read then)
+        for (const ch of global.chambers) {
+            const st = global.chamberState.find(s => s.id === ch.id) || {};
+            if (st.st === 1) continue;
+            const sx = -px + global.screenWidth / 2 + ratio * (ch.x);
+            const sy = -py + global.screenHeight / 2 + ratio * (ch.y);
+            const R = ch.r * ratio;
+            if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
+                sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
+            // core chambers wear their name just above the ring's outer edge
+            // (the old 1.55× offset floated it ~88px up in open air - hidden
+            // while the pocket is empty - there's nothing to read then)
+            const labelSize = Math.min(32, ch.r * ratio * 0.42);
+            drawText(ch.name, sx, sy - ch.r * ratio - 0.8 * labelSize - 6,
+                     labelSize,
+                     ch.team === -1 ? gameDraw.getColor("blue") : gameDraw.getColor("red"),
+                     "center", false, 1, true, c);
         }
     }
 
@@ -2970,7 +3134,7 @@ import { gameSound } from "./sound.js";
         // muddy cavern floor: repeat the dirt tile across the room,
         // anchored to world coordinates and scaled with the camera so the
         // ground never "swims". PERF: only the visible slice of the room is
-        // pattern-filled — filling the whole room rect each frame was a
+        // pattern-filled - filling the whole room rect each frame was a
         // fullscreen-and-then-some rasterization for nothing.
         if (!floorPattern) floorPattern = makeFloorPattern(ctx[0]);
         {
@@ -3016,7 +3180,7 @@ import { gameSound } from "./sound.js";
                     if (tile.color == 'none') tile.color = 'border';
                     let tileColor = gameDraw.getColor(tile.color, true);
                     // the blue base used to melt into the teal floor and
-                    // read as clutter — deepen it toward cobalt and tint a
+                    // read as clutter - deepen it toward cobalt and tint a
                     // touch stronger so it separates as cleanly as red
                     let tintAlpha = 0.3;
                     if (tile.color === "blue") {
@@ -3027,7 +3191,7 @@ import { gameSound } from "./sound.js";
                     if (tileColor !== color.white) {
                         // bases/nests keep their ORIGINAL look: lay down the
                         // stock light floor under the tint so the team color
-                        // reads exactly as it always did — bright, safe
+                        // reads exactly as it always did - bright, safe
                         // islands punched out of the dark cavern dirt
                         ctx[0].globalAlpha = 1;
                         ctx[0].fillStyle = color.white;
@@ -3044,7 +3208,7 @@ import { gameSound } from "./sound.js";
         if (config.graphical.showGrid && 2.5 < gridsize) {
             ctx[0].save();
             ctx[0].lineWidth = ratio;
-            // light grid lines — dark ones vanish on the cavern floor
+            // light grid lines - dark ones vanish on the cavern floor
             ctx[0].strokeStyle = "#ffffff";
             ctx[0].globalAlpha = 0.035;
             ctx[0].beginPath();
@@ -3060,20 +3224,144 @@ import { gameSound } from "./sound.js";
             ctx[0].globalAlpha = 1;
             ctx[0].restore();
         }
-        // Dig Wars: team vault doors, set into the base floors
-        drawVaults(roomX, roomY, ratio);
-        // Dig Wars: forward outpost pads, carved into the wall
-        drawOutposts(roomX, roomY, ratio);
-        // the outposts' mini vault doors — drawn here in the FLOOR layer (below
-        // players) so the player always renders on top of the outpost
-        drawOutpostDoors(px, py, ratio);
-
+        // the rock wall first - the vaults and outposts sit ON TOP of it, so
+        // nothing ever washes over the doors or their labels
         if (window.terrainRenderer && window.terrainRenderer.ready) {
-            // near-opaque on the dark cavern floor — the old 0.5 wash only
+            // near-opaque on the dark cavern floor - the old 0.5 wash only
             // read against a white arena; here it would melt into the dirt
             ctx[0].globalAlpha = 0.9;
             window.terrainRenderer.draw(ctx[0], px, py, ratio, gameWidth, gameHeight, global.screenWidth, global.screenHeight);
         }
+        ctx[0].globalAlpha = 1;
+        // Dig Wars: team vault doors, set into the base floors
+        drawVaults(roomX, roomY, ratio);
+        // Dig Wars: forward outpost pads, carved into the wall
+        drawOutposts(roomX, roomY, ratio);
+        // Dig Wars: core chamber boulders beside each vault (one big rock per
+        // team with the treasury drifting inside - gems are real entities, so
+        // they render on top of this floor-layer rock)
+        drawChambers(roomX, roomY, ratio);
+        // the outposts' mini vault doors - drawn here in the FLOOR layer (below
+        // players) so the player always renders on top of the outpost
+        drawOutpostDoors(px, py, ratio);
+    }
+
+    // Dig Wars: the outpost structure is a real server entity (its HP drives
+    // capture combat) but every pixel of it - octagon, door, HP bar - is drawn
+    // by the dedicated floor-layer passes (drawOutposts + drawOutpostDoors).
+    // Flag its entity here so the generic entity pass never paints a second
+    // octagon or a second health bar over the pad.
+    function isOutpostBannerEntity(instance) {
+        if (!instance || !instance.index) return false;
+        const _obM = global.mockups[parseInt(instance.index.split("-")[0])];
+        return !!(_obM && (_obM.name === "Outpost" || _obM.className === "outpostBanner"));
+    }
+
+    // Dig Wars: core chamber boulders are drawn entirely by the floor-layer
+    // drawChambers pass - suppress the entity so it never paints a second
+    // rock or a second health bar over the boulder.
+    function isCoreChamberEntity(instance) {
+        if (!instance || !instance.index) return false;
+        const _obM = global.mockups[parseInt(instance.index.split("-")[0])];
+        return !!(_obM && (_obM.name === "Core Chamber" || _obM.className === "coreChamber"));
+    }
+
+    // Dig Wars: treasury gems locked inside a chamber ring. They're real
+    // entities (the server drifts them), but rendering 80+ of them through the
+    // full entity pipeline (body + facet + sparkle Props + glow + spin
+    // transform) is what melted the frame rate around a chamber. The cheap
+    // path restacks the REAL gem look (halo + body + slim outline + light-table
+    // facet + white sparkle - the same layered cut the rock-face crystals
+    // wear) from cached Path2Ds, so per-frame work is a few fills per gem, not
+    // a whole pipeline. Gem pickups near a ring's outline are included (they
+    // read the same, and the test is a cheap distance check). Returns the gem
+    // class when contained (also used as a truthy skip test), "" otherwise.
+    function isContainedChamberGem(instance) {
+        if (!global.chambers.length || !instance || !instance.index) return "";
+        const _obM = global.mockups[parseInt(instance.index.split("-")[0])];
+        if (!_obM || !_obM.className || !_obM.className.startsWith("gemPickup")) return "";
+        for (const ch of global.chambers) {
+            const dx = instance.x - ch.x, dy = instance.y - ch.y;
+            if (Math.hypot(dx, dy) < ch.r) return _obM.className;
+        }
+        return "";
+    }
+
+    // The canonical gem cut (unit coords) - mirrors GEM_CUT in terrainRenderer
+    // and digwars.js, so the cheap gems keep the exact same silhouette.
+    const GEM_CUT = [
+        [-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95],
+    ];
+
+    // Per-class art. body / facet / core are the gemPickup* + gemFacet* +
+    // ORE_PAL values from digwars.js / terrainRenderer.js, so the cheap gems
+    // carry the exact same palette as the rock crystals. The rim (border) is
+    // NOT in the table: it's gameDraw.getColorDark(body) - the same darkened
+    // tint of the gem's own color the full pipeline gives every real pickup,
+    // theme-aware (color.border) instead of a flat near-black outline.
+    const GEM_CHEAP_PAL = {
+        gemPickupCopper:      { body: "#c96f2e", facet: "#eda766", core: "#ffe9d1" },
+        gemPickupVein:        { body: "#3b7ce0", facet: "#7fb1f2", core: "#e2f0ff" },
+        gemPickupShard:       { body: "#b13ecf", facet: "#d98af0", core: "#fbe6ff" },
+        gemPickupShardCore:   { body: "#b13ecf", facet: "#d98af0", core: "#fbe6ff" },
+        gemPickupEmerald:     { body: "#1fbf6b", facet: "#6ff5a8", core: "#e8fff2" },
+        gemPickupEmeraldCore: { body: "#1fbf6b", facet: "#6ff5a8", core: "#e8fff2" },
+        gemPickupLoot:        { body: "#e0a63b", facet: "#f2cf7f", core: "#fff1d6" },
+    };
+
+    // Layered geometry per class, built once. The facet sits at 0.52 toward
+    // the crown and the core at 0.20 up-left - the exact spots of the real
+    // gem's facet/sparkle Props (gems.js: sizes 10.5/4, offsets 0.12/0.405)
+    // and of the rock-face crystals' light table + core.
+    const GEM_CHEAP_ART = {};
+    function gemCheapArt(cls) {
+        let art = GEM_CHEAP_ART[cls];
+        if (art) return art;
+        const pal = GEM_CHEAP_PAL[cls] || GEM_CHEAP_PAL.gemPickupVein;
+        const body = new Path2D(), facet = new Path2D(), core = new Path2D();
+        const put = (path, scale, ox, oy) => {
+            GEM_CUT.forEach((pt, i) => {
+                const x = pt[0] * scale + ox, y = pt[1] * scale + oy;
+                if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
+            });
+            path.closePath();
+        };
+        put(body, 1, 0, 0);
+        put(facet, 0.52, 0, -0.12);
+        put(core, 0.20, -0.22, -0.30);
+        art = { body, facet, core, pal, rim: gameDraw.getColorDark(pal.body) };
+        GEM_CHEAP_ART[cls] = art;
+        return art;
+    }
+
+    // The real gem look from cached paths, painted in the same order as the
+    // rock-face crystals (terrainRenderer's settled-seam branch): body, thin
+    // rim, light table, near-white core - riding the gem's spin facing. A
+    // handful of cached fills per gem instead of the whole entity pipeline.
+    // (No glow here: the real entities' shadowBlur halo was the expensive
+    // part, and the rock crystals read fine without one.)
+    function drawContainedGem(c, x, y, ratio, alpha, isize, facing, cls) {
+        const art = gemCheapArt(cls);
+        c.save();
+        c.translate(x, y);
+        c.rotate(facing);
+        const s = Math.max(1.5, isize * ratio);
+        c.scale(s, s);
+        // body + thin rim (getColorDark = the other gems' border)
+        c.globalAlpha = alpha;
+        c.fillStyle = art.pal.body;
+        c.fill(art.body);
+        c.lineJoin = "round";
+        c.lineWidth = 0.07;
+        c.strokeStyle = art.rim;
+        c.stroke(art.body);
+        // light-table facet
+        c.fillStyle = art.pal.facet;
+        c.fill(art.facet);
+        // near-white core - reads as lit from inside
+        c.fillStyle = art.pal.core;
+        c.fill(art.core);
+        c.restore();
     }
 
     function drawEntities(px, py, ratio, tick) {
@@ -3087,15 +3375,12 @@ import { gameSound } from "./sound.js";
             if (!instance.render.draws) {
                 continue;
             }
-            // Dig Wars: the outpost structure is a real server entity (for HP /
-            // capture combat) but its OCTAGON + door are drawn on the background
-            // layer (see drawOutposts/drawOutpostDoors) so players render on
-            // top of it. Skip the opaque banner entity here to avoid a big
-            // colored octagon covering tanks standing on the pad.
-            {
-                const _obM = global.mockups[parseInt(instance.index.split("-")[0])];
-                if (_obM && _obM.name === "Outpost") continue;
-            }
+            // Dig Wars: the outpost banner is drawn entirely by the floor-layer
+            // passes - skip the entity so it never paints a second octagon over
+            // the pad (its custom HP bar lives in drawOutposts too). Core
+            // chamber boulders are drawn by drawChambers the same way.
+            if (isOutpostBannerEntity(instance)) continue;
+            if (isCoreChamberEntity(instance)) continue;
             let motion = compensation();
             let rst = instance.render.status.getFade();
             // first frame of a death fade: play a size-appropriate sound
@@ -3154,9 +3439,22 @@ import { gameSound } from "./sound.js";
             y += global.screenHeight / 2;
             let alpha = instance.id === gui.playerid ? 1 : instance.alpha;
             alpha = handleScreenDistance(alpha, instance, false);
+            // treasury gems inside a chamber ring: the real gem look (halo +
+            // body + outline + facet + sparkle) restacked from cached paths,
+            // skipping the whole body+prop+spin pipeline
+            const _gcls = isContainedChamberGem(instance);
+            if (_gcls) {
+                drawContainedGem(ctx[1], x, y, ratio, instance.alpha * alpha, isize, instance.render.f, _gcls);
+                continue;
+            }
             drawEntity(baseColor, x, y, instance, ratio, instance.alpha * alpha, 1, 1, instance.render.f, false, false, false, instance.render, isize);
         }
         for (let instance of global.entities) {
+            // Dig Wars: same banner skip as the shape pass - the generic entity
+            // health bar must not stack over the pad's custom HP bar.
+            if (isOutpostBannerEntity(instance)) continue;
+            if (isCoreChamberEntity(instance)) continue;
+            if (isContainedChamberGem(instance)) continue;
             let alpha = instance.id === gui.playerid ? 1 : instance.alpha;
             alpha = handleScreenDistance(alpha, instance);
             let x = instance.id === gui.playerid ? global.player.screenx : ratio * instance.render.x - px,
@@ -3165,6 +3463,7 @@ import { gameSound } from "./sound.js";
             drawName(x, y, instance, ratio, gui.visibleEntities ? alpha * 0.75 + 0.25 : alpha, instance.size);
         }
         for (let instance of global.entities) {
+            if (isContainedChamberGem(instance)) continue;
             let alpha = instance.id === gui.playerid ? 1 : instance.alpha;
             alpha = handleScreenDistance(alpha, instance);
             let x = instance.id === gui.playerid ? global.player.screenx : ratio * instance.render.x - px,
@@ -3749,7 +4048,7 @@ import { gameSound } from "./sound.js";
 
     // ── Enemy pings in the world: a bobbing red marker at the spot, and a
     // small quiet edge indicator when it's off-screen (the subtle cousin
-    // of the leader arrow — informative, never nagging). Pings live 6s. ──
+    // of the leader arrow - informative, never nagging). Pings live 6s. ──
     function drawEnemyPings() {
         const now = performance.now();
         for (let i = global.enemyPings.length - 1; i >= 0; i--) {
@@ -3790,7 +4089,7 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // ── Leader crown: the classic simple 2D game crown — three equal
+    // ── Leader crown: the classic simple 2D game crown - three equal
     // triangular spikes on a flat band, balls on the tips, flat gold with a
     // dark outline. Everyone sees it on the #1 player, themselves included.
     // The crown wears the LEADER'S TEAM COLOR (blue leader = blue crown,
@@ -3804,7 +4103,7 @@ import { gameSound } from "./sound.js";
     }
     function drawCrown(x, y, g, a, c = ctx[1]) {
         // The crown: flat solid color, three ball tips melting into the
-        // spikes, softly rounded silhouette — matches the reference art.
+        // spikes, softly rounded silhouette - matches the reference art.
         const w = 1.05 * g, h = 0.72 * g;
         const sideY = y - h * 0.92;  // outer tip centers
         const midY  = y - h * 1.12;  // center tip sits higher
@@ -3960,7 +4259,7 @@ import { gameSound } from "./sound.js";
     function drawSelfInfo(max) {
 
         // Dig Wars bottom stack (bottom → top): team war bar, wallet row,
-        // player name. The old level bar is gone — everyone is 45, it said
+        // player name. The old level bar is gone - everyone is 45, it said
         // nothing.
         let width = 440,
             scorewidth = 70,
@@ -4016,13 +4315,13 @@ import { gameSound } from "./sound.js";
         drawText(name, Math.round(x + width / 2) + 1.5, Math.round(y - 10 - 4) - 1, 31, global.nameColor == "#ffffff" ? color.guiwhite : global.nameColor, "center");
     }
 
-    // Dig Wars: the Vault panel — fades and slides in while you stand on
+    // Dig Wars: the Vault panel - fades and slides in while you stand on
     // your team's pad, themed in your team color. Choose the exact dust
     // amount three ways: drag/click the slider, tap a percent, or nudge
     // with the − / + steppers.
     const vaultGlide = Smoothbar(0, 2, 3, 0.1, 0.025, true);
     const VAULT_MIN_DEPOSIT = 15;
-    // A real typed input for the deposit amount — native caret, selection,
+    // A real typed input for the deposit amount - native caret, selection,
     // clamping. Created once, positioned over the canvas panel each frame.
     let vaultInput = null;
     function getVaultInput() {
@@ -4060,7 +4359,7 @@ import { gameSound } from "./sound.js";
                 document.getElementById("gameCanvas").focus();
             }
         };
-        // taking focus means the game canvas stops hearing keyUPs — release
+        // taking focus means the game canvas stops hearing keyUPs - release
         // every held command or a held W drives the tank into the wall
         // forever (the "stuck on W" bug)
         vaultInput.onfocus = () => {
@@ -4080,7 +4379,7 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // Dig Wars: the Vault panel — dead simple: how much dust do you want to
+    // Dig Wars: the Vault panel - dead simple: how much dust do you want to
     // cash out? Type it (clamped to your satchel), hit DEPOSIT or Enter.
     function drawVaultUI() {
         const v = global.vault, g = global.gems;
@@ -4101,7 +4400,7 @@ import { gameSound } from "./sound.js";
         const y = global.screenHeight - 318 + (1 - glide) * 26;
         const cr = global.canvas ? global.canvas.height / global.screenHeight / global.ratio : 1;
         const c = ctx[2];
-        // team color for the frame — getColor can return undefined for
+        // team color for the frame - getColor can return undefined for
         // unmapped indices and mixColors requires hex strings, so guard
         let teamCol = gameDraw.getColor(gui.color);
         if (typeof teamCol !== "string" || teamCol[0] !== "#") teamCol = color.gold;
@@ -4154,7 +4453,7 @@ import { gameSound } from "./sound.js";
             drawText("CANCEL", cbx + cbw / 2, cby + 14.5, 12, "#ff9a8c", "center");
             global.clickables.vault.place(11, cbx * cr, cby * cr, cbw * cr, cbh * cr);
         } else {
-            // ── the whole UI: one input, one button ──
+            
             drawText("How much dust do you want to cash out?", x + W / 2, y + 66, 12, color.guiwhite, "center");
             const el = getVaultInput();
             const iw = 150, ih = 30;
@@ -4168,9 +4467,9 @@ import { gameSound } from "./sound.js";
             if (el.style.display === "none") {
                 el.style.display = "block";
                 el.value = "" + (g.carried | 0);   // defaults to everything
-                // NO auto-focus: stealing focus while driving onto the pad
-                // ate the W keyup and left the tank driving forever. Click
-                // the box (or just hit DEPOSIT for the full amount).
+                
+                
+                
             }
             const dbx = x + W / 2 + 26, dby = y + 78, dbw = 108, dbh = 30;
             const dpulse = 0.8 + 0.2 * Math.sin(now / 380);
@@ -4185,17 +4484,17 @@ import { gameSound } from "./sound.js";
         c.restore();
     }
 
-    // Dig Wars: pickup feedback in the WORLD, not the HUD — +N popups float
-    // up off your tank like hit numbers, a gold ring snaps around the hull
-    // on every grab, and chained pickups run the numbers white-hot.
+    // Dig Wars: pickup feedback in the WORLD, not the HUD - +N popups float
+    
+    
     function drawGemPopups() {
         const g = global.gems;
         if (!g || !config.game.gemPopups) return;
         const now = performance.now();
-        // the camera rides the tank, so the tank lives at screen center
+        
         const cx = global.screenWidth / 2, cy = global.screenHeight / 2;
 
-        // pickup ring: a quick gold pulse snapping outward around the hull
+        
         const ft = (now - g.flashAt) / 380;
         if (ft >= 0 && ft < 1) {
             const fe = 1 - Math.pow(1 - ft, 3);
@@ -4227,10 +4526,10 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // ── Leader arrow: a gold chevron pinned to the screen edge, pointing at
-    // the #1 player (slither-style). Fades out when you ARE the leader, when
-    // they're inside your view, or when the feed goes stale; fades in with a
-    // soft breathing pulse when they're out there somewhere.
+    
+    
+    
+    
     const leaderArrow = { a: 0, x: 0, y: 0, ang: 0 };
     function drawLeaderArrow() {
         const L = global.leader, la = leaderArrow;
@@ -4248,7 +4547,7 @@ import { gameSound } from "./sound.js";
             if (!onScreen) {
                 target = 1;
                 la.ang = Math.atan2(dy, dx);
-                // hug the screen border
+                
                 const inset = 28;
                 const t = Math.min((cx - inset) / (Math.abs(Math.cos(la.ang)) || 1e-9),
                                    (cy - inset) / (Math.abs(Math.sin(la.ang)) || 1e-9));
@@ -4278,16 +4577,16 @@ import { gameSound } from "./sound.js";
         c.fillStyle = color.gold;
         c.fill();
         c.restore();
-        // an upright crown rides just inside the arrow (it never rotates,
-        // the arrow does) — far enough inboard that they can't overlap
+        
+        
         drawCrown(la.x - Math.cos(la.ang) * 50,
                   la.y - Math.sin(la.ang) * 50 + 9,
                   28, la.a * 0.95, ctx[2]);
     }
 
-    // ── Dig Wars war score: both teams' banked vault totals as a slim
-    // tug-of-war bar sitting at the very bottom of the player stack, same
-    // width as the wallet plate. Always visible once in-game, never fades.
+    
+    
+    
     let warBarFrac = 0.5;
     function drawTeamBankBar() {
         const tb = global.teamBanked;
@@ -4297,8 +4596,8 @@ import { gameSound } from "./sound.js";
             y = global.screenHeight - 22 - h,
             cy = y + h / 2,
             total = (tb.blue | 0) + (tb.red | 0);
-        // the frontier glides instead of snapping when someone banks —
-        // plain monotone lerp, nothing springy, nothing that flickers
+        
+        
         warBarFrac += ((total > 0 ? tb.blue / total : 0.5) - warBarFrac) * 0.08;
         const f = Math.max(0, Math.min(1, warBarFrac));
         const split = x + w * f;
@@ -4313,9 +4612,9 @@ import { gameSound } from "./sound.js";
         drawText(util.formatLargeNumber(tb.red | 0), x + w + 10, cy + 5, 13, color.red, "left");
     }
 
-    // ── Full satchel danger: a slim red vignette hugging the screen edges
-    // plus a warning line under the notification area, pulsing gently
-    // while carried sits at the cap.
+    
+    
+    
     function drawSatchelDanger() {
         const g = global.gems;
         if (!config.game.satchelWarning) return;
@@ -4348,27 +4647,27 @@ import { gameSound } from "./sound.js";
     }
     const xc = { cc: 0, dc: 0 };
     // ═══ Dig Wars world map (Fortnite-style, pure vector) ═══════════════
-    // Both maps draw the REAL voronoi cells as vectors every frame — true
-    // rock shapes with their borders, base tints, vault pads. Vector means
-    // crisp at any zoom level, never a blurry scaled bitmap. Ores are
-    // deliberately NOT drawn — finds stay secret.
+    
+    
+    
+    
     function myTeamColor() {
         try {
             const c = gameDraw.modifyColor
                 ? gameDraw.modifyColor(gui.color)
                 : gameDraw.getColor(gui.color);
             if (typeof c === "string" && c.length) return c;
-        } catch (e) { /* fall through */ }
+        } catch (e) {  }
         try {
             const c = gameDraw.getColor(gui.color);
             if (typeof c === "string" && c.length) return c;
-        } catch (e) { /* fall through */ }
+        } catch (e) {  }
         return "#00b2e1";
     }
 
-    // The rock cells as two big cached Path2Ds in WORLD coordinates —
-    // built once, redrawn with a transform. One fill call instead of
-    // thousands of lineTo()s per frame (this was the map lag).
+    
+    
+    
     let mapPaths = null;
     function getMapPaths() {
         const tr = window.terrainRenderer;
@@ -4379,8 +4678,8 @@ import { gameSound } from "./sound.js";
             const cols = tr._cols, rows = tr._rows;
             const alive = new Path2D(), dead = new Path2D();
             for (const [k, cell] of tr._cellPolys) {
-                // regrowing cells count as rock on the maps once the slide is
-                // halfway home (the renderer flips mapDirty at that moment)
+                
+                
                 const backAsRock = tr._growing && tr._growing.get(k)?.mapped;
                 const p = (tr._rockDead.has(k) && !backAsRock) ? dead : alive;
                 const poly = cell.poly;
@@ -4394,8 +4693,8 @@ import { gameSound } from "./sound.js";
         return mapPaths;
     }
 
-    // A small red danger diamond (the enemy ping glyph), shared by the
-    // world overlay and both maps.
+    
+    
     function drawPingDiamond(c, x, y, r, alpha) {
         c.save();
         c.globalAlpha = alpha;
@@ -4418,9 +4717,9 @@ import { gameSound } from "./sound.js";
         c.restore();
     }
 
-    // Draw the world into a screen rect. The world window is (wx0, wy0)
-    // with wspan world units across the rect's width (height follows the
-    // rect aspect). Assumes the caller has already clipped to the rect.
+    
+    
+    
     function drawWorldWindow(c, rx, ry, rw, rh, wx0, wy0, wspan) {
         const tr = window.terrainRenderer;
         const gw = global.gameWidth, gh = global.gameHeight;
@@ -4428,13 +4727,13 @@ import { gameSound } from "./sound.js";
         const X = (v) => rx + (v - wx0) * s;
         const Y = (v) => ry + (v - wy0) * s;
 
-        // out-of-arena void, then the arena floor
+        
         c.fillStyle = "#0e1418";
         c.fillRect(rx, ry, rw, rh);
         c.fillStyle = "#22323b";
         c.fillRect(X(-gw / 2), Y(-gh / 2), gw * s, gh * s);
 
-        // room tiles: base zones tinted in their team colors
+        
         if (global.roomSetup.length) {
             const Rw = global.roomSetup[0].length, Rh = global.roomSetup.length;
             c.globalAlpha = 0.34;
@@ -4445,14 +4744,14 @@ import { gameSound } from "./sound.js";
                     let col = gameDraw.getColor(cell.color);
                     if (col === color.white) continue;
                     if (cell.color === "blue") {
-                        try { col = gameDraw.mixColors(col, "#1737a8", 0.5); } catch (e) { /* keep */ }
+                        try { col = gameDraw.mixColors(col, "#1737a8", 0.5); } catch (e) {  }
                         c.globalAlpha = 0.48;
                     } else {
                         c.globalAlpha = 0.34;
                     }
                     c.fillStyle = col;
-                    // exact tiling (start/end computed per edge) — the old
-                    // +1px overlap double-painted rows into visible seams
+                    
+                    
                     const tx0 = X((tx / Rw - 0.5) * gw), tx1 = X(((tx + 1) / Rw - 0.5) * gw);
                     const ty0 = Y((ty / Rh - 0.5) * gh), ty1 = Y(((ty + 1) / Rh - 0.5) * gh);
                     c.fillRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
@@ -4461,8 +4760,8 @@ import { gameSound } from "./sound.js";
             c.globalAlpha = 1;
         }
 
-        // the wall: two cached Path2Ds (alive / dead) drawn under a
-        // transform — one fill call each, fast enough for 60fps
+        
+        
         const paths = getMapPaths();
         if (paths && tr) {
             c.save();
@@ -4472,7 +4771,7 @@ import { gameSound } from "./sound.js";
             c.fill(paths.dead);
             c.fillStyle = "#413c4c";
             c.fill(paths.alive);
-            const borderW = 0.09 * (tr._cols / 50.0) * (gw / tr._cols); // world units
+            const borderW = 0.09 * (tr._cols / 50.0) * (gw / tr._cols); 
             if (borderW * s > 0.45) {
                 c.strokeStyle = "rgb(8,7,10)";
                 c.lineJoin = "round";
@@ -4482,12 +4781,12 @@ import { gameSound } from "./sound.js";
             c.restore();
         }
 
-        // vault pads: team-tinted discs with a gold gem set in the middle
+        
         const GEMM = [[-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95]];
         for (const v of global.vaults) {
             const vx = X(v.x), vy = Y(v.y);
             const vr = Math.max(3, (v.r || 95) * s);
-            // vault team: -1 blue, -2 red
+            
             const vc = v.team === -2 ? color.red : color.blue;
             c.beginPath();
             c.arc(vx, vy, vr, 0, Math.PI * 2);
@@ -4515,20 +4814,20 @@ import { gameSound } from "./sound.js";
         return { X, Y, s };
     }
 
-    // Markers shared by both maps: teammates (team-colored dots with tiny
-    // names) and yourself (a soft rounded team-colored arrow).
+    
+    
     function drawMapMarkers(T, rx, ry, rw, rh, nameSize, dotR, skipNameId, hoverOutpostId) {
         const c = ctx[2];
         const inside = (x, y) => x > rx - 8 && x < rx + rw + 8 && y > ry - 8 && y < ry + rh + 8;
         const teamCol = myTeamColor();
-        // ── forward outposts: diamond in owner color, HP bar underneath ──
+        
         for (const o of global.outposts) {
             const st = global.outpostState.find(s => s.id === o.id) || {};
             const mx = T.X(o.x), my = T.Y(o.y);
             if (!inside(mx, my)) continue;
             const ownCol = st.t === -1 ? gameDraw.getColor("blue")
                         : st.t === -2 ? gameDraw.getColor("red")
-                        : gameDraw.getColor("yellow");   // neutral team yellow
+                        : gameDraw.getColor("yellow");   
             const s2 = dotR * 1.2;
             c.save();
             c.translate(mx, my);
@@ -4541,8 +4840,8 @@ import { gameSound } from "./sound.js";
             c.fill();
             c.stroke();
             c.restore();
-            // structure HP bar (neutral included — chipping a grey outpost
-            // shows on every map) — small; the big map enlarges it on hover
+            // structure HP bar (neutral included - chipping a grey outpost
+            
             if (st.h > 0 && o.id !== hoverOutpostId) {
                 const bw = dotR * 5, bh = 2.5, bx = mx - bw / 2, by = my + s2 + 3;
                 c.fillStyle = color.black;
@@ -4555,8 +4854,50 @@ import { gameSound } from "./sound.js";
                 drawText(o.name, Math.round(mx), Math.round(my - s2 - 6), nameSize * 0.85, color.guiwhite, "center");
             }
         }
-        // the reigning leader's live position wears the crown — but the
-        // king himself doesn't need a map marker for his own head
+        
+        for (const ch of global.chambers) {
+            const st = global.chamberState.find(s => s.id === ch.id) || {};
+            const mx = T.X(ch.x), my = T.Y(ch.y);
+            if (!inside(mx, my)) continue;
+            const cc = ch.team === -1 ? gameDraw.getColor("blue") : gameDraw.getColor("red");
+            
+            
+            const grow = st.st === 2 ? Math.max(0.12, st.s || 0.15) : 1;
+            const s2 = dotR * 1.35 * grow;
+            c.globalAlpha = st.st === 1 ? 0.25 : st.st === 2 ? 0.75 : 0.9;
+            c.save();
+            c.translate(mx, my);
+            c.lineJoin = "round";
+            c.strokeStyle = st.st === 1 ? "#6a6f7a" : cc;
+            c.fillStyle = st.st === 1 ? "rgba(8,7,10,0.85)" : cc;
+            c.lineWidth = 1.8;
+            c.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * Math.PI * 2;
+                const jit = 0.82 + ((i * 137 + ch.id * 61) % 30) / 100;
+                const ox = Math.cos(a) * s2 * jit, oy = Math.sin(a) * s2 * jit;
+                i ? c.lineTo(ox, oy) : c.moveTo(ox, oy);
+            }
+            c.closePath();
+            c.fill();
+            c.stroke();
+            c.restore();
+            c.globalAlpha = 1;
+            
+            if (st.h > 0) {
+                const bw = dotR * 5, bh = 2.5, bx = mx - bw / 2, by = my + s2 + 3;
+                c.fillStyle = color.black;
+                c.fillRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
+                c.fillStyle = cc;
+                c.fillRect(bx, by, bw * st.h, bh);
+            }
+            // small white label on the big map
+            if (nameSize > 0) {
+                drawText(ch.name, Math.round(mx), Math.round(my - s2 - 6), nameSize * 0.85, color.guiwhite, "center");
+            }
+        }
+        
+        
         const L = global.leader;
         const sm = global._mapSmooth;
         if (config.game.leaderIndicators && L && L.id !== -1 &&
@@ -4565,7 +4906,7 @@ import { gameSound } from "./sound.js";
             const lx = T.X(sm.leader.x), ly = T.Y(sm.leader.y);
             if (inside(lx, ly)) drawCrown(lx, ly + dotR * 1.2, dotR * 3.8, 1, c);
         }
-        // team enemy pings: red danger diamonds
+        
         const nowPing = performance.now();
         for (const p of global.enemyPings) {
             const age = nowPing - p.at;
@@ -4576,8 +4917,8 @@ import { gameSound } from "./sound.js";
         }
         for (const t of global.teammates) {
             if (t.id === gui.playerid) continue;
-            // a friendly leader is marked by the crown ALONE — drawing the
-            // dot underneath reads as two players
+            // a friendly leader is marked by the crown ALONE - drawing the
+            
             if (config.game.leaderIndicators && L && t.id === L.id &&
                 performance.now() - L.at < 1200) continue;
             const sp = (sm && sm.mates.get(t.id)) || t;
@@ -4594,13 +4935,13 @@ import { gameSound } from "./sound.js";
             c.arc(mx, my, dotR * 0.38, 0, Math.PI * 2);
             c.fillStyle = "rgba(255,255,255,0.85)";
             c.fill();
-            // the hovered teammate's name is drawn once, gold, by the hover
-            // pass — not twice in two colors
+            
+            
             if (nameSize > 0 && t.id !== skipNameId) {
                 drawText(t.name || "Player", Math.round(mx), Math.round(my - dotR - 5), nameSize, color.guiwhite, "center");
             }
         }
-        // you: a soft rounded arrow in your team color, pointing at your aim
+        
         const px = T.X(global.player.renderx), py = T.Y(global.player.rendery);
         if (inside(px, py)) {
             const ang = Math.atan2(global.target.y, global.target.x);
@@ -4616,7 +4957,7 @@ import { gameSound } from "./sound.js";
             c.lineTo(-r * 0.3, 0);
             c.lineTo(-r * 0.75, r * 0.72);
             c.closePath();
-            // fat round-joined stroke first = soft silhouette
+            
             c.strokeStyle = color.black;
             c.lineWidth = r * 0.55;
             c.stroke();
@@ -4629,25 +4970,25 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // The corner minimap: a tight, player-centered crop of the world.
-    // The world layer renders into a cached offscreen bitmap with a wide
-    // margin; each frame we blit the live sub-window out of it, so the
-    // view SCROLLS smoothly with the camera while the expensive vector
-    // render only happens when you near the margin or rocks change.
+    
+    
+    
+    
+    
     const cornerCache = { canvas: null, sizePx: 0, epoch: -1, cx: 1e9, cy: 1e9, wx0: 0, wy0: 0 };
     const cornerVign = { canvas: null, size: 0 };
     function drawFortniteMinimap(x, y, size) {
         const gw = global.gameWidth, gh = global.gameHeight;
         if (!gw || !gh) return;
-        const span = 2800;          // world units across the visible square
-        const cSpan = span * 1.35;  // cached window is wider by a margin
-        // live window: follows the smooth camera every frame
+        const span = 2800;          
+        const cSpan = span * 1.35;  
+        
         let wx0 = global.player.renderx - span / 2;
         let wy0 = global.player.rendery - span / 2;
         wx0 = Math.max(-gw / 2 - span * 0.08, Math.min(gw / 2 - span * 0.92, wx0));
         wy0 = Math.max(-gh / 2 - span * 0.08, Math.min(gh / 2 - span * 0.92, wy0));
         const cxNow = wx0 + span / 2, cyNow = wy0 + span / 2;
-        const paths = getMapPaths(); // refreshes the rock epoch
+        const paths = getMapPaths(); 
         const epoch = paths ? paths.epoch : -1;
         const dpr = Math.max(1, Math.min(2, global.ratio || 1));
         const S = Math.ceil(size * dpr * (cSpan / span));
@@ -4675,8 +5016,8 @@ import { gameSound } from "./sound.js";
         ctx[2].save();
         optionsMenu_drawRoundedRect(x, y, size, size, 12);
         ctx[2].clip();
-        // blit the live sub-window out of the cached bitmap — this is what
-        // makes the map scroll smoothly instead of stepping
+        
+        
         const ppw = S / cSpan;
         ctx[2].imageSmoothingEnabled = true;
         ctx[2].drawImage(cornerCache.canvas,
@@ -4705,26 +5046,25 @@ import { gameSound } from "./sound.js";
         }
         ctx[2].drawImage(cornerVign.canvas, x, y, size, size);
         ctx[2].restore();
-        // frame
+        
         optionsMenu_drawRoundedRect(x, y, size, size, 12);
         ctx[2].lineWidth = 3.5;
         ctx[2].strokeStyle = color.black;
         ctx[2].stroke();
     }
 
-
-    // ── The full-map overlay: the whole arena, wheel zoom toward the
-    // cursor, drag pan, teammates with names, smooth fade. ──
-    // asymmetric fade: ease in gently, but get OUT of the way fast — a
-    // lingering dark overlay on close feels like input lag
+    
+    
+    
+    
     let bigMapFade = 0;
     function drawBigMap() {
         const mapTarget = global.showBigMap ? 1 : 0;
         bigMapFade = util.lerp(bigMapFade, mapTarget, mapTarget ? 0.1 : 0.28, true);
         const fade = bigMapFade;
         if (fade < 0.02) return;
-        // HTML floats above canvas no matter what — anything interactive
-        // must yield while the map covers the screen
+        
+        
         const vi = document.getElementById("vaultInput");
         if (vi && vi.style.display !== "none") vi.style.display = "none";
         const bm = global.bigMap;
@@ -4735,20 +5075,20 @@ import { gameSound } from "./sound.js";
         ctx[2].globalAlpha = fade;
         ctx[2].fillStyle = "rgba(5,6,10,0.55)";
         ctx[2].fillRect(0, 0, sw, sh);
-        // panel keeps the arena's aspect, popping in gently with the fade
+        
         const pop = 0.97 + 0.03 * fade;
         const fitW = sw * 0.72, fitH = sh * 0.8;
         const fit = Math.min(fitW / gw, fitH / gh) * pop;
         const panelW = gw * fit, panelH = gh * fit;
         const px0 = (sw - panelW) / 2, py0 = (sh - panelH) / 2;
-        // world window from zoom + center (center clamped inside arena)
+        
         bm.zoom = Math.max(1, Math.min(4, bm.zoom || 1));
         const span = gw / bm.zoom;
         const spanY = gh / bm.zoom;
         bm.cx = Math.max(-gw / 2 + span / 2, Math.min(gw / 2 - span / 2, bm.cx || 0));
         bm.cy = Math.max(-gh / 2 + spanY / 2, Math.min(gh / 2 - spanY / 2, bm.cy || 0));
         const wx0 = bm.cx - span / 2, wy0 = bm.cy - spanY / 2;
-        // publish geometry for the input handlers (wheel/drag)
+        
         bm._panel = { x: px0, y: py0, w: panelW, h: panelH, s: panelW / span, wx0, wy0 };
         // plate
         optionsMenu_drawRoundedRect(px0 - 4, py0 - 4, panelW + 8, panelH + 8, 16);
@@ -4758,8 +5098,8 @@ import { gameSound } from "./sound.js";
         optionsMenu_drawRoundedRect(px0, py0, panelW, panelH, 11);
         ctx[2].clip();
         const T = drawWorldWindow(ctx[2], px0, py0, panelW, panelH, wx0, wy0, span);
-        // find the teammate under the cursor FIRST, so the marker pass can
-        // skip their white label — the hover pass draws it once, in gold
+        
+        
         const mScale = global.canvas ? global.canvas.height / global.screenHeight : 1;
         const hx = global.mouse.x / mScale, hy = global.mouse.y / mScale;
         let hoverMate = null;
@@ -4784,8 +5124,8 @@ import { gameSound } from "./sound.js";
             ctx[2].stroke();
             drawText(hoverMate.name || "Player", Math.round(mx), Math.round(my - 17), 14, color.gold, "center");
         }
-        // hovered outpost: one big gold label + an ENLARGED banner HP bar
-        // (the small white label + tiny bar are suppressed in the marker pass)
+        
+        
         if (hoverOutpost) {
             const st = global.outpostState.find(s => s.id === hoverOutpost.id) || {};
             const mx = T.X(hoverOutpost.x), my = T.Y(hoverOutpost.y);
@@ -4801,7 +5141,7 @@ import { gameSound } from "./sound.js";
             }
         }
         // vault labels: a small white "Vault" over each pad; hovering one
-        // swaps it for a single big gold label (never both — no overlap)
+        
         for (const v of global.vaults) {
             const mx = T.X(v.x), my = T.Y(v.y);
             const vr = Math.max(6, v.r * (bm._panel.s || 1));
@@ -4812,7 +5152,7 @@ import { gameSound } from "./sound.js";
             }
         }
         ctx[2].restore();
-        // frame + footer hint
+        
         optionsMenu_drawRoundedRect(px0 - 4, py0 - 4, panelW + 8, panelH + 8, 16);
         ctx[2].lineWidth = 4;
         ctx[2].strokeStyle = color.black;
@@ -4824,9 +5164,8 @@ import { gameSound } from "./sound.js";
         ctx[2].restore();
     }
 
-
-    // Glide map markers between the 250ms position updates — once per
-    // frame, shared by the corner map and the big map.
+    // Glide map markers between the 250ms position updates - once per
+    
     function updateMapSmoothing() {
         if (!global._mapSmooth) global._mapSmooth = { leader: null, mates: new Map() };
         const sm = global._mapSmooth;
@@ -4855,7 +5194,7 @@ import { gameSound } from "./sound.js";
         let x = global.mobile ? spacing : global.screenWidth - spacing - len - 5;
         let y = global.mobile ? spacing : global.screenHeight - height - spacing - 5;
         if (global.GUIStatus.renderMinimap) {
-            // Dig Wars: the Fortnite-style crop replaces the stock minimap
+            
             if (window.terrainRenderer && window.terrainRenderer.ready && global.gems && global.gems.cap > 0 && !global.mobile) {
                 drawFortniteMinimap(global.screenWidth - spacing - len - 5, global.screenHeight - len - spacing - 5, len);
             } else {
@@ -4951,7 +5290,7 @@ import { gameSound } from "./sound.js";
                 }
             }
 
-            // Dig Wars: vault markers — little gold gems on each base
+            // Dig Wars: vault markers - little gold gems on each base
             if (global.vaults.length) {
                 const GEMM = [[-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95]];
                 const gp = 0.85 + 0.15 * Math.sin(performance.now() / 500);
@@ -5161,7 +5500,7 @@ import { gameSound } from "./sound.js";
             upgradeSpin = upgradeSpin - (Math.floor(upgradeSpin / Math.PI / 2) * Math.PI * 2);
 
             let x = glide * 2 * spacing + spacing + 5;
-            // +46: clear of the fixed settings button in the corner
+            
             let y = spacing - height - internalSpacing + 5 + 46;
             let xStart = x;
             let initialX = x;
@@ -5611,8 +5950,8 @@ import { gameSound } from "./sound.js";
         ? "lol you died"
         : "Bank your gemdust at the vault, you drop most of it when you die";
 
-    // Small flat vector icons for the death screen — same visual language
-    // as the rest of the HUD (flat fills, dark outlines), no emoji.
+    // Small flat vector icons for the death screen - same visual language
+    
     function drawDeathIcon(kind, x, y, s, a) {
         const c = ctx[2];
         c.save();
@@ -5631,7 +5970,7 @@ import { gameSound } from "./sound.js";
                 c.stroke();
                 break;
             }
-            case "combat": { // crossed swords
+            case "combat": { 
                 const r = s * 0.4;
                 c.beginPath();
                 c.moveTo(x - r, y - r); c.lineTo(x + r, y + r);
@@ -5654,7 +5993,7 @@ import { gameSound } from "./sound.js";
                 c.fill();
                 break;
             }
-            case "gem": { // the canonical gem cut, gold
+            case "gem": { 
                 const r = s * 0.5;
                 c.fillStyle = color.gold;
                 c.strokeStyle = color.black;
@@ -5669,7 +6008,7 @@ import { gameSound } from "./sound.js";
                 c.fill(); c.stroke();
                 break;
             }
-            case "pulse": { // server heartbeat
+            case "pulse": { 
                 c.beginPath();
                 c.moveTo(x - s * 0.5, y);
                 c.lineTo(x - s * 0.18, y);
@@ -5702,7 +6041,7 @@ import { gameSound } from "./sound.js";
         scaleScreenRatio(ratio, true);
 
         drawEntity(baseColor, (xx - 190 - len / 2 + 0.5) | 0, (yy - -5 + 0.5) | 0, picture, 1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
-        // (no level line — everyone lives at 45 in Dig Wars, it says nothing)
+        // (no level line - everyone lives at 45 in Dig Wars, it says nothing)
         drawText(picture.name, x - 275, y - -110, 24, color.guiwhite, "center");
         drawText(name == "" ? "Your Score: " : name + "'s Score: ", x - 170, y - 30, 24, color.guiwhite);
         drawText(util.formatLargeNumber(Math.round(global.finalScore.get())), x - 170, y + 25, 50, color.gold);
@@ -5779,8 +6118,8 @@ import { gameSound } from "./sound.js";
         let playerx = global.player.animX.get(tick);
         let playery = global.player.animY.get(tick);
         if (config.graphical.lerpAnimations) {
-            // lerp toward the INTERPOLATED position — chasing raw 30Hz
-            // packet positions is what made this mode look like stuttering
+            // lerp toward the INTERPOLATED position - chasing raw 30Hz
+            
             global.player.renderx = util.lerp(global.player.renderx, playerx, 0.15, true);
             global.player.rendery = util.lerp(global.player.rendery, playery, 0.15, true);
         } else if (config.graphical.smoothcamera && config.graphical.shakeProperties.CameraShake.shakeStartTime == -1) {
@@ -5836,19 +6175,19 @@ import { gameSound } from "./sound.js";
             if (global.GUIStatus.renderPlayerBars) {
                 drawSelfInfo(max);
                 drawGemPopups();   // +N numbers + pickup ring over the tank
-                drawVaultUI();     // deposit panel while on the vault pad
+                drawVaultUI();     
             }
             drawMinimapAndDebug(spacing, alcoveSize, global.GRAPHDATA, tick);
             if (global.GUIStatus.renderLeaderboard) drawLeaderboard(spacing, alcoveSize, max);
             if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
             if (global.GUIStatus.renderPlayerBars) {
-                // danger + leader indicators ride ABOVE every other HUD
-                // element — nothing may cover a threat marker
-                drawLeaderArrow(); // screen-edge pointer at the #1 player
-                drawEnemyPings();  // team danger markers (G key)
+                
+                
+                drawLeaderArrow(); 
+                drawEnemyPings();  
             }
         } else if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
-        drawBigMap(); // full-map overlay rides above the HUD
+        drawBigMap(); 
         if (global.showTree) {
             drawUpgradeTree(spacing, alcoveSize);
         }
@@ -5918,36 +6257,36 @@ import { gameSound } from "./sound.js";
         }
     }
 
-    // The in-game settings button: literally the homepage gear button,
-    // recreated as real HTML over the canvas — canvas hit-rect math proved
-    // too fragile across DPI setups, an HTML element can't miss clicks.
+    
+    
+    
     let ingameSettingsBtn = null;
     function getIngameSettingsBtn() {
         if (ingameSettingsBtn) return ingameSettingsBtn;
-        // styled by the shared #homeSettingsBtn/#ingameSettingsBtn rules in
-        // home.css — one look for both surfaces
+        
+        
         const btn = document.createElement("button");
         btn.id = "ingameSettingsBtn";
         btn.title = "Settings";
         const home = document.getElementById("homeSettingsBtn");
         btn.innerHTML = home ? home.innerHTML : "⚙";
         btn.onclick = () => {
-            // open/close the SAME settings panel the homepage uses
+            
             const panel = document.getElementById("homeSettingsPanel");
             const overlay = document.getElementById("homeSettingsOverlay");
             if (!panel) return;
             const open = !panel.classList.contains("open");
             panel.classList.toggle("open", open);
             if (overlay) overlay.classList.toggle("visible", open);
-            btn.blur(); // never steal WASD focus
-            // closing hands the keyboard straight back to the game
+            btn.blur(); 
+            
             if (!open) {
                 const cv = document.getElementById("gameCanvas");
                 if (cv && global.gameStart) cv.focus();
             }
         };
         document.body.appendChild(btn);
-        // Global/Team chat toggle rides beside the gear
+        
         const chatBtn = document.createElement("button");
         chatBtn.id = "ingameChatModeBtn";
         chatBtn.textContent = "Global Chat";
@@ -5964,14 +6303,14 @@ import { gameSound } from "./sound.js";
             btn.style.display = show;
             chatBtn.style.display = show;
         }, 250);
-        // in-game changes persist AND apply immediately, no restart needed
+        
         const panel = document.getElementById("homeSettingsPanel");
         if (panel && !panel.dwWired) {
             panel.dwWired = true;
             panel.addEventListener("change", (e) => {
                 if (e.target && e.target.id) util.submitToLocalStorage(e.target.id);
                 loadSettings();
-                // resolution / UI-scale options need a resize pass to bite
+                
                 if (window.resizeEvent) window.resizeEvent();
             });
         }
@@ -5980,10 +6319,10 @@ import { gameSound } from "./sound.js";
     }
 
     function drawOptionsMenu() {
-        // The old canvas-drawn settings are gone: the in-game gear button
-        // (#ingameSettingsBtn) opens the SAME HTML settings panel the
-        // homepage uses, so both surfaces always match. This stub only
-        // keeps the legacy canvas plumbing inert.
+        
+        
+        
+        
         getIngameSettingsBtn();
         if (global.clickables && global.clickables.optionsMenu) {
             global.clickables.optionsMenu.switchButton.hide();
@@ -5994,7 +6333,6 @@ import { gameSound } from "./sound.js";
             global.optionsMenu_Anim.isOpened = false;
         }
     }
-
 
     function runSecondary() {
         let pingAttempt = setInterval(() => {

@@ -1,0 +1,10 @@
+# Strict Constraints: No Previews or Screenshots
+
+## CRITICAL: FORBIDDEN ACTIONS
+- NEVER use the browser tool to open, view, or preview any web pages, local servers, or applications, unless strictly instructed to do so. You may run syntax tests, use terminal, and do everything by your free will, but do not take screenshots as this model does NOT support images. 
+- NEVER take screenshots of any windows, applications, or other stuff unless explicitly instructed to do so
+- DO NOT attempt to visually verify changes using visual tools or extension capabilities.
+
+## MANDATORY COMPLIANCE
+- Rely strictly on code analysis, terminal logs, compilation outputs, and text-based feedback to verify your work.
+- When writing code, you must only around 4-5 comments per prompt or more if required and they should be fully lowercase and really short. 

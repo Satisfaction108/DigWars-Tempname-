@@ -873,23 +873,30 @@ let incoming = async function(message, socket) {
                 const oreSalt   = m[5] | 0;
                 global.vaults   = m[6] ? JSON.parse(m[6]) : [];
                 global.outposts = m[7] ? JSON.parse(m[7]) : [];
+                global.chambers = m[8] ? JSON.parse(m[8]) : [];
                 if (window.terrainRenderer) window.terrainRenderer.init(cells, cols, rows, rockState, oreState, oreSalt);
             } break;
             case 'OP': {
-                // Forward outposts, live state: [{id, t: owner team,
-                // h: banner health frac, c: capture progress, ct: capturing
-                // team}] — every 250ms
-                try { global.outpostState = JSON.parse(m[0]); } catch (e) { /* keep last */ }
+                
+                
+                
+                try { global.outpostState = JSON.parse(m[0]); } catch (e) {  }
+            } break;
+            case 'CC': {
+                
+                
+                
+                try { global.chamberState = JSON.parse(m[0]); } catch (e) {  }
             } break;
             case 'OU': {
-                // standing on an OWNED OUTPOST pad: reuse the vault deposit
-                // panel, flagged so the UI can note the 80% credit
+                
+                
                 global.vault.onPad = !!m[0];
                 global.vault.isOutpost = !!m[0];
             } break;
             case 'EP': {
-                // Enemy ping from a teammate: [x, y, senderId]. One live
-                // ping per player — a new one replaces their old one.
+                
+                
                 const by = m[2];
                 for (let i = global.enemyPings.length - 1; i >= 0; i--) {
                     if (global.enemyPings[i].by === by) global.enemyPings.splice(i, 1);
@@ -898,7 +905,7 @@ let incoming = async function(message, socket) {
                 if (global.enemyPings.length > 16) global.enemyPings.shift();
             } break;
             case 'TM': {
-                // Teammates for the map overlays: [n, id, name, x, y, ...]
+                
                 const n = m[0];
                 const list = [];
                 for (let i = 0; i < n; i++) {
@@ -908,15 +915,15 @@ let incoming = async function(message, socket) {
                 global.teammates = list;
             } break;
             case 'TB': {
-                // War score: [blue banked total, red banked total]
+                
                 const tb = global.teamBanked;
                 tb.blue = m[0];
                 tb.red = m[1];
                 tb.at = performance.now();
             } break;
             case 'LA': {
-                // Leader arrow: [id, x, y, team] of the current #1, every
-                // 250ms — team so every crown wears the leader's color
+                
+                
                 const L = global.leader;
                 L.id = m[0];
                 L.x = m[1];
@@ -925,15 +932,15 @@ let incoming = async function(message, socket) {
                 L.at = performance.now();
             } break;
             case 'GEM': {
-                // Satchel state: [carried, cap, delta]. delta > 0 = pickup,
-                // delta < 0 = gems lost (death), 0 = init/refresh.
+                
+                
                 const carried = m[0], cap = m[1], delta = m[2];
                 const g = global.gems;
                 const now = performance.now();
                 if (delta > 0) {
-                    // chained pickups play a rising run and stack one popup;
-                    // the popup remembers its chain depth so the world
-                    // number heats gold → white as the combo climbs
+                    
+                    
+                    
                     g.combo = now - g.lastPickup < 900 ? g.combo + 1 : 0;
                     g.lastPickup = now;
                     if (config.game.gemSounds) gameSound.gemPickup(g.combo);
@@ -962,17 +969,17 @@ let incoming = async function(message, socket) {
                 }
             } break;
             case 'VU': {
-                // Dig Wars: stepped on/off the team vault pad
+                
                 global.vault.onPad = !!m[0];
-                global.vault.isOutpost = false;   // home vault = full credit
+                global.vault.isOutpost = false;   
                 if (!global.vault.onPad) {
                     global.vault.remaining = 0;
                     global.vault.total = 0;
                 }
             } break;
             case 'VP': {
-                // Dig Wars: vault channel progress [remaining, total];
-                // total 0 = idle/cancelled, remaining 0 with total = done
+                
+                
                 const v = global.vault;
                 const wasActive = v.total > 0;
                 v.remaining = m[0];
@@ -987,7 +994,7 @@ let incoming = async function(message, socket) {
                 }
             } break;
             case 'TR': {
-                // Rock damage/destroy deltas (server-authoritative)
+                
                 if (window.terrainRenderer) window.terrainRenderer.applyRockEvents(JSON.parse(m[0]));
             } break;
             case "temporaryban": {

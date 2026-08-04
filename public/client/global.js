@@ -40,7 +40,7 @@ const missingno = {
         shield_regen: "???",
         shield_cap: "???"
     },
-    rerootUpgradeTree: "basic", // todo: find a way to make this automatically change to Config.spawn_class without bricking everything
+    rerootUpgradeTree: "basic", 
     className: "MissingNo.",
     upgrades: [],
     guns: [],
@@ -74,12 +74,12 @@ function Clickable() {
     };
 }
 let Region = (size) => {
-    // Define the region
+    
     let data = [];
     for (let i = 0; i < size; i++) {
         data.push(Clickable());
     }
-    // Return the region methods
+    
     return {
         place: (index, ...a) => {
             if (index >= data.length) {
@@ -99,72 +99,72 @@ let Region = (size) => {
 let gameDraw;
 
 const global = {
-    // Keys and other mathematical constants. You can find the list here: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/keyCode
-    // Special key for cheats / commands
-    KEY_SPECIAL: 192, // `
+    
+    
+    KEY_SPECIAL: 192, 
 
-    KEY_ESC: 27,// Escape
-    KEY_ENTER: 13,// Enter
-    KEY_SHIFT: 16,// Shift
-    KEY_BECOME: 70,// F
-    KEY_CHAT: 13,// Enter
-    KEY_FIREFOOD: 119,// F8
-    KEY_SPLIT: 32,// Space
+    KEY_ESC: 27,
+    KEY_ENTER: 13,
+    KEY_SHIFT: 16,
+    KEY_BECOME: 70,
+    KEY_CHAT: 13,
+    KEY_FIREFOOD: 119,
+    KEY_SPLIT: 32,
 
-    KEY_LEFT: 65,// A
-    KEY_UP: 87,// W
-    KEY_RIGHT: 68,// D
-    KEY_DOWN: 83,// S
-    KEY_LEFT_ARROW: 37,// ArrowLeft
-    KEY_UP_ARROW: 38,// ArrowUp
-    KEY_RIGHT_ARROW: 39,// ArrowRight
-    KEY_DOWN_ARROW: 40,// ArrowDown
+    KEY_LEFT: 65,
+    KEY_UP: 87,
+    KEY_RIGHT: 68,
+    KEY_DOWN: 83,
+    KEY_LEFT_ARROW: 37,
+    KEY_UP_ARROW: 38,
+    KEY_RIGHT_ARROW: 39,
+    KEY_DOWN_ARROW: 40,
 
-    KEY_AUTO_SPIN: 67,// C
-    KEY_AUTO_FIRE: 69,// E
-    KEY_AUTO_ALT: 71,// G
-    KEY_OVER_RIDE: 82,// R
-    KEY_REVERSE_TANK: 86,// V
-    KEY_REVERSE_MOUSE: 66,// B
-    KEY_SPIN_LOCK: 88,// X
+    KEY_AUTO_SPIN: 67,
+    KEY_AUTO_FIRE: 69,
+    KEY_AUTO_ALT: 71,
+    KEY_OVER_RIDE: 82,
+    KEY_REVERSE_TANK: 86,
+    KEY_REVERSE_MOUSE: 66,
+    KEY_SPIN_LOCK: 88,
 
-    KEY_LEVEL_UP: 78, // N
-    KEY_TOKEN: 80,// P
-    KEY_CLASS_TREE: 84,// T
-    KEY_MAX_STAT: 77,// M
-    KEY_SUICIDE: 79,// O
-    KEY_ZOOM_OUT: 45,// ??
-    KEY_ZOOM_IN: 61,// ??
-    KEY_DEBUG: 76,// L
+    KEY_LEVEL_UP: 78, 
+    KEY_TOKEN: 80,
+    KEY_CLASS_TREE: 84,
+    KEY_MAX_STAT: 77,
+    KEY_SUICIDE: 79,
+    KEY_ZOOM_OUT: 45,
+    KEY_ZOOM_IN: 61,
+    KEY_DEBUG: 76,
 
-    KEY_SCREENSHOT: 81,//Q
-    KEY_RECORD: 90,//Z
-    KEY_TOGGLE_MAP: 70,// F
+    KEY_SCREENSHOT: 81,
+    KEY_RECORD: 90,
+    KEY_TOGGLE_MAP: 70,
 
-    KEY_UPGRADE_ATK: 49,// 1
-    KEY_UPGRADE_HTL: 50,// 2
-    KEY_UPGRADE_SPD: 51,// 3
-    KEY_UPGRADE_STR: 52,// 4
-    KEY_UPGRADE_PEN: 53,// 5
-    KEY_UPGRADE_DAM: 54,// 6
-    KEY_UPGRADE_RLD: 55,// 7
-    KEY_UPGRADE_MOB: 56,// 8
-    KEY_UPGRADE_RGN: 57,// 9
-    KEY_UPGRADE_SHI: 48,// 0
-    KEY_MOUSE_0: 32,// 32
-    KEY_MOUSE_1: 86,// V
-    KEY_MOUSE_2: 16,// ShiftLeft
-    KEY_CHOOSE_1: 89,// Y
-    KEY_CHOOSE_2: 85,// U
-    KEY_CHOOSE_3: 73,// I
-    KEY_CHOOSE_4: 72,// H
-    KEY_CHOOSE_5: 74,// J
-    KEY_CHOOSE_6: 75,// K
+    KEY_UPGRADE_ATK: 49,
+    KEY_UPGRADE_HTL: 50,
+    KEY_UPGRADE_SPD: 51,
+    KEY_UPGRADE_STR: 52,
+    KEY_UPGRADE_PEN: 53,
+    KEY_UPGRADE_DAM: 54,
+    KEY_UPGRADE_RLD: 55,
+    KEY_UPGRADE_MOB: 56,
+    KEY_UPGRADE_RGN: 57,
+    KEY_UPGRADE_SHI: 48,
+    KEY_MOUSE_0: 32,
+    KEY_MOUSE_1: 86,
+    KEY_MOUSE_2: 16,
+    KEY_CHOOSE_1: 89,
+    KEY_CHOOSE_2: 85,
+    KEY_CHOOSE_3: 73,
+    KEY_CHOOSE_4: 72,
+    KEY_CHOOSE_5: 74,
+    KEY_CHOOSE_6: 75,
 
     showTree: false,
     scrollX: 0,
     realScrollX: 0,
-    // Canvas
+    
     screenWidth: window.innerWidth,
     screenHeight: window.innerHeight,
     gameWidth: 0,
@@ -215,7 +215,7 @@ const global = {
         classTreeZoomOut: Region(2),
         classTreeZoomIn: Region(2),
         classTreeClose: Region(1),
-        // Daily tanks buttons
+        
         dailyTankUpgrade: Clickable(),
         dailyTankAd: Clickable(),
         dailyTankCloseAd: Clickable(),
@@ -224,8 +224,8 @@ const global = {
             toggleBoxes: Region(100),
             HoverBoxes: Region(100),
         },
-        // Dig Wars vault UI: 10 deposit, 11 cancel (amount comes from the
-        // HTML input overlay)
+        
+        
         vault: Region(12)
     },
     dailyTankAd: {
@@ -273,7 +273,7 @@ const global = {
             color: "#000000"
         },
     },
-    // Dig Wars satchel state (server 'GEM' messages) + pickup popup queue
+    
     gems: {
         carried: 0,
         cap: 0,
@@ -284,33 +284,36 @@ const global = {
         fullAt: -1e9,
         popups: [],
     },
-    // The #1 player's live position ('LA' messages, 250ms) for the
-    // screen-edge leader arrow
+    
+    
     leader: { id: -1, x: 0, y: 0, team: 0, at: -1e9 },
-    // War score: each team's banked vault total ('TB' messages, 250ms)
+    
     teamBanked: { blue: 0, red: 0, at: -1e9 },
-    // Teammates ('TM' messages, 250ms): [{id, name, x, y}]
+    
     teammates: [],
-    // Team enemy pings ('EP' messages): [{x, y, at}], expire client-side
+    
     enemyPings: [],
-    // 'global' | 'team' — which audience chat messages go to
+    
     chatMode: 'global',
-    // The full-map overlay (Fortnite-style), toggled by KEY_TOGGLE_MAP.
-    // zoom 1..4, (cx, cy) = world-space view center.
+    
+    
     showBigMap: false,
     bigMap: { zoom: 1, cx: 0, cy: 0, dragging: false, lastX: 0, lastY: 0 },
-    // Dig Wars vault pads ('TG' snapshot) + the local player's pad state
+    
     vaults: [],
     vault: {
         onPad: false,
-        isOutpost: false,   // pad under us is an outpost (80% credit note)
-        remaining: 0,       // active channel: dust left to bank
-        total: 0,           // active channel: requested amount (0 = idle)
-        doneAt: -1e9,       // completion flash timestamp
+        isOutpost: false,   
+        remaining: 0,       
+        total: 0,           
+        doneAt: -1e9,       
     },
-    // Forward outposts: static sites from TG, live state from OP (250ms)
+    
     outposts: [],
     outpostState: [],
+    
+    chambers: [],
+    chamberState: [],
     bandwidth: {
         currentHa: 0,
         currentFa: 0,
@@ -378,14 +381,14 @@ const global = {
             mainMenu: util.Smoothbar(-500, 2, 3, 0.08, 0.025, true),
             mainMenuHeight: util.Smoothbar(730, 2, 3, 0.08, 0.025, true),
             isOpened: false,
-            tabClickables: Region(10),  // Pre-initialize for up to 10 tabs
+            tabClickables: Region(10),  
             themeClickables: Region(100),
-            activeTab: 0, // 0=Options, 1=Theme, 2=Keybinds, 3=Secret
+            activeTab: 0, 
             tabs: [["Options", 730], ["Theme", 610], ["Keybinds", 730]],
             tabSlideAnim: util.Smoothbar(0, 0.3, 1.5, 0.03, 0.025, true),
         };
         let list = {
-            // Set up the player
+            
             id: -1,
             x: global.screenWidth / 2,
             y: global.screenHeight / 2,
@@ -451,7 +454,7 @@ const global = {
             global.canvas.tankTreeProps.enabled = false;
         }
     },
-    exit: () => { // When exiting and going back to the menu, reset things.
+    exit: () => { 
         document.getElementById("gameAreaWrapper").style.display = "none";
         global.socket && global.socket.close();
         document.getElementById("startMenuWrapper").style.display = "block";

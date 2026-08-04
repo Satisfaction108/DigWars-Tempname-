@@ -115,7 +115,7 @@ class socketManager {
                     array.push({ id: id, messages: [] });
                     let index = array.length - 1;
                     for (let chat of chats[id].messages) {
-                        // team messages only reach the sender's team
+                        
                         if (chat.team != null && chat.team !== viewTeam) continue;
                         array[index].messages.push({ text: chat.team != null ? "[TEAM] " + chat.message : chat.message, id: chat.id });
                     }
@@ -299,20 +299,23 @@ class socketManager {
                             global.gameManager.terrainGrid.cols,
                             global.gameManager.terrainGrid.rows,
                             JSON.stringify(global.gameManager.terrainGrid.serialize()),
-                            // Current rock damage state so late joiners see the
-                            // same cracks/holes as everyone else.
+                            
+                            
                             JSON.stringify(global.gameManager.terrainGrid.rockStateSnapshot()),
-                            // Ore veins: [key, tier] pairs for every living ore cell.
+                            
                             JSON.stringify(global.gameManager.terrainGrid.oreSnapshot()),
-                            // Per-boot ore salt — the client mixes it into the
-                            // mirrored deposit layout so crystal spots match.
+                            
+                            
                             global.gameManager.terrainGrid.oreSalt,
-                            // Vault pads (one per base) so clients can draw
-                            // the doors and their UI.
+                            
+                            
                             JSON.stringify(require('../terrain/vault.js').snapshot()),
-                            // Forward outpost sites (static; live state
-                            // rides the 250ms OP broadcast).
+                            
+                            
                             JSON.stringify(require('../terrain/outposts.js').snapshot()),
+                            
+                            
+                            JSON.stringify(require('../terrain/coreChambers.js').snapshot()),
                         );
                     }
                     return;
@@ -354,8 +357,8 @@ class socketManager {
                 socket.status.lastHeartbeat = util.time();
             } break;
             case 'vd': {
-                // Dig Wars: deposit request — cash out N gem dust on
-                // whichever pad the body is standing on (vault or outpost)
+                
+                
                 if (m.length !== 1) { socket.kick("Ill-sized vault deposit."); return 1; }
                 if (typeof m[0] !== "number" || !isFinite(m[0])) { socket.kick("Weird vault deposit."); return 1; }
                 const vBody = socket.player && socket.player.body;
@@ -363,7 +366,7 @@ class socketManager {
                 else require('../terrain/vault.js').requestDeposit(socket, m[0]);
             } break;
             case 'vc': {
-                // Dig Wars: cancel an active deposit channel (either pad)
+                
                 require('../terrain/vault.js').requestCancel(socket);
                 require('../terrain/outposts.js').requestCancel(socket);
             } break;
@@ -535,8 +538,8 @@ class socketManager {
                 }
 
                 if (player.body == null || player.body.underControl) return;
-                // Manual leveling is disabled (everyone spawns at 45);
-                // dev permission still overrides for testing.
+                
+                
                 if (!Config.manual_level_up && !(socket.permissions && socket.permissions.infiniteLevelUp)) return;
                 if (player.body.skill.level < Config.level_cap_cheat || (socket.permissions && socket.permissions.infiniteLevelUp)) {
                     player.body.skill.score += player.body.skill.levelScore;
@@ -568,11 +571,11 @@ class socketManager {
                 }
             } break;
             case "EP": {
-                // Dig Wars enemy ping: [x, y] — relayed to the sender's
-                // whole team as a danger marker
+                
+                
                 if (m.length !== 2 || typeof m[0] !== "number" || typeof m[1] !== "number" ||
                     !isFinite(m[0]) || !isFinite(m[1])) {
-                    return; // malformed or non-finite: drop quietly
+                    return; 
                 }
                 if (player.body == null) return;
                 const nowP = Date.now();
@@ -707,10 +710,10 @@ class socketManager {
                     chats[id].messages = [];
                 }
 
-                // m[1] truthy = team chat: only the sender's team sees it
+                
                 const chatTeam = m[1] ? player.body.team : null;
                 chats[id].messages.unshift({ message, team: chatTeam, expires: Date.now() + Config.chat_message_duration, id: global.chatID++ });
-                // at most 3 bubbles per player
+                
                 if (chats[id].messages.length > 3) chats[id].messages.length = 3;
 
                 this.chatLoop();
@@ -1176,9 +1179,9 @@ class socketManager {
         let { player, loc } = this.getSpawnLocation(socket.rememberedTeam, name);
         if (socket.player.loc && !global.spawnPoint && !Config.clan_wars) loc = socket.player.loc;
 
-        // FORWARD RESPAWN: if the team owns outposts, come back at whichever
-        // spawn point (home roll or owned pad) is nearest to where you died.
-        // Automatic, no UI — you rejoin the fight you were in.
+        
+        
+        
         if (!global.spawnPoint && !Config.clan_wars &&
             global.gameManager.terrainGrid && socket.lastDeathX !== undefined) {
             const pads = require('../terrain/outposts.js').ownedBy(player.team);
@@ -1196,7 +1199,7 @@ class socketManager {
                     const a = Math.random() * Math.PI * 2;
                     loc = { x: bestPad.x + Math.cos(a) * bestPad.r * 0.4,
                             y: bestPad.y + Math.sin(a) * bestPad.r * 0.4 };
-                    // never materialize inside the wall next to the pocket
+                    
                     global.gameManager.terrainGrid.pushCircleFromVoronoi(loc, 60);
                 }
             }
@@ -1237,9 +1240,9 @@ class socketManager {
         player.body = body;
         body.socket = socket;
         body.hasOperator = socket.status.hasOperator;
-        // Dig Wars: every player body carries a gem satchel (drop-on-death
-        // hook + visible pouch prop + HUD state). Safe on reconnect: the
-        // existing satchel is kept and only the HUD state is re-sent.
+        
+        
+        
         if (Config.dig_wars) require('../terrain/gems.js').initSatchel(body);
         socket.status.daily_tank_watched_ad = false;
         socket.status.daily_tank_watched_ad_client = false;
@@ -1315,9 +1318,9 @@ class socketManager {
         if (!doNotTakeAction.dontOverrideRecords) {
             let begin = util.time();
             player.records = () => [
-                // Dig Wars: the death screen's "Your Score" is your wealth
-                // (carried + banked), matching the leaderboard — NOT the
-                // vestigial level score
+                
+                
+                
                 global.gameManager.terrainGrid
                     ? (player.body.carriedGems | 0) + (((socket && socket.gemBanked) || 0) | 0)
                     : player.body.skill.score,
@@ -1589,14 +1592,14 @@ class socketManager {
 
                             if (Config.clan_wars) Config.clan_wars_ft.remove(player.body);
 
-                            // where you fell — forward respawn picks the
-                            // owned pad nearest this spot
+                            
+                            
                             socket.lastDeathX = player.body.x;
                             socket.lastDeathY = player.body.y;
 
-                            // death-cam: if a human killed you, your camera
-                            // glides over to them (chain-hops in the view
-                            // loop if they die too)
+                            
+                            
+                            
                             const spec = (player.body.finalKillers || [])
                                 .find(e => e && e.isPlayer && !e.isDead());
                             socket.spectateEntity = spec || null;
@@ -1630,8 +1633,8 @@ class socketManager {
                 if (player.body == null) {
                     fovNow = 2000;
                     camera.scoping = false;
-                    // death-cam chain: if the one we're watching dies, hop to
-                    // whoever killed THEM, and so on down the line
+                    
+                    
                     let hops = 0;
                     while (socket.spectateEntity && socket.spectateEntity.isDead() && hops++ < 8) {
                         const next = (socket.spectateEntity.finalKillers || [])
@@ -1639,8 +1642,8 @@ class socketManager {
                         socket.spectateEntity = next || null;
                     }
                     if (socket.spectateEntity) {
-                        // glide, never snap — the camera drifts over to its
-                        // new subject
+                        
+                        
                         camera.x += (socket.spectateEntity.x - camera.x) * 0.06;
                         camera.y += (socket.spectateEntity.y - camera.y) * 0.06;
                     }
@@ -1686,10 +1689,10 @@ class socketManager {
                         if (!Config.load_all_mockups && entity.index) {
                             mockupsToSend.add(entity.index);
                             // runtime-attached turrets/props (gem satchels,
-                            // gem facets, ...) aren't part of the entity's
-                            // own mockup — send theirs too or the client
-                            // renders them as missingno squares (not every
-                            // viewable object carries these maps, so guard)
+                            
+                            
+                            
+                            
                             if (entity.turrets) {
                                 for (const t of entity.turrets.values()) {
                                     if (t.index) mockupsToSend.add(t.index);
@@ -1818,8 +1821,8 @@ class socketManager {
                 return { update, reset };
             }
         };
-        // Dig Wars: rank = total wealth (carried + banked), not kill score.
-        // Everywhere else the leaderboard stays stock score.
+        
+        
         let isGemMode = () => !!global.gameManager.terrainGrid;
         let lbValue = (ent) => isGemMode()
             ? (ent.carriedGems | 0) + (((ent.socket && ent.socket.gemBanked) || 0) | 0)
@@ -1836,8 +1839,8 @@ class socketManager {
                         top = j;
                     }
                 }
-                // gem mode lists broke players at 0 — presence matters more
-                // than wealth in a 2-team war
+                
+                
                 if (top === undefined || (is === 0 && !isGemMode())) break;
                 let entry = list[top];
                 let color = entry.leaderboardColor ? entry.leaderboardColor + " 0 1 0 false"
@@ -2076,8 +2079,8 @@ class socketManager {
                 }
             }
             // Leader arrow: the #1 player's live position, resolved once per
-            // 250ms tick — clients point a screen-edge arrow at them when
-            // they're out of view (slither-style).
+            
+            
             let leaderID = -1, leaderX = 0, leaderY = 0, leaderTeam = 0;
             {
                 const topId = global.gameManager.room.topPlayerID;
@@ -2086,12 +2089,15 @@ class socketManager {
                     leaderID = topId;
                     leaderX = Math.round(leader.x);
                     leaderY = Math.round(leader.y);
-                    leaderTeam = leader.team | 0;   // crowns wear team colors
+                    leaderTeam = leader.team | 0;   
                 }
             }
-            // outpost state, resolved once per tick for everyone
+            
             const opState = gemMode ? JSON.stringify(
                 require('../terrain/outposts.js').stateSnapshot()) : null;
+            
+            const ccState = gemMode ? JSON.stringify(
+                require('../terrain/coreChambers.js').stateSnapshot()) : null;
             for (let socket of subscribers) {
                 minimapTeamUpdates = minimapTeams.update(socket.id, socket.player.body ? socket.player.body.team : socket.player.team);
                 if (!socket.status.selectedLeaderboard) socket.status.selectedLeaderboard = "global";
@@ -2145,6 +2151,7 @@ class socketManager {
                     const tm = myTeam === TEAM_RED ? tmRed : tmBlue;
                     socket.talk("TM", tm.length, ...tm.flat());
                     if (opState) socket.talk("OP", opState);
+                    if (ccState) socket.talk("CC", ccState);
                 }
             }
             logs.minimap.mark();

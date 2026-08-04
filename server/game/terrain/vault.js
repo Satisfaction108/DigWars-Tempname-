@@ -1,20 +1,13 @@
-// DIG WARS — the Vault: one bank pad per team base. Drive onto your own
-// team's pad, choose how much gem dust to cash out, and it channels from
-// your satchel into your banked balance. Taking damage interrupts the
-// channel — the last seconds at the vault are part of the run.
-//
-// Banked dust lives on the SOCKET (safe forever within the session): dying
-// drops carried dust as usual but never touches the bank.
+
 
 const gems = require('./gems.js');
 
-const PAD_RADIUS   = 95;    // world units — a chunky landmark in each base
-const DEPOSIT_RATE = 300;   // gem dust banked per second while channeling
-const PROGRESS_MS  = 100;   // how often the client hears channel progress
+const PAD_RADIUS   = 95;    
+const DEPOSIT_RATE = 300;   
+const PROGRESS_MS  = 100;   
 
 let vaults = null;
 
-// One vault per team, centered vertically in each base column.
 function getVaults() {
     if (vaults) return vaults;
     const room = global.gameManager.room;
@@ -44,9 +37,8 @@ function cancelDeposit(body, notify = true) {
     if (notify) talkProgress(body);
 }
 
-const MIN_DEPOSIT = 15;  // mirrored by VAULT_MIN_DEPOSIT in client app.js
+const MIN_DEPOSIT = 15;  
 
-// Client asked to cash out `amount` gem dust.
 function requestDeposit(socket, amount) {
     const body = socket.player && socket.player.body;
     if (!body || body.isDead() || !body.vaultOnPad) return;
@@ -68,7 +60,6 @@ function requestCancel(socket) {
     if (body) cancelDeposit(body);
 }
 
-// Per-terrain-tick pad handling for every player.
 function tick(players, dtMs) {
     const list = getVaults();
     if (!list.length) return;
@@ -99,16 +90,16 @@ function tick(players, dtMs) {
         const d = body.vaultDeposit;
         if (!d) continue;
 
-        // damage interrupts the channel — no drive-by banking under fire
+        
         if (body.health.amount < d.lastHealth - 1e-3) {
             cancelDeposit(body);
             continue;
         }
         d.lastHealth = body.health.amount;
 
-        // channel: move dust satchel → bank at a steady rate (floats while
-        // channeling, snapped back to whole dust when the channel ends so
-        // no fraction is ever stranded in either pocket)
+        
+        
+        
         const chunk = Math.min(
             d.remaining,
             body.carriedGems || 0,
