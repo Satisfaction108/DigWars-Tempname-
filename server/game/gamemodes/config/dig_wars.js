@@ -1,6 +1,7 @@
 module.exports = {
     mode: "tdm",
     teams: 2,
+    do_not_override_room: false,
     room_setup: ["room_dig_wars"],
     enable_food: false,
     arms_race: false,

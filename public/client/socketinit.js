@@ -1183,7 +1183,7 @@ let incoming = async function(message, socket) {
             global.finalScore.set(m[0]);
             global.finalLifetime = util.AdvancedSmoothBar(0, 3);
             global.finalLifetime.set(m[1]);
-            global.finalKills = [util.AdvancedSmoothBar(0, 4), util.AdvancedSmoothBar(0, 5.5), util.AdvancedSmoothBar(0, 2.5), util.AdvancedSmoothBar(0, 6)];
+            global.finalKills = [util.AdvancedSmoothBar(0, 4), util.AdvancedSmoothBar(0, 5.5), util.AdvancedSmoothBar(0, 2.5), util.AdvancedSmoothBar(0, 2.5), util.AdvancedSmoothBar(0, 6)];
             global.respawnTimeout = m[2];
             if (global.respawnTimeout > 0) {
                 global.cannotRespawn = true;
@@ -1203,9 +1203,10 @@ let incoming = async function(message, socket) {
             global.finalKills[1].set(m[4]);
             global.finalKills[2].set(m[5]);
             global.finalKills[3].set(m[6]);
+            global.finalKills[4].set(m[7]);
             global.finalKillers = [];
-            for (let i = 0; i < m[7]; i++) {
-                global.finalKillers.push(m[8 + i]);
+            for (let i = 0; i < m[8]; i++) {
+                global.finalKillers.push(m[9 + i]);
             }
             global.canvas.reverseDirection = false;
             global.died = true;

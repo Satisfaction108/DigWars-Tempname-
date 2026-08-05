@@ -1322,13 +1322,16 @@ class socketManager {
                 
                 
                 global.gameManager.terrainGrid
-                    ? (player.body.carriedGems | 0) + (((socket && socket.gemBanked) || 0) | 0)
+                    ? ((socket && socket.gemDeathScore) !== undefined && socket.gemDeathScore !== null
+                        ? socket.gemDeathScore
+                        : (player.body.carriedGems | 0) + (((socket && socket.gemBanked) || 0) | 0))
                     : player.body.skill.score,
                 Math.floor((util.time() - begin) / 1000),
                 Config.respawn_delay,
                 player.body.killCount.solo,
                 player.body.killCount.assists,
                 player.body.killCount.bosses,
+                player.body.killCount.structures || 0,
                 player.body.killCount.polygons,
                 player.body.killCount.killers.length,
                 ...player.body.killCount.killers,

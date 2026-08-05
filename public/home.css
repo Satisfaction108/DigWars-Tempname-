@@ -26,7 +26,6 @@
     --kb-hl: #4ec83c;
     --link: #a888e0;
     --credit1: #4ec83c;
-    --credit2: #c07cf0;
     --scroll-t: #3c2c12;
 }
 
@@ -58,7 +57,6 @@
     --kb-hl: #4ab838;
     --link: #5830a0;
     --credit1: #4ab838;
-    --credit2: #9070c8;
     --scroll-t: #c8b484;
 }
 
@@ -460,7 +458,6 @@ body.mobile .startMenuHolder.linkHolder { display: none; }
 .credit-card:hover { border-color: var(--border-hl); }
 .credit-name { font: 700 16px Ubuntu; margin-bottom: 4px; }
 .credit-name.zyrox { color: var(--credit1); }
-.credit-name.shrew { color: var(--credit2); }
 .credit-info { font: 500 12px Ubuntu; color: var(--text2); margin-bottom: 3px; }
 .credit-info::before { content: "Discord: "; font-weight: 600; color: var(--text2); }
 .credit-role { font: 600 11px Ubuntu; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-top: 2px; }
@@ -481,8 +478,8 @@ body.mobile .startMenuHolder.linkHolder { display: none; }
 .social-btn:hover { border-color: var(--border-hl); color: var(--accent2); }
 
 .header { display: flex; justify-content: center; align-items: center; padding: 4px 0 8px; }
-.icon { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--border); }
-.icon > img { width: 100%; height: 100%; border-radius: 50%; }
+.icon { width: 54px; height: 54px; }
+.icon > img { width: 100%; height: 100%; }
 .placeholder-logo {
     width: 100%; height: 100%;
     border-radius: 50%;

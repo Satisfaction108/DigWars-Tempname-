@@ -1,10 +1,17 @@
+// Render exposes a single port and sets RENDER_EXTERNAL_URL automatically.
+// PUBLIC_HOST is an optional manual override for custom domains.
+const publicHost = (
+    process.env.RENDER_EXTERNAL_URL ||
+    (process.env.PUBLIC_HOST ? `https://${process.env.PUBLIC_HOST}` : "")
+).replace(/^https?:\/\//, "");
+
 module.exports = {
 
     devBuild: false,
 
     main_menu: 'index.html',
-    host: 'localhost:3000',
-    port: 3000,
+    host: publicHost || 'localhost:3000',
+    port: parseInt(process.env.PORT) || 3000,
 
     visible_list_interval: 250,
     startup_logs: true,
@@ -12,146 +19,20 @@ module.exports = {
 
     servers: [
         {
-            share_client_server: false,
+            // Render runs one process on one exposed port, so the game server
+            // must share the lobby's port/process there. Set SINGLE_PROCESS=true
+            // as an env var on Render (locally this stays false / worker mode).
+            share_client_server: process.env.SINGLE_PROCESS === "true",
 
-            host: 'localhost:3001',
-            port: 3001,
-            id: 'la',
-
-            region: "Local",
-            gamemode: ['tdm'],
-            player_cap: 80,
-
-            featured: false,
-            unlisted: true,
-            private: true,
-
-            properties: {
-                teams: 2,
-                bot_cap: 0
-            }
-        },
-        {
-            share_client_server: false,
-
-            host: 'localhost:3002',
-            port: 3002,
-            id: 'lb',
-
-            region: "Local",
-            gamemode: ['tdm'],
-            player_cap: 80,
-
-            featured: false,
-            unlisted: true,
-            private: false,
-
-            properties: {
-                teams: 2,
-                bot_cap: 16,
-                server_travel_properties: {
-                    loop_interval: 30_000,
-                    portals: 3,
-                },
-                daily_tank: {
-                    tank: 'whirlwind',
-                    tier: 3,
-                    ads: false,
-                    ad_sources: [
-                        {
-                            file: 'testadvideo.mp4',
-                            use_regular_ad_size: true
-                        },
-                        {
-                            file: 'testadimage.png',
-                            use_regular_ad_size: true
-                        }
-                    ]
-                },
-                server_travel: [
-                    {
-                        ip: 'localhost:3003',
-                        portal_properties: {
-                            spawn_chance: 3,
-                            color: 'red',
-                        }
-                    }
-                ]
-            }
-        },
-        {
-            share_client_server: false,
-
-            host: 'localhost:3003',
-            port: 3003,
-            id: 'lx',
-
-            region: "Local",
-            gamemode: ['tdm'],
-            player_cap: 80,
-
-            featured: false,
-            unlisted: true,
-            private: true,
-
-            properties: {
-                teams: 2,
-                bot_cap: 0
-
-            }
-        },
-        {
-            share_client_server: false,
-
-            host: 'localhost:3004',
-            port: 3004,
-            id: 'ar',
-
-            region: "Local",
-            gamemode: ['tdm'],
-            player_cap: 80,
-
-            featured: false,
-            unlisted: false,
-            private: false,
-
-            properties: {
-                teams: 2,
-                bot_cap: 40
-            }
-        },
-        {
-            share_client_server: false,
-
-            host: 'localhost:3099',
-            port: 3099,
-            id: 'lz',
-
-            region: "Local",
-            gamemode: ['tdm'],
-            player_cap: 16,
-
-            featured: false,
-            unlisted: false,
-            private: false,
-
-            properties: {
-                teams: 2,
-                bot_cap: 0
-            }
-        },
-        {
-            share_client_server: false,
-
-            host: 'localhost:3100',
-            port: 3100,
+            host: publicHost || 'localhost:3100',
+            port: process.env.SINGLE_PROCESS === "true" ? (parseInt(process.env.PORT) || 3000) : 3100,
             id: 'dw',
 
             region: "Local",
             gamemode: ['dig_wars'],
             player_cap: 16,
 
-            featured: false,
+            featured: true,
             unlisted: false,
             private: false,
 

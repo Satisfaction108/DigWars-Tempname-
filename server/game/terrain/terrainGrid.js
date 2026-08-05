@@ -600,15 +600,9 @@ class TerrainGrid {
                     name: side === 0 ? "Blue Core Chamber" : "Red Core Chamber",
                 });
             }
-            for (const s of chamberCells) {
-                const svi = Math.floor(s.key / 100003), svj = s.key % 100003;
-                for (let di = -2; di <= 2; di++)
-                    for (let dj = -2; dj <= 2; dj++) {
-                        const vi2 = Math.max(viLo, Math.min(viHi, svi + di));
-                        const vj2 = Math.max(vjLo, Math.min(vjHi, svj + dj));
-                        canyonKeys.add(vi2 * 100003 + vj2);
-                    }
-            }
+            // NOTE: chamber cells are NOT pre-carved here - each ring's pocket is
+            // cut right before the canyon pass below, carving only the rocks that
+            // would actually touch the ring (see CORE CHAMBER POCKETS).
         }
         this._canyonKeys = canyonKeys;
         // buffer zone: canyon cells plus everything within 2 lattice cells -
@@ -779,6 +773,57 @@ class TerrainGrid {
             rock.ore      = ORE.NONE;   
             rock.deposits = null;
         }
+
+        // CORE CHAMBER POCKETS: the ring's vertices reach CHAMBER_RADIUS (160)
+        // and the walls are thin, so instead of the old pre-carved 5x5 square we
+        // carve exactly the rocks whose polygons would touch each ring plus a
+        // small margin. The pocket hugs the 15-gon, leaving a tight, even gap of
+        // fresh floor instead of a big empty slab - and the ring never spawns
+        // stuck inside a boulder.
+        {
+            const pocketR = 160 + 26;
+            const centers = [];
+            for (const s of chamberCells) {
+                const rock = this.rocks.get(s.key);
+                if (!rock) continue;
+                // the site rock's polygon centroid is the tightest anchor; the
+                // lattice center (wx/wy) is always present as a fallback
+                centers.push([rock.worldCx || rock.wx, rock.worldCy || rock.wy]);
+            }
+            if (centers.length) {
+                const segDist = (px, py, ax, ay, bx, by) => {
+                    const abx = bx - ax, aby = by - ay;
+                    const t = Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / (abx * abx + aby * aby || 1)));
+                    const dx = px - (ax + t * abx), dy = py - (ay + t * aby);
+                    return Math.sqrt(dx * dx + dy * dy);
+                };
+                for (const rock of this.rocks.values()) {
+                    if (!rock.alive || !rock.worldPoly || rock.canyon) continue;
+                    const poly = rock.worldPoly;
+                    for (let ci = 0; ci < centers.length; ci++) {
+                        const cx = centers[ci][0], cy = centers[ci][1];
+                        let inside = false, minD = Infinity;
+                        for (let e = 0; e < poly.length; e++) {
+                            const [ax, ay] = poly[e], [bx, by] = poly[(e + 1) % poly.length];
+                            if (((ay > cy) !== (by > cy)) &&
+                                (cx < (bx - ax) * (cy - ay) / ((by - ay) || 1e-9) + ax)) inside = !inside;
+                            const d = segDist(cx, cy, ax, ay, bx, by);
+                            if (d < minD) minD = d;
+                        }
+                        if (inside || minD <= pocketR) {
+                            rock.alive    = false;
+                            rock.health   = 0;
+                            rock.diedAt   = 0;
+                            rock.canyon   = true;
+                            rock.ore      = ORE.NONE;
+                            rock.deposits = null;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
 
         
         

@@ -2,7 +2,7 @@ class bulletEntity { // Basically an (Entity) but with heavy limitations to impr
     constructor(position, master) {
         if (!master) master = this;
         this.isGhost = false;
-        this.killCount = { solo: 0, assists: 0, bosses: 0, polygons: 0, killers: [] };
+        this.killCount = { solo: 0, assists: 0, bosses: 0, structures: 0, polygons: 0, killers: [] };
         this.creationTime = new Date().getTime();
         this.master = master;
         this.source = this;

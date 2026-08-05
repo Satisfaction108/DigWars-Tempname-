@@ -319,7 +319,7 @@ import { gameSound } from "./sound.js";
                 global.version = ve.ver;
                 if (ve.devBuild) {
                     global.devBuild = true;
-                    global.createTabMenu(`This server is running a development build of Open Source Arras. (${global.version})`, "warning");
+                    global.createTabMenu(`This server is running a development build of Dig Wars. (${global.version})`, "warning");
                 }
 
                 let keyValue = localStorage.getItem('playerKeyInputValue');
@@ -421,7 +421,7 @@ import { gameSound } from "./sound.js";
 
         let i_div = document.createElement("div");
         i_div.classList.add("optionsHeader");
-        i_div.textContent = `Open Source Arras ${global.version}` + `${global.devBuild ? "-dev" : ""}`;
+        i_div.textContent = `Dig Wars ${global.version}` + `${global.devBuild ? "-dev" : ""}`;
         mainDoc.appendChild(i_div);
 
         for (let e of data) {
@@ -2947,7 +2947,8 @@ import { gameSound } from "./sound.js";
     const chamberArt = { sig: "", rock: new Map() };
     // the drawn ring's hollow inner edge (world units) - must match
     // CHAMBER_INNER in server/game/terrain/coreChambers.js
-    const CHAMBER_INNER = 136;
+    const CHAMBER_INNER = 148;
+    const CHAMBER_SIDES = 15;
 
     function chamberHash(id, x, y) {
         const base = (Math.imul(id + 1013, 2654435761) +
@@ -2960,7 +2961,7 @@ import { gameSound } from "./sound.js";
         };
     }
 
-    // A classic octagon RING (hollow border, not a filled boulder): 8 equal
+    // A classic polygon RING (hollow border, not a filled boulder): 15 equal
     // sides on the unit circle, rotated by a per-chamber angle so the two
     // chambers don't sit at identical angles. Built in UNIT space + scaled at
     // draw time so zoom changes never invalidate the cache. `ring` is the two
@@ -2972,14 +2973,14 @@ import { gameSound } from "./sound.js";
         const inner = new Path2D();
         const ring = new Path2D();
         const inR = CHAMBER_INNER / 160;
-        for (let i = 0; i < 8; i++) {
-            const a = (i / 8) * Math.PI * 2 + rot;
+        for (let i = 0; i < CHAMBER_SIDES; i++) {
+            const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
             const x = Math.cos(a), y = Math.sin(a);
             if (i) outer.lineTo(x, y); else outer.moveTo(x, y);
         }
         outer.closePath();
-        for (let i = 0; i < 8; i++) {
-            const a = (i / 8) * Math.PI * 2 + rot;
+        for (let i = 0; i < CHAMBER_SIDES; i++) {
+            const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
             const x = Math.cos(a) * inR, y = Math.sin(a) * inR;
             if (i) inner.lineTo(x, y); else inner.moveTo(x, y);
         }
@@ -3012,7 +3013,7 @@ import { gameSound } from "./sound.js";
             const mode = st.st === undefined ? 0 : st.st;
             const alive = mode === 0;
             const regrowing = mode === 2;
-            const scale = regrowing ? Math.max(0.1, st.s || 0.15) : 1;
+            const scale = regrowing ? Math.max(0.05, st.s || 0.05) : 1;
             const h = chamberHash(ch.id, ch.x, ch.y);
 
             let rock = chamberArt.rock.get(ch.id);
@@ -3036,7 +3037,7 @@ import { gameSound } from "./sound.js";
                 continue;
             }
 
-            // the ring itself: a hollow black octagon border - the interior is
+            // the ring itself: a hollow black polygon border - the interior is
             // punched out with an evenodd fill so the treasury gems inside (real
             // entities, drawn on top of this floor layer) stay on show. A faint
             // cool rim keeps both silhouettes off the dark floor.
@@ -3080,11 +3081,12 @@ import { gameSound } from "./sound.js";
                      Math.min(32, o.r * ratio * 0.42),
                      color.guiwhite, "center", false, 1, true, c);
         }
-        // core chambers wear their name above the boulder too (hidden while
-        // the pocket is empty - there's nothing to read then)
+        // core chambers wear their name above the boulder too - and only once
+        // the ring is fully regrown (st.st === 0): no name while the pocket is
+        // empty, none while the sliver is still growing back
         for (const ch of global.chambers) {
             const st = global.chamberState.find(s => s.id === ch.id) || {};
-            if (st.st === 1) continue;
+            if (st.st !== undefined && st.st !== 0) continue;
             const sx = -px + global.screenWidth / 2 + ratio * (ch.x);
             const sy = -py + global.screenHeight / 2 + ratio * (ch.y);
             const R = ch.r * ratio;
@@ -3269,13 +3271,14 @@ import { gameSound } from "./sound.js";
     // Dig Wars: treasury gems locked inside a chamber ring. They're real
     // entities (the server drifts them), but rendering 80+ of them through the
     // full entity pipeline (body + facet + sparkle Props + glow + spin
-    // transform) is what melted the frame rate around a chamber. The cheap
-    // path restacks the REAL gem look (halo + body + slim outline + light-table
-    // facet + white sparkle - the same layered cut the rock-face crystals
-    // wear) from cached Path2Ds, so per-frame work is a few fills per gem, not
-    // a whole pipeline. Gem pickups near a ring's outline are included (they
-    // read the same, and the test is a cheap distance check). Returns the gem
-    // class when contained (also used as a truthy skip test), "" otherwise.
+    // transform) is what melted the frame rate around a chamber. Each class is
+    // instead pre-rendered ONCE onto a hidden canvas that replicates the real
+    // drawEntity output (halo + body + outline + facet + sparkle, the exact
+    // same layered cut the loose pickups wear), and per frame a contained gem
+    // costs ONE rotated drawImage - no shadowBlur, no path building, no
+    // allocation. Gem pickups near a ring's outline are included (they read
+    // the same, and the test is a cheap distance check). Returns the gem class
+    // when contained (also used as a truthy skip test), "" otherwise.
     function isContainedChamberGem(instance) {
         if (!global.chambers.length || !instance || !instance.index) return "";
         const _obM = global.mockups[parseInt(instance.index.split("-")[0])];
@@ -3288,79 +3291,122 @@ import { gameSound } from "./sound.js";
     }
 
     // The canonical gem cut (unit coords) - mirrors GEM_CUT in terrainRenderer
-    // and digwars.js, so the cheap gems keep the exact same silhouette.
+    // and digwars.js, so the baked gems keep the exact same silhouette.
     const GEM_CUT = [
         [-1, -0.38], [-0.55, -0.95], [0.55, -0.95], [1, -0.38], [0, 0.95],
     ];
+    const GEM_CUT_PATH = (() => {
+        const p = new Path2D();
+        GEM_CUT.forEach((pt, i) => {
+            if (i === 0) p.moveTo(pt[0], pt[1]); else p.lineTo(pt[0], pt[1]);
+        });
+        p.closePath();
+        return p;
+    })();
 
-    // Per-class art. body / facet / core are the gemPickup* + gemFacet* +
-    // ORE_PAL values from digwars.js / terrainRenderer.js, so the cheap gems
-    // carry the exact same palette as the rock crystals. The rim (border) is
-    // NOT in the table: it's gameDraw.getColorDark(body) - the same darkened
-    // tint of the gem's own color the full pipeline gives every real pickup,
-    // theme-aware (color.border) instead of a flat near-black outline.
-    const GEM_CHEAP_PAL = {
-        gemPickupCopper:      { body: "#c96f2e", facet: "#eda766", core: "#ffe9d1" },
-        gemPickupVein:        { body: "#3b7ce0", facet: "#7fb1f2", core: "#e2f0ff" },
-        gemPickupShard:       { body: "#b13ecf", facet: "#d98af0", core: "#fbe6ff" },
-        gemPickupShardCore:   { body: "#b13ecf", facet: "#d98af0", core: "#fbe6ff" },
-        gemPickupEmerald:     { body: "#1fbf6b", facet: "#6ff5a8", core: "#e8fff2" },
-        gemPickupEmeraldCore: { body: "#1fbf6b", facet: "#6ff5a8", core: "#e8fff2" },
-        gemPickupLoot:        { body: "#e0a63b", facet: "#f2cf7f", core: "#fff1d6" },
+    // Per-class art. body / facet / glow(+radius+alpha) are the gemPickup* +
+    // gemFacet* + GLOW values from digwars.js, so the baked gems carry the
+    // exact same palette AND halo as the loose pickups the full entity
+    // pipeline draws elsewhere. The rim is gameDraw.getColorDark(body) - the
+    // same darkened tint the pipeline gives every real pickup, theme-aware.
+    // `size` is the treasury tier's SIZE for that class: the real pipeline's
+    // outline is a fixed world-space width (borderChunk * strokeWidth, not
+    // proportional to the gem), so the bake divides it by each class's size.
+    const GEM_SPRITE_PAL = {
+        gemPickupCopper:      { size: 16, body: "#c96f2e", facet: "#eda766", glow: "#e8a05c", glowR: 0.8,  glowA: 0.3 },
+        gemPickupVein:        { size: 20, body: "#3b7ce0", facet: "#7fb1f2", glow: "#6fa3f2", glowR: 1,    glowA: 0.35 },
+        gemPickupShard:       { size: 30, body: "#b13ecf", facet: "#d98af0", glow: "#e08af5", glowR: 1.4,  glowA: 0.45 },
+        gemPickupShardCore:   { size: 34, body: "#b13ecf", facet: "#d98af0", glow: "#e08af5", glowR: 2,    glowA: 0.55 },
+        gemPickupEmerald:     { size: 34, body: "#1fbf6b", facet: "#6ff5a8", glow: "#6ff5a8", glowR: 1.8,  glowA: 0.55 },
+        gemPickupEmeraldCore: { size: 34, body: "#1fbf6b", facet: "#6ff5a8", glow: "#6ff5a8", glowR: 2.4,  glowA: 0.65 },
+        gemPickupLoot:        { size: 7,  body: "#e0a63b", facet: "#f2cf7f", glow: "#f5cf6e", glowR: 1.2,  glowA: 0.4 },
     };
 
-    // Layered geometry per class, built once. The facet sits at 0.52 toward
-    // the crown and the core at 0.20 up-left - the exact spots of the real
-    // gem's facet/sparkle Props (gems.js: sizes 10.5/4, offsets 0.12/0.405)
-    // and of the rock-face crystals' light table + core.
-    const GEM_CHEAP_ART = {};
-    function gemCheapArt(cls) {
-        let art = GEM_CHEAP_ART[cls];
-        if (art) return art;
-        const pal = GEM_CHEAP_PAL[cls] || GEM_CHEAP_PAL.gemPickupVein;
-        const body = new Path2D(), facet = new Path2D(), core = new Path2D();
-        const put = (path, scale, ox, oy) => {
-            GEM_CUT.forEach((pt, i) => {
-                const x = pt[0] * scale + ox, y = pt[1] * scale + oy;
-                if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
-            });
-            path.closePath();
-        };
-        put(body, 1, 0, 0);
-        put(facet, 0.52, 0, -0.12);
-        put(core, 0.20, -0.22, -0.30);
-        art = { body, facet, core, pal, rim: gameDraw.getColorDark(pal.body) };
-        GEM_CHEAP_ART[cls] = art;
-        return art;
+    // Baked, full-fidelity sprites. Every contained gem is pre-rendered once
+    // per class onto a hidden canvas that replicates the REAL drawEntity
+    // output for a gem pickup: soft glow halo (shadowBlur under a borderless
+    // body fill at the glow's alpha), the filled gem cut, its darkened rim
+    // (stroke first, so the fill hides the inner half - exactly like the real
+    // pipeline), then the facet + sparkle Props at their true size/offset/
+    // angle (0.525 / 0.2 of the body, 0.12 crown / 0.405 offset, 12deg spin).
+    // The bake runs colors through gameDraw.modifyColor too, so the sprite is
+    // byte-for-byte the same colors a loose gem draws one screen over.
+    const GEM_SPRITES = {};
+    const GEM_SPRITE_HALF = 6.0;    // unit span covered (biggest glow ~2.4)
+    const GEM_SPRITE_SCALE = 64;    // px per world unit inside the sprite
+    const GEM_RIM_UNITS = 7.2 * 0.55; // borderChunk * strokeWidth, cut-units per SIZE=1
+    function gemSprite(cls) {
+        let s = GEM_SPRITES[cls];
+        if (s) return s;
+        const pal = GEM_SPRITE_PAL[cls] || GEM_SPRITE_PAL.gemPickupVein;
+        const body  = gameDraw.modifyColor(pal.body + " 0 1 0 false");
+        const rim   = gameDraw.getColorDark(body);
+        const glow  = gameDraw.modifyColor(pal.glow + " 0 1 0 false");
+        const facet = gameDraw.modifyColor(pal.facet + " 0 1 0 false");
+
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = Math.ceil(GEM_SPRITE_HALF * 2 * GEM_SPRITE_SCALE);
+        const c = canvas.getContext("2d");
+        c.translate(canvas.width / 2, canvas.height / 2);
+        c.scale(GEM_SPRITE_SCALE, GEM_SPRITE_SCALE);
+
+        // glow pass: borderless body fill at the glow alpha casts the halo
+        c.globalAlpha = pal.glowA;
+        c.shadowColor = glow;
+        c.shadowBlur = pal.glowR * GEM_SPRITE_SCALE;
+        c.shadowOffsetX = 0;
+        c.shadowOffsetY = 0;
+        c.fillStyle = body;
+        c.fill(GEM_CUT_PATH);
+        c.globalAlpha = 1;
+        c.shadowBlur = 0;
+
+        // body: stroke first, then fill hides the inner half (real pipeline)
+        c.lineJoin = "round";
+        c.lineCap = "round";
+        c.lineWidth = GEM_RIM_UNITS / (pal.size || 7);
+        c.strokeStyle = rim;
+        c.stroke(GEM_CUT_PATH);
+        c.fillStyle = body;
+        c.fill(GEM_CUT_PATH);
+
+        // facet prop (0.525 scale, 0.12 toward the crown, aligned with body)
+        c.save();
+        c.translate(0, -0.12);
+        c.scale(0.525, 0.525);
+        c.fillStyle = facet;
+        c.fill(GEM_CUT_PATH);
+        c.restore();
+
+        // sparkle prop (0.2 scale, 0.405 offset at direction+angle = up-left,
+        // spun 12deg exactly like the real gemSparkle's t.angle)
+        c.save();
+        c.translate(-0.148, -0.377);
+        c.rotate(0.20944);
+        c.scale(0.2, 0.2);
+        c.fillStyle = "#ffffff";
+        c.fill(GEM_CUT_PATH);
+        c.restore();
+
+        s = { canvas, half: GEM_SPRITE_HALF };
+        GEM_SPRITES[cls] = s;
+        return s;
     }
 
-    // The real gem look from cached paths, painted in the same order as the
-    // rock-face crystals (terrainRenderer's settled-seam branch): body, thin
-    // rim, light table, near-white core - riding the gem's spin facing. A
-    // handful of cached fills per gem instead of the whole entity pipeline.
-    // (No glow here: the real entities' shadowBlur halo was the expensive
-    // part, and the rock crystals read fine without one.)
+    // Draw a contained gem from its cached sprite: one rotated drawImage, no
+    // per-frame shadowBlur or allocation. `isize` is the gem's render size
+    // (world units); the real pipeline maps the unit cut to `isize * ratio`
+    // pixels, so the sprite is blitted at exactly that scale.
     function drawContainedGem(c, x, y, ratio, alpha, isize, facing, cls) {
-        const art = gemCheapArt(cls);
+        const spr = gemSprite(cls);
+        const k = isize * ratio;
+        if (k < 0.1) return; // sub-pixel (the real pipeline skips below 0.1 too)
         c.save();
         c.translate(x, y);
         c.rotate(facing);
-        const s = Math.max(1.5, isize * ratio);
-        c.scale(s, s);
-        // body + thin rim (getColorDark = the other gems' border)
         c.globalAlpha = alpha;
-        c.fillStyle = art.pal.body;
-        c.fill(art.body);
-        c.lineJoin = "round";
-        c.lineWidth = 0.07;
-        c.strokeStyle = art.rim;
-        c.stroke(art.body);
-        // light-table facet
-        c.fillStyle = art.pal.facet;
-        c.fill(art.facet);
-        // near-white core - reads as lit from inside
-        c.fillStyle = art.pal.core;
-        c.fill(art.core);
+        const h = spr.half * k;
+        c.drawImage(spr.canvas, -h, -h, h * 2, h * 2);
         c.restore();
     }
 
@@ -5918,7 +5964,8 @@ import { gameSound } from "./sound.js";
             " kills": [Math.round(global.finalKills[0].get()), 1],
             " assists": [Math.round(global.finalKills[1].get()), 0.5],
             " visitors defeated": [Math.round(global.finalKills[2].get()), 3],
-            " polygons destroyed": [Math.round(global.finalKills[3].get()), 0.05],
+            " structures destroyed": [Math.round(global.finalKills[3].get()), 3],
+            " polygons destroyed": [Math.round(global.finalKills[4].get()), 0.05],
         }, killCountTexts = [];
         let destruction = 0;
         for (let key in finalKills) {

@@ -4,13 +4,85 @@ const vault = require('./terrain/vault.js');
 const outposts = require('./terrain/outposts.js');
 const coreChambers = require('./terrain/coreChambers.js');
 const { REGROW: TG_REGROW } = require('./terrain/terrainGrid.js');
-const { chamberRingHit, chamberFaceRadius, octagonNormal } = coreChambers;
+const { chamberRingHit, chamberFaceRadius, chamberNormal } = coreChambers;
+
+// Absorb-and-rebound: the ring "drinks" a shot - the bullet sticks to the face,
+// goes quiet for a beat, then gets spat back out along the way it came. A
+// straight mirror ricochet reads as a bounce; this reads as the crystal taking
+// the hit and giving it back.
+const ABSORB_MS = 140;        // how long the ring holds the bullet at the face
+const REBOUND_KEEP = 0.8;     // how much of the shot's speed survives the drink
+
+function absorbAndRebound(chamber, body) {
+    const dx = body.x - chamber.x, dy = body.y - chamber.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const ang = Math.atan2(dy, dx);
+    const { nx, ny } = chamberNormal(chamber, ang);
+    const faceR = chamberFaceRadius(chamber, ang);
+    const r = body.realSize || body.size || 1;
+    const now = Date.now();
+
+    if (body._absorbStart === undefined) {
+        // first contact: swallow the shot, remember its heading
+        body._absorbStart = now;
+        body._absorbVX = body.velocity.x;
+        body._absorbVY = body.velocity.y;
+        body._absorbSpeed = Math.hypot(body.velocity.x, body.velocity.y);
+        body.velocity.x = 0;
+        body.velocity.y = 0;
+        body.accel.x = 0;
+        body.accel.y = 0;
+    } else if (body._absorbStart === -1) {
+        // released last tick but still overlapping: keep shoving it outward
+        const sp = (body._absorbSpeed || 1) * REBOUND_KEEP;
+        body.velocity.x = nx * sp;
+        body.velocity.y = ny * sp;
+        body.accel.x = 0;
+        body.accel.y = 0;
+    } else if (now - body._absorbStart < ABSORB_MS) {
+        // held at the face while the ring works
+        body.velocity.x = 0;
+        body.velocity.y = 0;
+        body.accel.x = 0;
+        body.accel.y = 0;
+    } else {
+        // release: straight back out the incoming line, a little spent
+        body._absorbStart = -1;
+        let ux = -(body._absorbVX || 0), uy = -(body._absorbVY || 0);
+        let ul = Math.hypot(ux, uy) || 1;
+        ux /= ul; uy /= ul;
+        // grazing shots would otherwise slide along the face - nudge them outward
+        const rd = ux * nx + uy * ny;
+        if (rd < 0.35) {
+            ux = ux * 0.4 + nx * 0.6;
+            uy = uy * 0.4 + ny * 0.6;
+            ul = Math.hypot(ux, uy) || 1;
+            ux /= ul; uy /= ul;
+        }
+        const sp = (body._absorbSpeed || 1) * REBOUND_KEEP;
+        body.velocity.x = ux * sp;
+        body.velocity.y = uy * sp;
+        body.accel.x = 0;
+        body.accel.y = 0;
+    }
+
+    // while absorbing, pin the bullet AT the face - inside the ring's hit test
+    // (d - r < faceR) so it stays in contact for the whole dwell; a released
+    // bullet is nudged just past the face so it escapes cleanly next tick
+    if (body._absorbStart === -1) {
+        body.x = chamber.x + nx * (faceR + r + 1);
+        body.y = chamber.y + ny * (faceR + r + 1);
+    } else {
+        body.x = chamber.x + nx * (faceR - r - 1);
+        body.y = chamber.y + ny * (faceR - r - 1);
+    }
+}
 
 function deflectBullet(chamber, body) {
     const dx = body.x - chamber.x, dy = body.y - chamber.y;
     const d = Math.hypot(dx, dy) || 1;
     const ang = Math.atan2(dy, dx);
-    const { nx, ny } = octagonNormal(chamber.chamberRot || 0, ang);
+    const { nx, ny } = chamberNormal(chamber, ang);
     const vn = body.velocity.x * nx + body.velocity.y * ny;
     if (vn < 0) {
         body.velocity.x -= 2 * vn * nx;
@@ -27,7 +99,7 @@ function pushOutOfChamberRing(chamber, body) {
     const dx = body.x - chamber.x, dy = body.y - chamber.y;
     const d = Math.hypot(dx, dy) || 1;
     const ang = Math.atan2(dy, dx);
-    const { nx, ny } = octagonNormal(chamber.chamberRot || 0, ang);
+    const { nx, ny } = chamberNormal(chamber, ang);
     const r = body.realSize || body.size || 1;
     const rest = chamberFaceRadius(chamber, ang) + r;
     if (d < rest) {
@@ -188,15 +260,16 @@ class gameHandler {
                 if (["bullet", "drone", "trap", "satellite", "swarm"].includes(body.type)) {
                     const enemy = chamber.team !== body.team;
                     if (enemy && chamber.chamberAlive) {
-                        
-                        
+                        // the ring drinks hostile fire: absorbed outright
                         advancedcollide(instance, other, true, true);
                         body.velocity.x = 0; body.velocity.y = 0;
                         body.accel.x = 0;    body.accel.y = 0;
                         body.kill();
+                    } else if (body.type === 'bullet') {
+                        // friendly shot: swallowed, held, then spat back out
+                        absorbAndRebound(chamber, body);
                     } else {
-                        
-                        
+                        // drones & friends still mirror off the face
                         deflectBullet(chamber, body);
                     }
                 } else {

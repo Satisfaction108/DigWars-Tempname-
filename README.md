@@ -29,3 +29,4 @@ Two kinds of players both have a good time here. Miners dig, find ore, and race 
 - plan.md - the original planning doc
 - credits.md - who worked on what
 - diary.md - dev notes
+- devlog.md - competition devlog

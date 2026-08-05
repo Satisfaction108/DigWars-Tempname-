@@ -4,23 +4,26 @@ const gems = require('./gems.js');
 
 const CHAMBER_SIZE    = 160;      
 const CHAMBER_RADIUS  = 160;      
-const CHAMBER_INNER   = 136;      
-const INNER_RADIUS    = 110;      
+const CHAMBER_SIDES   = 15;       
+const CHAMBER_INNER   = 148;      
 const HEAL_FRAC_PS    = 0.005;    
 const HEAL_GRACE_MS   = 60000;    
 const REGROW_DELAY_MS = 20000;    
 const REGROW_MS       = 280000;   
-const REGROW_START_SCALE = 0.15;  
+const REGROW_START_SCALE = 0.05;  
 const WAVE_SPREAD     = 0.05;     
 
 const ORBIT_SPEED_MIN = 0.0008;
 const ORBIT_SPEED_SPAN = 0.0017;
 
+// The treasury gems are the same size the loose ore gems of that class spawn
+// at (the deposit radii spawn copper ~14-19, vein ~17-23, shard ~16-34,
+// emerald 34) so a chamber hoard reads as the real gems, just a lot of them.
 const TREASURY = [
-    { cls: 'gemPickupEmerald', size: 22, value: 500, count: 2,  at: 0.95 },
-    { cls: 'gemPickupShard',   size: 14, value: 150, count: 10, at: 0.75 },
-    { cls: 'gemPickupVein',    size: 10, value: 30,  count: 30, at: 0.55 },
-    { cls: 'gemPickupCopper',  size: 7,  value: 15,  count: 40, at: 0.35 },
+    { cls: 'gemPickupEmerald', size: 34, value: 500, count: 2,  at: 0.95 },
+    { cls: 'gemPickupShard',   size: 30, value: 150, count: 10, at: 0.75 },
+    { cls: 'gemPickupVein',    size: 20, value: 30,  count: 30, at: 0.55 },
+    { cls: 'gemPickupCopper',  size: 16, value: 15,  count: 40, at: 0.35 },
 ];
 
 let chambers = null;
@@ -40,33 +43,42 @@ function chamberRotFor(id, x, y) {
     return (chamberHash(id, x, y)(0, 110) - 0.5) * 0.6;
 }
 
-// Radial distance from the center to the octagon edge along angle `ang`
+// Radial distance from the center to the polygon edge along angle `ang`.
 
-function octagonEdgeR(apothem, rot, ang) {
-    const half = Math.PI / 8;
-    let a = (ang - rot) % (Math.PI / 4);
-    if (a < 0) a += Math.PI / 4;
+function polygonEdgeR(sides, apothem, rot, ang) {
+    const half = Math.PI / sides;
+    const sector = Math.PI * 2 / sides;
+    let a = (ang - rot) % sector;
+    if (a < 0) a += sector;
     return apothem / Math.cos(a - half);
 }
 
-function octagonNormal(rot, ang) {
-    const half = Math.PI / 8;
-    const sector = Math.PI / 4;
+function polygonNormal(sides, rot, ang) {
+    const half = Math.PI / sides;
+    const sector = Math.PI * 2 / sides;
     let a = (ang - rot) % sector;
     if (a < 0) a += sector;
     const mid = ang - (a - half);
     return { nx: Math.cos(mid), ny: Math.sin(mid) };
 }
 
-const APOTHEM_OUTER = CHAMBER_RADIUS * Math.cos(Math.PI / 8);
+const APOTHEM_OUTER = CHAMBER_RADIUS * Math.cos(Math.PI / CHAMBER_SIDES);
+// The drawn ring's inner outline is a 15-gon with VERTICES at CHAMBER_INNER,
+// so its apothem is the boundary the treasury gems must never cross.
+const APOTHEM_INNER = CHAMBER_INNER * Math.cos(Math.PI / CHAMBER_SIDES);
+
+// The outward unit normal of the face at `ang` for the chamber's rotation.
+function chamberNormal(chamber, ang) {
+    return polygonNormal(CHAMBER_SIDES, chamber.chamberRot || 0, ang);
+}
 
 // The outer face radius at `ang` for the chamber's current growth scale.
 function chamberFaceRadius(chamber, ang) {
     const scale = chamber.sizeMultiplier ?? 1;
-    return octagonEdgeR(APOTHEM_OUTER * scale, chamber.chamberRot || 0, ang);
+    return polygonEdgeR(CHAMBER_SIDES, APOTHEM_OUTER * scale, chamber.chamberRot || 0, ang);
 }
 
-// True if the body's circle overlaps the octagon (the ring's outer boundary
+// True if the body's circle overlaps the polygon (the ring's outer boundary
 // and everything inside it). The interior is solid for collision even though
 // the ring is drawn hollow: nothing can be inside while it stands - the face
 // blocks every body and absorbs/deflects every bullet - and a ring that grows
@@ -77,7 +89,7 @@ function chamberRingHit(chamber, body) {
     const d = Math.hypot(dx, dy);
     if (d < 1e-4) return true;
     const ang = Math.atan2(dy, dx);
-    const outer = octagonEdgeR(APOTHEM_OUTER * scale, chamber.chamberRot || 0, ang);
+    const outer = polygonEdgeR(CHAMBER_SIDES, APOTHEM_OUTER * scale, chamber.chamberRot || 0, ang);
     const r = body.realSize || body.size || 1;
     return d - r < outer;
 }
@@ -196,7 +208,8 @@ function armTreasury(c) {
 
 function spawnContainedGem(c, tier, spawnScale) {
     const ang = Math.random() * Math.PI * 2;
-    const rad = Math.random() * Math.max(2, INNER_RADIUS * spawnScale * 0.7);
+    // spread across the full disk - the gems can ride out to the inner wall
+    const rad = Math.random() * Math.max(2, APOTHEM_INNER * spawnScale * 0.9);
     const g = gems.spawnGem(c.x + Math.cos(ang) * rad, c.y + Math.sin(ang) * rad,
                             tier.value, tier.cls, tier.size);
     g.chamberHome = c;          // routes this gem to the containment tick
@@ -212,7 +225,16 @@ function spawnContainedGem(c, tier, spawnScale) {
     g._orbitA = ang;
     g._orbitR = Math.max(g.realSize + 2, rad);
     g._orbitW = ORBIT_SPEED_MIN + Math.random() * ORBIT_SPEED_SPAN;
+    g._orbitDir = Math.random() < 0.5 ? 1 : -1;   // some drift clockwise, some against
     g._orbitWob = Math.random() * Math.PI * 2;
+    // per-gem motion signature: angular speed breathes, the radius wobbles on
+    // two out-of-phase sine trains, and the whole track is mildly elliptical -
+    // so no two gems ever ride the same uniform circle
+    g._orbitJit = 0.5 + Math.random() * 0.25;
+    g._orbitRA  = 0.04 + Math.random() * 0.05;
+    g._orbitJag = 0.02 + Math.random() * 0.03;
+    g._orbitEcc = 0.08 + Math.random() * 0.10;
+    g._orbitBreathe = 0.05 + Math.random() * 0.06;
     
     
     
@@ -250,15 +272,26 @@ function tickContainedGem(gem) {
         return;
     }
     const scale = growScale(c, Date.now());
-    const lim = Math.max(gem.realSize + 2, INNER_RADIUS * scale - gem.realSize);
-    
-    
-    
-    gem._orbitA = (gem._orbitA || 0) + gem._orbitW;
-    const baseR = Math.min(gem._orbitR || 0, Math.max(gem.realSize + 2, lim * 0.92));
-    const r = baseR * (1 + 0.05 * Math.sin(gem._orbitA * 2.3 + (gem._orbitWob || 0)));
-    gem.x = c.x + Math.cos(gem._orbitA) * r;
-    gem.y = c.y + Math.sin(gem._orbitA) * r;
+    // the gems may use the whole pocket - the limit is the ring's inner wall
+    // (its apothem × scale) minus the gem's own half-width
+    const lim = Math.max(gem.realSize + 2, APOTHEM_INNER * scale - gem.realSize);
+
+    // non-monotonous revolution: the angular speed swells and eases around the
+    // track (never stalls or backtracks), the radius rides two wobbles plus a
+    // slow breathe, and a per-gem eccentricity drifts the whole path off-centre
+    const a0 = gem._orbitA || 0;
+    const w = gem._orbitW || 0.001;
+    const wob = gem._orbitWob || 0;
+    gem._orbitA = a0 + (gem._orbitDir || 1) * w * (1 + (gem._orbitJit || 0.5) * Math.sin(0.4 * a0 + wob));
+    const a = gem._orbitA;
+    const amp = 1 + (gem._orbitRA || 0.06) + (gem._orbitJag || 0.04) + (gem._orbitEcc || 0.12) + (gem._orbitBreathe || 0.08);
+    const baseR = Math.min(gem._orbitR || 0, Math.max(gem.realSize + 2, lim / amp));
+    const r = baseR * (1 + (gem._orbitRA || 0) * Math.sin(1.7 * a + wob) +
+                              (gem._orbitJag || 0) * Math.sin(3.1 * a + wob * 2)) *
+                      (1 + (gem._orbitEcc || 0) * Math.cos(a + wob * 0.5)) *
+                      (1 + (gem._orbitBreathe || 0) * Math.sin(0.11 * a + wob * 3));
+    gem.x = c.x + Math.cos(a) * r;
+    gem.y = c.y + Math.sin(a) * r;
     gem.velocity.x = 0;
     gem.velocity.y = 0;
     gem.range = 9e99;
@@ -363,6 +396,6 @@ function tick(dtMs) {
 
 module.exports = {
     tick, snapshot, stateSnapshot, tickContainedGem, getChambers,
-    chamberRingHit, chamberFaceRadius, octagonNormal,
+    chamberRingHit, chamberFaceRadius, chamberNormal, polygonNormal,
 };
 

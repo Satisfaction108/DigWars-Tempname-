@@ -154,15 +154,13 @@ Class.outpostBanner = {
 Class.coreChamber = {
     PARENT: "genericTank",
     LABEL: "Core Chamber",
-    TYPE: "miniboss",
+    TYPE: "structure",
     ON_MINIMAP: false,
     DANGER: 0,
     LEVEL: 45,
     LEVEL_CAP: 45,
     SIZE: 160,            
-                          
-                          
-    SHAPE: 8,             
+    SHAPE: 15,             
     
     
     

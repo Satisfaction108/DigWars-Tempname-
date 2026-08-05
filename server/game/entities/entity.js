@@ -7,7 +7,7 @@ class Entity extends EventEmitter {
         super();
         if (!master) master = this;
         this.isGhost = false;
-        this.killCount = { solo: 0, assists: 0, bosses: 0, polygons: 0, killers: [] };
+        this.killCount = { solo: 0, assists: 0, bosses: 0, structures: 0, polygons: 0, killers: [] };
         this.creationTime = new Date().getTime();
         // Inheritance
         this.master = master;
@@ -1091,6 +1091,11 @@ class Entity extends EventEmitter {
                     case "food":
                     case "crasher":
                         instance.killCount.polygons++;
+                        break
+
+                    case "structure":
+                        // core chambers & co are buildings, not visitors
+                        instance.killCount.structures++;
                         break
 
                     case "miniboss":

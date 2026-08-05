@@ -135,6 +135,10 @@ function dropGemsOnDeath(body) {
     
     const banked  = body.socket ? (body.socket.gemBanked | 0) : 0;
     const bankLoss = Math.floor(banked * BANK_DEATH_LOSS);
+    // The death screen shows the wealth you had at the moment you died -
+    // carried + banked BEFORE the drop. Snapshot it here because this runs
+    // (on 'dead') before the death packet's records() is built.
+    if (body.socket) body.socket.gemDeathScore = carried + banked;
     if (carried <= 0 && bankLoss <= 0) return;
     body.carriedGems = 0;
     if (bankLoss > 0 && body.socket) {
