@@ -203,7 +203,7 @@ module.exports = {
 
     gamemode_name_prefixes: [],
     arena_shape: 'rect',
-    arms_race: true,
+    arms_race: false,
     blackout: false,
     clan_wars: false,
     diep: false,
