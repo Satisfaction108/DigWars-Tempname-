@@ -173,33 +173,33 @@ body {
 }
 .menu-credits .contrib-link:hover { opacity: 1; text-decoration: underline; }
 
-/* contributors modal */
+/* contributors modal — follows the site theme via CSS variables */
 #contributorsPanel {
     position: fixed;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%) scale(.96);
     z-index: 300;
     width: 340px;
-    background: #16171d;
-    border: 3px solid #000;
-    border-radius: 14px;
-    color: #e8e3d4;
-    box-shadow: 0 12px 44px rgba(0,0,0,.6);
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    color: var(--text);
+    box-shadow: 0 12px 44px var(--shadow);
     opacity: 0;
     pointer-events: none;
     transition: transform .18s, opacity .18s;
 }
 #contributorsPanel.open { transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto; }
-#contributorsPanel .cl-header { background: #101116; border-bottom: 2px solid #000; border-radius: 11px 11px 0 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; }
-#contributorsPanel .cl-header span { color: #ffd75e; font: 700 15px Ubuntu; }
-#contributorsPanel .cl-header button { background: transparent; border: none; color: #e8e3d4; cursor: pointer; font-size: 15px; }
+#contributorsPanel .cl-header { background: var(--surface); border-bottom: 1px solid var(--border); border-radius: 15px 15px 0 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; }
+#contributorsPanel .cl-header span { color: var(--heading); font: 700 15px Ubuntu; }
+#contributorsPanel .cl-header button { background: transparent; border: none; color: var(--text2); cursor: pointer; font-size: 15px; }
 #contributorsPanel .cl-header button:hover { color: #eb4034; }
 #contributorsPanel .contrib-list { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; }
-#contributorsPanel .credit-card { background: #0d0e14; border: 1px solid #000; border-radius: 10px; padding: 12px; }
-#contributorsPanel .credit-name { font: 700 16px Ubuntu; margin-bottom: 4px; color: #f2ecdc; }
-#contributorsPanel .credit-name.zyrox { color: #ffd75e; }
-#contributorsPanel .credit-info { font: 500 12px Ubuntu; color: #b7b1a2; margin-top: 3px; }
-#contributorsPanel .credit-role { font: 600 11px Ubuntu; letter-spacing: .08em; text-transform: uppercase; color: #ffd75e; margin-top: 2px; }
+#contributorsPanel .credit-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+#contributorsPanel .credit-name { font: 700 16px Ubuntu; margin-bottom: 4px; color: var(--heading); }
+#contributorsPanel .credit-name.zyrox { color: var(--accent); }
+#contributorsPanel .credit-info { font: 500 12px Ubuntu; color: var(--text2); margin-top: 3px; }
+#contributorsPanel .credit-role { font: 600 11px Ubuntu; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-top: 2px; }
 #contributorsOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 299; display: none; }
 #contributorsOverlay.visible { display: block; }
 
@@ -1039,7 +1039,10 @@ h3 { font-size: 14px; line-height: 16px; color: var(--text2); text-align: center
 #ingameSettingsBtn:hover { background: #23252e; }
 #ingameSettingsBtn:active { transform: scale(.95); }
 
-#homeSettingsPanel {
+/* In-game: the settings panel is the dark game-styled plate (dark by default,
+   and users can't switch it in-game). On the homepage the panel follows the
+   site theme, so these overrides are scoped to body.in-game only. */
+body.in-game #homeSettingsPanel {
     background: #16171d;
     border: 3px solid #000;
     border-radius: 14px;
@@ -1047,35 +1050,35 @@ h3 { font-size: 14px; line-height: 16px; color: var(--text2); text-align: center
     box-shadow: 0 12px 44px rgba(0,0,0,.6);
     width: 400px;
 }
-#homeSettingsPanel .sp-header { background: #101116; border-bottom: 2px solid #000; border-radius: 11px 11px 0 0; }
-#homeSettingsPanel .sp-header span { color: #ffd75e; }
-#homeSettingsPanel #homeSettingsClose { background: transparent; border: none; color: #e8e3d4; cursor: pointer; font-size: 15px; }
-#homeSettingsPanel #homeSettingsClose:hover { color: #eb4034; }
-#homeSettingsPanel .sp-tabs { background: #101116; border-bottom: 2px solid #000; }
-#homeSettingsPanel .sp-tab { color: #9b968a; background: transparent; }
-#homeSettingsPanel .sp-tab.active { background: #23252e; color: #ffd75e; }
-#homeSettingsPanel .sp-label { color: #ffd75e; }
-#homeSettingsPanel .container { color: #e8e3d4; }
-#homeSettingsPanel .checkmark { background: #0d0e14; border: 2px solid #000; }
-#homeSettingsPanel .container:hover .checkmark { background: #23252e; }
-#homeSettingsPanel .container input:checked ~ .checkmark { background: #ffd75e; border-color: #000; }
-#homeSettingsPanel .container input:checked ~ .checkmark:after { border-color: #101116; }
-#homeSettingsPanel select, #homeSettingsPanel #optCustom {
+body.in-game #homeSettingsPanel .sp-header { background: #101116; border-bottom: 2px solid #000; border-radius: 11px 11px 0 0; }
+body.in-game #homeSettingsPanel .sp-header span { color: #ffd75e; }
+body.in-game #homeSettingsPanel #homeSettingsClose { background: transparent; border: none; color: #e8e3d4; cursor: pointer; font-size: 15px; }
+body.in-game #homeSettingsPanel #homeSettingsClose:hover { color: #eb4034; }
+body.in-game #homeSettingsPanel .sp-tabs { background: #101116; border-bottom: 2px solid #000; }
+body.in-game #homeSettingsPanel .sp-tab { color: #9b968a; background: transparent; }
+body.in-game #homeSettingsPanel .sp-tab.active { background: #23252e; color: #ffd75e; }
+body.in-game #homeSettingsPanel .sp-label { color: #ffd75e; }
+body.in-game #homeSettingsPanel .container { color: #e8e3d4; }
+body.in-game #homeSettingsPanel .checkmark { background: #0d0e14; border: 2px solid #000; }
+body.in-game #homeSettingsPanel .container:hover .checkmark { background: #23252e; }
+body.in-game #homeSettingsPanel .container input:checked ~ .checkmark { background: #ffd75e; border-color: #000; }
+body.in-game #homeSettingsPanel .container input:checked ~ .checkmark:after { border-color: #101116; }
+body.in-game #homeSettingsPanel select, body.in-game #homeSettingsPanel #optCustom {
     background: #0d0e14;
     color: #e8e3d4;
     border: 2px solid #000;
     border-radius: 8px;
 }
-#homeSettingsPanel select:hover { border-color: #ffd75e; }
-#homeSettingsPanel .kb-section { color: #ffd75e; }
-#homeSettingsPanel .kb-row b { background: #0d0e14; color: #ffd75e; border: 2px solid #000; border-radius: 6px; cursor: pointer; }
-#homeSettingsPanel .kb-row b:hover { background: #23252e; color: #ffd75e; border-color: #ffd75e; }
-#homeSettingsPanel .kb-row span { color: #b7b1a2; }
-#homeSettingsPanel .kb-note { color: #9b968a; }
-#homeSettingsOverlay { background: rgba(0,0,0,.55); }
-#homeSettingsPanel .kb-row { background: #0d0e14; border: 1px solid #000; border-radius: 8px; }
-#homeSettingsPanel .kb-header span { color: #ffd75e; }
-#homeSettingsPanel .kb-row b.kb-editing {
+body.in-game #homeSettingsPanel select:hover { border-color: #ffd75e; }
+body.in-game #homeSettingsPanel .kb-section { color: #ffd75e; }
+body.in-game #homeSettingsPanel .kb-row b { background: #0d0e14; color: #ffd75e; border: 2px solid #000; border-radius: 6px; cursor: pointer; }
+body.in-game #homeSettingsPanel .kb-row b:hover { background: #23252e; color: #ffd75e; border-color: #ffd75e; }
+body.in-game #homeSettingsPanel .kb-row span { color: #b7b1a2; }
+body.in-game #homeSettingsPanel .kb-note { color: #9b968a; }
+body.in-game #homeSettingsOverlay { background: rgba(0,0,0,.55); }
+body.in-game #homeSettingsPanel .kb-row { background: #0d0e14; border: 1px solid #000; border-radius: 8px; }
+body.in-game #homeSettingsPanel .kb-header span { color: #ffd75e; }
+body.in-game #homeSettingsPanel .kb-row b.kb-editing {
     border-color: #ffd75e;
     background: #33290f;
     color: #fff;

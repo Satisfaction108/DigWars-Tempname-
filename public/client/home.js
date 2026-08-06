@@ -268,6 +268,9 @@
             new MutationObserver(function () {
                 var hidden = smw.style.display === 'none' || parseInt(smw.style.top) < -100;
                 homeUI.forEach(function (el) { if (el) el.style.display = hidden ? 'none' : ''; });
+                // mark in-game so the shared settings panel keeps its dark,
+                // unchangeable look while playing (homepage follows the theme)
+                document.body.classList.toggle('in-game', hidden);
                 if (hidden) { closeCL(); closeP(); setDropdownOpen(false); }
             }).observe(smw, { attributes: true, attributeFilter: ['style'] });
         }
