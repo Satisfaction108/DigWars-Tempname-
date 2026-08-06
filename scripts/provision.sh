@@ -8,13 +8,16 @@ PORT="${PORT:-3000}"
 PUBLIC_HOST="${PUBLIC_HOST:-digwars.hackclub.app}"
 REPO="https://github.com/Satisfaction108/Arras2.git"
 
+# root (like a fresh nest container) doesn't need sudo; regular users do.
+if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+
 echo "[1/6] system packages"
-sudo apt-get update -y
-sudo apt-get install -y git curl
+$SUDO apt-get update -y
+$SUDO apt-get install -y git curl
 
 echo "[2/6] node 20+ (apt first, nvm fallback)"
 if ! command -v node >/dev/null 2>&1; then
-  sudo apt-get install -y nodejs npm
+  $SUDO apt-get install -y nodejs npm
 fi
 if [ "$(node -e 'console.log(process.version.slice(1).split(".")[0])' 2>/dev/null || echo 0)" -lt 20 ]; then
   echo "apt node is too old, installing node 22 via nvm..."
