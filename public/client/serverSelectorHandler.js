@@ -1,7 +1,6 @@
 import { global } from "./global.js";
 
-let svFilterRegionDoc = document.getElementById("serverFilterRegion"),
-svFilterModeDoc = document.getElementById("serverFilterMode");
+let svFilterRegionDoc = document.getElementById("serverFilterRegion");
 
 let servers;
 
@@ -242,13 +241,5 @@ let initializeFilter = () => {
             let e = checkFilter(h, global.filters.regions.other);
             return e;
         } },
-    ]);
-    createFilter(svFilterModeDoc, [
-        { name: "All",       filter: () => !0 },
-        { name: "Normal",    filter: (h) => checkFilter(h, global.filters.gamemodeFilters.normal) },
-        { name: "Growth",    filter: (h) => checkFilter(h, global.filters.gamemodeFilters.growth) },
-        { name: "Arms Race", filter: (h) => checkFilter(h, global.filters.gamemodeFilters.armsRace) },
-        { name: "Other",     filter: (h) => checkFilter(h, global.filters.gamemodeFilters.other) },
-        { name: "Sandbox",   filter: (h) => checkFilter(h, global.filters.gamemodeFilters.sandbox) },
     ]);
 }

@@ -316,20 +316,46 @@ global.onServerLoaded = () => {
     }
 };
 
-// Start the HTTP Server & Load Game Servers
+// Automatically resolve the server's region from the box's public ip so the
+// server-list always reflects where it actually lives. Prefers a
+// SERVER_REGION override, then a quick geo lookup, then Europe (nest default).
+async function detectRegion() {
+    if (process.env.SERVER_REGION) return process.env.SERVER_REGION;
+    const byContinent = { EU: "Europe", NA: "USA", AS: "Asia", OC: "Oceania" };
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch("https://ipapi.co/json/", {
+            signal: controller.signal,
+            headers: { "User-Agent": "digwars/1.0 (+https://digwars.hackclub.app)" },
+        });
+        clearTimeout(timer);
+        const data = await res.json();
+        const cc = String(data.continent_code || "").toUpperCase();
+        if (byContinent[cc]) return byContinent[cc];
+        return data.country_code === "US" ? "USA" : "Europe";
+    } catch (e) {
+        return "Europe";
+    }
+}
+
+// start the http server & load game servers
 server.listen(Config.port, () => {
-    Config.servers.forEach(server => {
-        // Load all of the servers.
-        loadGameServer(
-            server.share_client_server,
-            server.host,
-            server.port,
-            server.gamemode,
-            server.region,
-            { id: server.id, maxPlayers: server.player_cap },
-            server.properties,
-            server.featured
-        );
+    detectRegion().then(region => {
+        Config.servers.forEach(server => {
+            server.region = region; // real location always wins, no manual edits
+            // Load all of the servers.
+            loadGameServer(
+                server.share_client_server,
+                server.host,
+                server.port,
+                server.gamemode,
+                server.region,
+                { id: server.id, maxPlayers: server.player_cap },
+                server.properties,
+                server.featured
+            );
+        })
     })
 });
 
