@@ -173,8 +173,9 @@ body.mobile .serverSelector {
 
 .serverSelector tr.featured {
 	color: #e8ae00;
-	text-shadow: #fff27e 0 0 6px;
+	text-shadow: none;
 }
+
 
 .serverSelector tr.message {
 	color: #a8a8a8;

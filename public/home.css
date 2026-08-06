@@ -511,14 +511,15 @@ body.mobile .mainWrapper { padding: 10px 10px 0; }
     border-radius: 14px;
     background: var(--surface);
     border: 1px solid var(--border);
-    overflow: hidden;
+    overflow: visible;
     box-shadow: 0 8px 32px var(--shadow);
     transition: background-color .25s, border-color .25s;
     width: fit-content;
     margin: 0 auto;
 }
 
-.startMenuHolder { position: relative; width: 350px; height: 390px; margin: 6px 10px; overflow: hidden; }
+.startMenuHolder { position: relative; width: 350px; height: 390px; margin: 6px 10px; overflow: visible; }
+
 .startMenuHolder.mainHolder { flex-shrink: 0; }
 body.mobile .startMenuHolder.linkHolder { display: none; }
 
@@ -599,7 +600,7 @@ body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
     text-align: left;
 }
 
-/* professional region dropdown */
+/* clean region dropdown */
 .region-dropdown { position: relative; width: 100%; }
 .region-dropdown-trigger {
     width: 100%;
@@ -617,6 +618,8 @@ body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
     font: 600 14px Ubuntu;
     cursor: pointer;
     text-align: left;
+    box-shadow: none;
+    text-shadow: none;
     transition: border-color .15s, background .15s;
 }
 .region-dropdown-trigger:hover,
@@ -629,12 +632,13 @@ body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-shadow: none;
 }
 .region-dropdown-arrow {
     width: 13px; height: 13px;
     flex-shrink: 0;
     color: var(--text2);
-    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    transition: transform .28s cubic-bezier(.4,0,.2,1);
 }
 .region-dropdown.open .region-dropdown-arrow { transform: rotate(180deg); }
 
@@ -646,87 +650,86 @@ body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
     opacity: 0;
     visibility: hidden;
     overflow: hidden;
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
+    background: var(--surface2);
+    border: 0 solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 14px 36px var(--shadow);
-    z-index: 20;
-    transform: translateY(-6px);
-    transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .22s ease, transform .3s cubic-bezier(.4,0,.2,1), visibility 0s .3s;
+    box-shadow: none;
+    z-index: 50;
+    transform: translateY(-8px) scaleY(.96);
+    transform-origin: top center;
+    transition: max-height .32s cubic-bezier(.4,0,.2,1), opacity .22s ease, transform .32s cubic-bezier(.4,0,.2,1), border-width .01s, visibility 0s .32s;
 }
 .region-dropdown.open .region-dropdown-menu {
-    max-height: 220px;
+    max-height: 260px;
     opacity: 1;
     visibility: visible;
-    transform: translateY(0);
+    border-width: 1px;
+    transform: translateY(0) scaleY(1);
     overflow-y: auto;
-    transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .22s ease, transform .3s cubic-bezier(.4,0,.2,1);
+    transition: max-height .32s cubic-bezier(.4,0,.2,1), opacity .22s ease, transform .32s cubic-bezier(.4,0,.2,1), border-width 0s;
 }
 
-/* server rows rendered as sleek dropdown options */
-.region-dropdown-menu .serverSelector {
-    height: auto !important;
-    max-height: none;
-    overflow: visible;
-}
-.region-dropdown-menu .serverSelector tbody,
-.region-dropdown-menu .serverSelector center { display: block; }
-.region-dropdown-menu .serverSelector tr {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 14px;
-    margin: 0;
-    border: none;
-    border-bottom: 1px solid var(--border);
-    border-radius: 0;
-    background: transparent;
-    font-size: 13px;
-    line-height: 1.3;
-    text-align: left;
-    transition: background .12s;
-}
-.region-dropdown-menu .serverSelector tr:hover { background: var(--surface2); color: var(--text); }
-.region-dropdown-menu .serverSelector tr.featured { color: #e8ae00; }
-.region-dropdown-menu .serverSelector tr.selected { color: var(--sel); background: var(--surface2); cursor: default; }
-.region-dropdown-menu .serverSelector tr.message { justify-content: center; font-style: italic; cursor: default; }
-.region-dropdown-menu .serverSelector tr:last-child { border-bottom: none; }
-.region-dropdown-menu .serverSelector td { display: block; padding: 0; }
-.region-dropdown-menu .serverSelector td:first-child { font-weight: 700; }
-.region-dropdown-menu .serverSelector td:nth-child(2) { flex: 1; text-align: right; font-size: 12px; color: var(--text2); }
-.region-dropdown-menu .serverSelector td:nth-child(3) { text-align: right; font-size: 12px; color: var(--text2); min-width: 34px; }
-.region-dropdown-menu .serverSelector td.tdCenter { width: auto; }
 
-/* simple region selector at the top of the dropdown */
+/* hide raw server table — regions are the dropdown rows */
+.region-dropdown-menu .serverSelector,
+.region-dropdown-menu #serverFilterRegion {
+    display: none !important;
+}
+
+/* vertical region list like a simple select menu */
 .region-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 8px;
-    border-bottom: 1px solid var(--border);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 0;
+    border-bottom: none;
 }
 .region-option {
-    flex: 1 1 0;
+    width: 100%;
+    flex: none;
     min-width: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
-    padding: 8px 12px;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    gap: 12px;
+    padding: 13px 16px;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border);
     background: transparent;
-    color: var(--text2);
-    font: 600 12.5px Ubuntu;
+    color: var(--heading);
+    font: 700 15px Ubuntu;
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
-    transition: background .12s, color .12s, border-color .12s;
+    box-shadow: none;
+    text-shadow: none;
+    transition: background .12s, color .12s;
 }
-.region-option:hover { background: var(--surface2); color: var(--text); }
-.region-option.selected { background: var(--accent); border-color: var(--accent); color: #fff; cursor: default; }
-.region-option .region-count { font-weight: 700; }
-.region-option .region-count::before { content: "\2022  "; font-weight: 400; opacity: .85; }
+.region-option:last-child { border-bottom: none; }
+.region-option:hover { background: var(--surface); color: var(--heading); }
+.region-option.selected {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--heading);
+    cursor: default;
+}
+.region-option .region-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: none;
+}
+.region-option .region-count {
+    flex-shrink: 0;
+    font: 700 14px Ubuntu;
+    color: var(--sel);
+    text-shadow: none;
+}
+.region-option .region-count:not(:empty)::before { content: "("; font-weight: 700; }
+.region-option .region-count:not(:empty)::after { content: ")"; font-weight: 700; }
 
 /* sleek notification toast */
 .toast-container {
@@ -750,7 +753,7 @@ body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
     color: var(--text);
     font: 500 13px Ubuntu;
     letter-spacing: .02em;
-    box-shadow: 0 10px 30px var(--shadow);
+    box-shadow: none;
     opacity: 0;
     transform: translateY(-8px);
     animation: toastIn .25s ease forwards;
@@ -760,19 +763,12 @@ body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
 @keyframes toastIn { to { opacity: 1; transform: translateY(0); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(-8px); } }
 
-.region-dropdown-menu #serverFilterRegion {
-    margin: 0;
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border);
-    text-align: center;
-}
-.region-dropdown-menu #serverFilterRegion span { margin: 2px; }
-
-.serverSelector tr { color: var(--text2); cursor: pointer; transition: color .12s; }
+.serverSelector tr { color: var(--text2); cursor: pointer; transition: color .12s; text-shadow: none; }
 .serverSelector tr:hover { color: var(--text); }
-.serverSelector tr.featured { color: #e8ae00; }
+.serverSelector tr.featured { color: #e8ae00; text-shadow: none; }
 .serverSelector tr.message { color: var(--text2); cursor: default; font-style: italic; }
-.serverSelector tr.selected { color: var(--sel); cursor: default; }
+.serverSelector tr.selected { color: var(--sel); cursor: default; text-shadow: none; }
+
 
 .shadowScroll {
     overflow-y: scroll;
@@ -980,12 +976,13 @@ a:link:hover, a:visited:hover { opacity: .8; }
 .menuTab.achieve { background: var(--accent); }
 .menuTab > a { color: #fff !important; text-decoration: none; }
 
-.sliderHolder { width: 350px; height: 330px; overflow: hidden; }
+.sliderHolder { width: 350px; height: 330px; overflow: visible; }
 body.mobile .sliderHolder { height: 260px; }
 .slider { position: relative; top: 0; opacity: 1; width: 100%; transition: top 500ms, opacity 500ms; }
 .slided .slider { top: -280px; }
-.startMenuSlidingContent { height: 330px; display: flex; flex-direction: column; }
+.startMenuSlidingContent { height: 330px; display: flex; flex-direction: column; overflow: visible; }
 body.mobile .startMenuSlidingContent { height: 255px; }
+
 
 ::-webkit-scrollbar { width: 3px; height: 0; }
 ::-webkit-scrollbar-track { background: transparent; }
