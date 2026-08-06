@@ -63,7 +63,7 @@
             <div class="credit-card">
                 <div class="credit-name">shrew</div>
                 <div class="credit-role">Junior Developer</div>
-                <div class="credit-info">aimbot_uesr</div>
+                <div class="credit-info">aimbot_user</div>
             </div>
             <div class="credit-card">
                 <div class="credit-name">MattWithX1</div>
@@ -73,6 +73,7 @@
         </div>
     </div>
     <div id="contributorsOverlay"></div>
+    <div id="toastContainer" class="toast-container"></div>
 
     <div id="homeSettingsPanel">
         <div class="sp-header">
@@ -290,6 +291,11 @@
                                             <svg class="region-dropdown-arrow" width="14" height="14" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.2 1.3 L6 6.3 L10.8 1.3"/></svg>
                                         </button>
                                         <div class="region-dropdown-menu" id="serverDropdownMenu">
+                                            <div class="region-list" id="regionSelector">
+                                                <button type="button" class="region-option selected" data-region="Europe"><span class="region-name">Europe</span><span class="region-count">0</span></button>
+                                                <button type="button" class="region-option" data-region="USA"><span class="region-name">USA</span></button>
+                                                <button type="button" class="region-option" data-region="Asia"><span class="region-name">Asia</span></button>
+                                            </div>
                                             <div class="serverSelector"><table><tbody id="serverSelector"></tbody></table></div>
                                             <div class="horizontalSelector" id="serverFilterRegion" style="display: none;"></div>
                                         </div>

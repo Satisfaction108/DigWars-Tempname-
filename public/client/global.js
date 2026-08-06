@@ -516,3 +516,4 @@ const global = {
     }
 };
 export { global };
+window.global = global;

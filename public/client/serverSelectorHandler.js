@@ -34,6 +34,9 @@ global.loadServerSelector = (serverData, text) => {
     };
 
     initializeFilter();
+    // the region selector replaces the old filter pills, so keep them hidden
+    svFilterRegionDoc.style.display = "none";
+    if (global.updateRegionSelector) global.updateRegionSelector(servers);
 
     servers.forEach(async (server) => {
         try {
@@ -243,3 +246,17 @@ let initializeFilter = () => {
         } },
     ]);
 }
+
+// update server row playercounts + region counts from a fresh servers list
+global.refreshServerCounts = (data) => {
+    if (!Array.isArray(data)) return;
+    data.forEach((server) => {
+        const tr = global.serverMap[server.ip];
+        if (!tr) return;
+        const td3 = tr.querySelector("td:nth-child(3)");
+        if (td3) {
+            td3.textContent = server.maxPlayers < 1 ? `${server.players}` : `${server.players}/${server.maxPlayers}`;
+        }
+    });
+    if (global.updateRegionSelector) global.updateRegionSelector(data);
+};

@@ -81,17 +81,64 @@
         var dd = document.getElementById('serverDropdown');
         var ddTrigger = document.getElementById('serverDropdownTrigger');
         var ddLabel = document.getElementById('serverDropdownLabel');
+        var regionSelector = document.getElementById('regionSelector');
 
-        function updateServerLabel() {
-            if (!ddLabel) return;
-            var sel = document.querySelector('#serverSelector tr.selected') ||
-                      document.querySelector('#serverSelector tr:not(.message)');
-            if (!sel) return;
-            var tds = sel.querySelectorAll('td');
-            var region = tds[0] ? tds[0].textContent.trim() : '';
-            var mode = tds[1] ? tds[1].textContent.trim() : '';
-            ddLabel.textContent = [region, mode].filter(Boolean).join(' \u00b7 ') || 'Loading servers\u2026';
+        // sleek notification toast
+        function showToast(message) {
+            var container = document.getElementById('toastContainer');
+            if (!container) return;
+            var toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(function () {
+                toast.classList.add('hide');
+                setTimeout(function () { toast.remove(); }, 300);
+            }, 2600);
         }
+
+        function updateRegionLabel() {
+            if (!ddLabel) return;
+            var selected = regionSelector ? regionSelector.querySelector('.region-option.selected') : null;
+            var name = (selected && selected.dataset.region) || 'Europe';
+            var countEl = selected ? selected.querySelector('.region-count') : null;
+            var count = countEl && countEl.style.display !== 'none' ? countEl.textContent.trim() : '';
+            ddLabel.textContent = count ? name + ' \u2022 ' + count : name;
+        }
+
+        // refresh the region options with live server counts
+        function renderRegionCounts(serverData) {
+            var data = Array.isArray(serverData) ? serverData : [];
+            var counts = {};
+            function norm(r) {
+                r = String(r || '').toLowerCase();
+                if (r.indexOf('euro') === 0 || r === 'eu') return 'Europe';
+                if (r.indexOf('amer') === 0 || r === 'usa' || r === 'us') return 'USA';
+                if (r.indexOf('asia') === 0) return 'Asia';
+                return null;
+            }
+            data.forEach(function (s) {
+                var key = norm(s.region);
+                if (key) counts[key] = (counts[key] || 0) + (Number(s.players) || 0);
+            });
+            if (!regionSelector) return;
+            regionSelector.querySelectorAll('.region-option').forEach(function (opt) {
+                var countEl = opt.querySelector('.region-count');
+                if (!countEl) return;
+                if (counts[opt.dataset.region] !== undefined) {
+                    countEl.textContent = counts[opt.dataset.region];
+                    countEl.style.display = '';
+                } else if (opt.dataset.region === 'Europe') {
+                    countEl.textContent = '0';
+                    countEl.style.display = '';
+                } else {
+                    countEl.style.display = 'none';
+                }
+            });
+            updateRegionLabel();
+        }
+        if (window.global) window.global.updateRegionSelector = renderRegionCounts;
+
         function setDropdownOpen(open) {
             if (dd) dd.classList.toggle('open', !!open);
         }
@@ -106,20 +153,52 @@
             if (dd && !dd.contains(e.target)) setDropdownOpen(false);
         });
 
+        if (regionSelector) {
+            regionSelector.addEventListener('click', function (e) {
+                var opt = e.target.closest ? e.target.closest('.region-option') : null;
+                if (!opt) return;
+                var selected = regionSelector.querySelector('.region-option.selected');
+                if (opt.dataset.region === 'Europe') {
+                    if (selected && selected !== opt) {
+                        selected.classList.remove('selected');
+                        opt.classList.add('selected');
+                    }
+                    setDropdownOpen(false);
+                    updateRegionLabel();
+                } else {
+                    showToast('Location doesn\u2019t exist');
+                }
+            });
+        }
+
         var selTbody = document.getElementById('serverSelector');
         if (selTbody) {
             selTbody.addEventListener('click', function () {
                 setDropdownOpen(false);
-                updateServerLabel();
+                updateRegionLabel();
             });
-            new MutationObserver(updateServerLabel).observe(selTbody, {
+            new MutationObserver(updateRegionLabel).observe(selTbody, {
                 childList: true,
                 subtree: true,
                 attributes: true,
                 attributeFilter: ['class']
             });
         }
-        setTimeout(updateServerLabel, 600);
+        setTimeout(function () {
+            if (window.global) renderRegionCounts(window.global.servers);
+        }, 600);
+
+        // keep the counts fresh while on the menu
+        setInterval(function () {
+            var gaw = document.getElementById('gameAreaWrapper');
+            if (gaw && gaw.style.display !== 'none') return;
+            fetch('/getServers.json').then(function (r) { return r.json(); })
+                .then(function (data) {
+                    renderRegionCounts(data);
+                    if (window.global && window.global.refreshServerCounts) window.global.refreshServerCounts(data);
+                })
+                .catch(function () {});
+        }, 15000);
 
         var clTabs = document.querySelectorAll('.cl-tab');
         var patchNotes = document.getElementById('patchNotes');
