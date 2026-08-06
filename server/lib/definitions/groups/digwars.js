@@ -107,7 +107,7 @@ Class.gemHoardShardFacet = { LABEL: "Hoard", SHAPE: GEM_CUT, COLOR: "#d98af0", B
 Class.outpostBanner = {
     PARENT: "genericTank",
     LABEL: "Outpost",
-    TYPE: "miniboss",
+    TYPE: "structure",
     ON_MINIMAP: false,
     DANGER: 5,
     LEVEL: 45,
