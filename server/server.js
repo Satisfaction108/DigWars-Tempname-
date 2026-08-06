@@ -13,14 +13,35 @@ const { Worker } = require("worker_threads");
 // Increase the stack trace limit for better debugging
 Error.stackTraceLimit = Infinity;
 
-// Load environment variables from .env using a custom dotenv loader
-const dotenv = require("./lib/dotenv.js");
-const envContent = fs.readFileSync(path.join(__dirname, "./.env")).toString();
-const environment = dotenv(envContent);
+// Render safety net: one bad packet or a game bug must not take the whole
+// demo down. Log it and keep serving; if it's genuinely melting down (many
+// crashes in a row), exit so Render recycles the process cleanly.
+let crashCount = 0;
+process.on("uncaughtException", (err) => {
+    console.error("[UNCAUGHT EXCEPTION] " + ((err && err.stack) || err));
+    if (crashCount++ > 20) process.exit(1);
+    setTimeout(() => crashCount--, 30_000);
+});
+process.on("unhandledRejection", (reason) => {
+    console.error("[UNHANDLED REJECTION] " + ((reason && reason.stack) || reason));
+    if (crashCount++ > 20) process.exit(1);
+    setTimeout(() => crashCount--, 30_000);
+});
 
-// Set each environment variable in process.env
-for (const key in environment) {
-    process.env[key] = environment[key];
+// Load environment variables from .env when present (local dev only).
+// Secrets are NOT committed to git - in production they come from the
+// platform's env vars (Render dashboard) instead, so a missing .env is fine.
+const dotenv = require("./lib/dotenv.js");
+try {
+    const envContent = fs.readFileSync(path.join(__dirname, "./.env")).toString();
+    const environment = dotenv(envContent);
+
+    // Set each environment variable in process.env
+    for (const key in environment) {
+        process.env[key] = environment[key];
+    }
+} catch (e) {
+    if (e.code !== "ENOENT") console.error("[ENV LOAD ERROR] " + ((e && e.stack) || e));
 }
 
 // Load all necessary modules and files via the loader
@@ -315,13 +336,18 @@ server.listen(Config.port, () => {
 // Upgrade HTTP connections to WebSocket connections if applicable
 server.on("upgrade", (req, socket, head) => {
     wsServer.handleUpgrade(req, socket, head, (ws) => {
-        if (global.launchedOnMainServer) {
-            for (let i = 0; i < global.servers.length; i++) {
-                let server = global.servers[i];
-                if (server.gameManager) server.gameManager.socketManager.connect(ws, req);
+        try {
+            if (global.launchedOnMainServer) {
+                for (let i = 0; i < global.servers.length; i++) {
+                    let server = global.servers[i];
+                    if (server.gameManager) server.gameManager.socketManager.connect(ws, req);
+                }
+            } else {
+                ws.close();
             }
-        } else {
-            ws.close();
+        } catch (e) {
+            console.error("[UPGRADE ERROR] " + ((e && e.stack) || e));
+            try { ws.close(); } catch (_) {}
         }
     });
 });

@@ -193,7 +193,14 @@ class gameServer {
         }).listen(this.port);
 
         this.httpServer.on("upgrade", (req, socket, head) => {
-            this.wsServer.handleUpgrade(req, socket, head, ws => socketManager.connect(ws, req))
+            this.wsServer.handleUpgrade(req, socket, head, ws => {
+                try {
+                    socketManager.connect(ws, req);
+                } catch (e) {
+                    console.error("[UPGRADE ERROR] " + ((e && e.stack) || e));
+                    try { ws.close(); } catch (_) {}
+                }
+            })
         });
     }
 

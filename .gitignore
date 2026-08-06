@@ -4,6 +4,11 @@ package-lock.json
 .DS_Store
 .claude/
 .clinerules
+
+# secrets - never commit real values
+server/.env
+.env
+.env.local
 DESIGN.md 
 diary.md 
 REGROWTH_PLAN.md  

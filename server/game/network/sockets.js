@@ -143,27 +143,14 @@ class socketManager {
                 if (socket.status.transferred) {
                     player.body.invuln = false;
                     player.body.destroy();
-                } else if (player.body.invuln || global.gameManager.arenaClosed) {
-
+                } else {
+                    // disconnecting = dying: kill the tank so nobody else can
+                    // inherit it. (the old 60s ip-keyed "recovery" let any new
+                    // connection from the same ip spawn as the previous player)
                     if (Config.clan_wars) Config.clan_wars_ft.remove(player.body);
                     player.body.invuln = false;
                     player.body.kill();
                     player.body.destroy();
-                } else if (!global.gameManager.arenaClosed) {
-                    let timeout = setTimeout(() => {
-                        if (player.body != null) {
-                            player.body.kill();
-                        }
-                        util.remove(this.disconnections, this.disconnections.indexOf(disconnection));
-                    }, 60000);
-                    let disconnection = {
-                        body: player.body,
-                        ip: socket.ip,
-                        timeout: timeout,
-                    };
-                    this.disconnections.push(disconnection);
-                    player.command.autospin = false;
-                    player.body.life();
                 }
             }
 
@@ -1205,38 +1192,28 @@ class socketManager {
             }
         }
 
-        let body;
-        const filter = this.disconnections.filter(r => r.ip === socket.ip && r.body && !r.body.isDead());
-        if (filter.length) {
-            let recover = filter[0];
-            util.remove(this.disconnections, this.disconnections.indexOf(recover));
-            clearTimeout(recover.timeout);
-            body = recover.body;
-            util.remove(body.controllers, body.controllers.indexOf(body.controllers.find(rer => rer instanceof ioTypes.listenToPlayer)));
-            body.become(player);
-            player.team = body.team;
-            socket.rememberedTeam = body.team;
-        } else {
-            body = new Entity(loc);
-            body.protect();
-            body.isPlayer = true;
-            body.define(Config.spawn_class);
-            if (Class.menu_tanks) {
-                let string = Class.menu_tanks.UPGRADES_TIER_0[0];
-                if (string !== "basic") {
-                    Class.menu_addons.UPGRADES_TIER_0.push("basic")
-                }
+        // always spawn a fresh tank - a disconnected player's body is never
+        // handed to a new socket (previously keyed by ip, so anyone on the
+        // same network could inherit another player's tank)
+        const body = new Entity(loc);
+        body.protect();
+        body.isPlayer = true;
+        body.define(Config.spawn_class);
+        if (Class.menu_tanks) {
+            let string = Class.menu_tanks.UPGRADES_TIER_0[0];
+            if (string !== "basic") {
+                Class.menu_addons.UPGRADES_TIER_0.push("basic")
             }
-            body.name = name;
-            body.incognito = socket.status.incognito ?? false;
-            if (socket.permissions && socket.permissions.nameColor) {
-                body.nameColor = socket.permissions.nameColor;
-                socket.talk("z", body.nameColor);
-            }
-            body.become(player);
-            socket.spectateEntity = null;
-            body.invuln = true;
         }
+        body.name = name;
+        body.incognito = socket.status.incognito ?? false;
+        if (socket.permissions && socket.permissions.nameColor) {
+            body.nameColor = socket.permissions.nameColor;
+            socket.talk("z", body.nameColor);
+        }
+        body.become(player);
+        socket.spectateEntity = null;
+        body.invuln = true;
         player.body = body;
         body.socket = socket;
         body.hasOperator = socket.status.hasOperator;
@@ -1247,7 +1224,7 @@ class socketManager {
         socket.status.daily_tank_watched_ad = false;
         socket.status.daily_tank_watched_ad_client = false;
 
-        if (!filter.length) switch (Config.mode) {
+        switch (Config.mode) {
             case 'tdm': {
                 body.team = player.team;
                 body.color.base = global.getTeamColor(player.body.team);
@@ -1277,7 +1254,7 @@ class socketManager {
                 }
             } break;
             default: {
-                let team = filter.length ? player.team : getRandomTeam();
+                let team = getRandomTeam();
                 body.team = team;
                 body.color.base = Config.random_body_colors ?
                     ran.choose([ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 ]) : getTeamColor(TEAM_RED);
@@ -2245,7 +2222,13 @@ class socketManager {
                 requestMockups: [],
             }
         }
-        socket.messageManager = socket.on("message", message => this.incoming(message, socket));
+        socket.messageManager = socket.on("message", message => {
+            try {
+                this.incoming(message, socket);
+            } catch (e) {
+                console.error("[PACKET ERROR] " + ((e && e.stack) || e));
+            }
+        });
         socket.connectedTo = global.gameManager.name;
         let timer = 0;
         socket.timeout = {
