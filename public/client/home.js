@@ -77,6 +77,50 @@
         if (contribClose) contribClose.onclick = closeContrib;
         if (contribOverlay) contribOverlay.onclick = closeContrib;
 
+        // professional region dropdown (server selector)
+        var dd = document.getElementById('serverDropdown');
+        var ddTrigger = document.getElementById('serverDropdownTrigger');
+        var ddLabel = document.getElementById('serverDropdownLabel');
+
+        function updateServerLabel() {
+            if (!ddLabel) return;
+            var sel = document.querySelector('#serverSelector tr.selected') ||
+                      document.querySelector('#serverSelector tr:not(.message)');
+            if (!sel) return;
+            var tds = sel.querySelectorAll('td');
+            var region = tds[0] ? tds[0].textContent.trim() : '';
+            var mode = tds[1] ? tds[1].textContent.trim() : '';
+            ddLabel.textContent = [region, mode].filter(Boolean).join(' \u00b7 ') || 'Loading servers\u2026';
+        }
+        function setDropdownOpen(open) {
+            if (dd) dd.classList.toggle('open', !!open);
+        }
+
+        if (ddTrigger) {
+            ddTrigger.onclick = function (e) {
+                e.stopPropagation();
+                setDropdownOpen(!dd.classList.contains('open'));
+            };
+        }
+        document.addEventListener('click', function (e) {
+            if (dd && !dd.contains(e.target)) setDropdownOpen(false);
+        });
+
+        var selTbody = document.getElementById('serverSelector');
+        if (selTbody) {
+            selTbody.addEventListener('click', function () {
+                setDropdownOpen(false);
+                updateServerLabel();
+            });
+            new MutationObserver(updateServerLabel).observe(selTbody, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class']
+            });
+        }
+        setTimeout(updateServerLabel, 600);
+
         var clTabs = document.querySelectorAll('.cl-tab');
         var patchNotes = document.getElementById('patchNotes');
         clTabs.forEach(function (tab) {
@@ -145,7 +189,7 @@
             new MutationObserver(function () {
                 var hidden = smw.style.display === 'none' || parseInt(smw.style.top) < -100;
                 homeUI.forEach(function (el) { if (el) el.style.display = hidden ? 'none' : ''; });
-                if (hidden) { closeCL(); closeP(); }
+                if (hidden) { closeCL(); closeP(); setDropdownOpen(false); }
             }).observe(smw, { attributes: true, attributeFilter: ['style'] });
         }
 

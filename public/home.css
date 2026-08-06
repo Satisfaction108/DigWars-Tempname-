@@ -92,7 +92,7 @@ body {
 }
 #themeToggleBtn:hover { border-color: var(--border-hl); background: var(--surface); }
 
-/* left sidebar: settings, changelog, social, credits, all stacked */
+/* left sidebar: settings, changelog, social — bare buttons from top-left */
 #homeSidebar {
     position: fixed;
     top: 14px; left: 14px;
@@ -100,19 +100,19 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 9px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 12px 10px;
-    box-shadow: 0 8px 32px var(--shadow);
+    gap: 12px;
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
 }
 #homeSidebar button {
     margin: 0;
 }
 #homeSettingsBtn, #homeChangelogBtn {
-    width: 46px; height: 46px;
-    border-radius: 12px;
+    width: 54px; height: 54px;
+    border-radius: 14px;
     border: 1px solid var(--border);
     background: var(--surface2);
     color: var(--text);
@@ -123,17 +123,18 @@ body {
     transition: border-color .15s, background .15s;
 }
 #homeSettingsBtn:hover, #homeChangelogBtn:hover { border-color: var(--border-hl); background: var(--surface); }
+#homeSettingsBtn svg, #homeChangelogBtn svg { width: 24px; height: 24px; }
 
 #homeSidebar .social-buttons {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 2px;
+    gap: 10px;
+    margin-top: 4px;
 }
 #homeSidebar .social-btn {
-    width: 42px; height: 42px;
+    width: 48px; height: 48px;
     border: 1px solid var(--border);
-    border-radius: 11px;
+    border-radius: 13px;
     background: var(--surface2);
     color: var(--text2);
     cursor: pointer;
@@ -143,20 +144,34 @@ body {
     transition: border-color .12s, color .12s;
 }
 #homeSidebar .social-btn:hover { border-color: var(--border-hl); color: var(--accent2); }
+#homeSidebar .social-btn svg { width: 22px; height: 22px; }
 
-.sidebar-credits { margin-top: 6px; text-align: center; color: var(--text2); font: 500 11px Ubuntu; }
-.sidebar-credits .dev-by b { color: var(--heading); }
-.contrib-link {
-    margin-top: 6px;
+/* sleek credits line under the play button */
+.menu-credits {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+    color: var(--text2);
+    font: 500 12px Ubuntu;
+}
+.menu-credits .dev-by { letter-spacing: .02em; }
+.menu-credits .dev-by b { color: var(--heading); font-weight: 700; }
+.menu-credits .credit-sep { opacity: .6; }
+.menu-credits .contrib-link {
     background: transparent;
     border: none;
     color: var(--link);
     cursor: pointer;
-    font: 600 11px Ubuntu;
-    text-decoration: underline;
+    font: 500 12px Ubuntu;
+    letter-spacing: .02em;
     padding: 0;
+    text-decoration: none;
+    opacity: .85;
+    transition: opacity .15s;
 }
-.contrib-link:hover { opacity: .8; }
+.menu-credits .contrib-link:hover { opacity: 1; text-decoration: underline; }
 
 /* contributors modal */
 #contributorsPanel {
@@ -539,7 +554,6 @@ body.mobile .startMenuHolder.linkHolder { display: none; }
 }
 .social-btn:hover { border-color: var(--border-hl); color: var(--accent2); }
 
-.header { display: flex; justify-content: center; align-items: center; padding: 4px 0 8px; }
 .icon { width: 54px; height: 54px; }
 .icon > img { width: 100%; height: 100%; }
 .placeholder-logo {
@@ -565,45 +579,131 @@ body.mobile h1 { font-size: 28px; }
     font: 700 46px/1.15 Ubuntu;
     text-align: center;
     letter-spacing: -1px;
+    margin: 4px 0 18px;
 }
-body.mobile .game-title { font-size: 34px; }
+body.mobile .game-title { font-size: 34px; margin: 2px 0 14px; }
 
-/* single-region location selector (europe only) */
-.loc-select-wrap { text-align: center; }
-.loc-label {
-    display: block;
+/* two-column row: name (left) + region dropdown (right) */
+.menu-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 18px;
+}
+.menu-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.field-label {
     font: 700 11px Ubuntu;
     text-transform: uppercase;
-    letter-spacing: .08em;
+    letter-spacing: .1em;
     color: var(--text2);
-    margin-bottom: 3px;
+    text-align: left;
 }
 
-.serverSelector {
-    height: 160px;
-    text-align: center;
-    font: 600 12px Ubuntu;
-    line-height: 10px;
-    padding: 0 4px;
-    background: transparent !important;
-}
-.loc-select-wrap .serverSelector {
-    height: auto;
-    max-height: 46px;
-    overflow: hidden;
-}
-.loc-select-wrap .serverSelector tr {
-    display: inline-block;
-    padding: 6px 18px;
+/* professional region dropdown */
+.region-dropdown { position: relative; width: 100%; }
+.region-dropdown-trigger {
+    width: 100%;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 14px;
+    box-sizing: border-box;
+    background: var(--input-bg);
     border: 1px solid var(--input-bd);
-    border-radius: 8px;
-    background: var(--surface2);
-    font-size: 14px;
-    margin-top: 4px;
-    transition: border-color .15s;
+    border-radius: 10px;
+    color: var(--input-fg);
+    font: 600 14px Ubuntu;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s, background .15s;
 }
-.loc-select-wrap .serverSelector tr:hover { border-color: var(--border-hl); }
-.loc-select-wrap .serverSelector tr.featured { color: var(--heading); }
+.region-dropdown-trigger:hover,
+.region-dropdown.open .region-dropdown-trigger {
+    border-color: var(--border-hl);
+    background: var(--surface2);
+}
+#serverDropdownLabel {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.region-dropdown-arrow {
+    width: 13px; height: 13px;
+    flex-shrink: 0;
+    color: var(--text2);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+}
+.region-dropdown.open .region-dropdown-arrow { transform: rotate(180deg); }
+
+.region-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0; right: 0;
+    max-height: 0;
+    opacity: 0;
+    visibility: hidden;
+    overflow: hidden;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 14px 36px var(--shadow);
+    z-index: 20;
+    transform: translateY(-6px);
+    transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .22s ease, transform .3s cubic-bezier(.4,0,.2,1), visibility 0s .3s;
+}
+.region-dropdown.open .region-dropdown-menu {
+    max-height: 220px;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    overflow-y: auto;
+    transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .22s ease, transform .3s cubic-bezier(.4,0,.2,1);
+}
+
+/* server rows rendered as sleek dropdown options */
+.region-dropdown-menu .serverSelector {
+    height: auto !important;
+    max-height: none;
+    overflow: visible;
+}
+.region-dropdown-menu .serverSelector tbody,
+.region-dropdown-menu .serverSelector center { display: block; }
+.region-dropdown-menu .serverSelector tr {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    margin: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    font-size: 13px;
+    line-height: 1.3;
+    text-align: left;
+    transition: background .12s;
+}
+.region-dropdown-menu .serverSelector tr:hover { background: var(--surface2); color: var(--text); }
+.region-dropdown-menu .serverSelector tr.featured { color: #e8ae00; }
+.region-dropdown-menu .serverSelector tr.selected { color: var(--sel); background: var(--surface2); cursor: default; }
+.region-dropdown-menu .serverSelector tr.message { justify-content: center; font-style: italic; cursor: default; }
+.region-dropdown-menu .serverSelector tr:last-child { border-bottom: none; }
+.region-dropdown-menu .serverSelector td { display: block; padding: 0; }
+.region-dropdown-menu .serverSelector td:first-child { font-weight: 700; }
+.region-dropdown-menu .serverSelector td:nth-child(2) { flex: 1; text-align: right; font-size: 12px; color: var(--text2); }
+.region-dropdown-menu .serverSelector td:nth-child(3) { text-align: right; font-size: 12px; color: var(--text2); min-width: 34px; }
+.region-dropdown-menu .serverSelector td.tdCenter { width: auto; }
+
+.region-dropdown-menu #serverFilterRegion {
+    margin: 0;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+}
+.region-dropdown-menu #serverFilterRegion span { margin: 2px; }
 
 .serverSelector tr { color: var(--text2); cursor: pointer; transition: color .12s; }
 .serverSelector tr:hover { color: var(--text); }
@@ -619,8 +719,6 @@ body.mobile .game-title { font-size: 34px; }
 }
 .shadowScroll::-webkit-scrollbar { width: 3px; }
 .shadowScroll::-webkit-scrollbar-thumb { background: var(--scroll-t); border-radius: 2px; }
-
-.input-spacer { flex: 1; min-height: 40px; }
 
 input {
     text-align: center;
@@ -638,7 +736,14 @@ input {
     transition: border-color .15s;
 }
 input:focus { border-color: var(--border-hl); }
-#playerNameInput { font-size: 17px; color: var(--text); height: 34px; }
+#playerNameInput {
+    font-size: 15px;
+    color: var(--text);
+    height: 48px;
+    border-radius: 10px;
+    margin: 0;
+    padding: 0 14px;
+}
 #playerKeyInput { display: none; }
 
 .horizontalSelector {
@@ -684,16 +789,16 @@ input:focus { border-color: var(--border-hl); }
 
 #serverFilterRegion span.active { background: var(--accent); border-color: var(--accent); color: #fff; cursor: default; }
 
-.startButtonHolder { margin-top: 10px; }
+.startButtonHolder { margin-top: 16px; }
 #startButton {
     width: 100%;
-    height: 52px;
+    height: 58px;
     border: 0;
-    border-radius: 10px;
+    border-radius: 12px;
     background: var(--play);
     border-bottom: 3px solid var(--play-dk);
     color: #fff;
-    font: 800 20px/1 Ubuntu;
+    font: 800 21px/1 Ubuntu;
     cursor: pointer;
     letter-spacing: .08em;
     text-shadow: 0 1px 2px rgba(0,0,0,0.2);
@@ -701,16 +806,16 @@ input:focus { border-color: var(--border-hl); }
 }
 #startButton:hover {
     margin-top: 2px;
-    height: 50px;
+    height: 56px;
     border-bottom-width: 1px;
 }
 #startButton:active {
     margin-top: 3px;
-    height: 49px;
+    height: 55px;
     background: var(--play-dk);
     border-bottom-width: 0;
 }
-#startButton:disabled { opacity: .35; cursor: not-allowed; margin-top: 0; height: 52px; }
+#startButton:disabled { opacity: .35; cursor: not-allowed; margin-top: 0; height: 58px; }
 
 #patchNotes {
     max-width: 330px;
@@ -942,3 +1047,11 @@ h3 { font-size: 14px; line-height: 16px; color: var(--text2); text-align: center
 }
 #ingameChatModeBtn:hover { background: #23252e; }
 #ingameChatModeBtn:active { transform: scale(.96); }
+
+/* ── responsive menu: stacked fields + inline dropdown on small screens ── */
+@media (max-width: 640px) {
+    .menu-row { grid-template-columns: 1fr; gap: 12px; }
+}
+body.mobile .startMenuSlidingContent { height: auto; }
+body.mobile .sliderHolder { height: auto; }
+body.mobile .region-dropdown-menu { position: static; }
