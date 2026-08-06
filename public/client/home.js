@@ -62,6 +62,21 @@
         if (clCloseBtn) clCloseBtn.onclick = closeCL;
         if (clOverlay) clOverlay.onclick = closeCL;
 
+        // contributors modal - opened from the sidebar credits line
+        var contribPanel = document.getElementById('contributorsPanel');
+        var contribOverlay = document.getElementById('contributorsOverlay');
+        var contribLink = document.getElementById('contributorsLink');
+        var contribClose = document.getElementById('contributorsClose');
+        function openContrib() {
+            if (contribPanel) { contribPanel.classList.add('open'); contribOverlay.classList.add('visible'); }
+        }
+        function closeContrib() {
+            if (contribPanel) { contribPanel.classList.remove('open'); contribOverlay.classList.remove('visible'); }
+        }
+        if (contribLink) contribLink.onclick = openContrib;
+        if (contribClose) contribClose.onclick = closeContrib;
+        if (contribOverlay) contribOverlay.onclick = closeContrib;
+
         var clTabs = document.querySelectorAll('.cl-tab');
         var patchNotes = document.getElementById('patchNotes');
         clTabs.forEach(function (tab) {
@@ -122,6 +137,7 @@
             document.getElementById('themeToggleBtn'),
             document.getElementById('homeSettingsBtn'),
             document.getElementById('homeChangelogBtn'),
+            document.getElementById('homeSidebar'),
             document.getElementById('snowCanvas')
         ];
         var smw = document.getElementById('startMenuWrapper');
