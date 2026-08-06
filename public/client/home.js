@@ -11,10 +11,10 @@
         if (icon) icon.textContent = t === 'light' ? '\u2600' : '\u263E';
     }
 
-    applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+    applyTheme(localStorage.getItem(THEME_KEY) || 'dark'); // immediate, no flash
 
     document.addEventListener('DOMContentLoaded', function () {
-        applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+        applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 
         var tb = document.getElementById('themeToggleBtn');
         if (tb) tb.onclick = function () {
