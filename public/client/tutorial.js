@@ -182,7 +182,10 @@ const state = {
     fireSeen: false,
     bursts: [],         // world-space completion particles
     titleAt: 0,
-    hudAlpha: 0,
+    settleAt: 0,        // when an "absence" condition first held (see update)
+    evolveCount: 0,     // class upgrades taken since the tutorial started
+    lastType: null,
+    lastBreak: null,    // where the marked rock died, for the gems objective
 };
 
 function snapshot() {
@@ -207,7 +210,6 @@ const STEPS = [
         title: "DIG WARS",
         subtitle: "Mine the deep. Bank it before they do.",
         card: true,
-        hold: 2600,
         done: () => T() - state.stepAt > 2600,
     },
     {
@@ -225,19 +227,45 @@ const STEPS = [
             global.player.rendery - state.base.y) > 260,
     },
     {
-        id: "fire",
-        label: "Fire",
+        id: "evolve",
+        label: "Evolve your tank",
         hint: () => global.mobile
-            ? "Hold the right side of the screen to aim and shoot."
-            : "Aim with the mouse. Hold left click or SPACE to shoot.",
-        target: () => ({ kind: "self" }),
-        done: () => state.fireSeen ||
-            (global.mobile && global.canvas && global.canvas.controlTouch !== null),
+            ? "Tap a class to evolve. Keep going until you reach your final form."
+            : "Pick a class to evolve. Keep going until you reach your final form.",
+        ui: "upgrades",
+        // Not a fixed number of picks: you are done when the game stops
+        // offering upgrades, i.e. you are at your final tier.
+        progress: () => (gui.upgrades || []).length ? 0 : 1,
+        settle: 1100,
+        done: () => {
+            const offered = (gui.upgrades || []).length > 0;
+            if (offered) return false;
+            if (state.evolveCount > 0) return true;
+            // already max tier / nothing was ever offered — nothing to teach
+            return T() - state.stepAt > 6000;
+        },
+    },
+    {
+        id: "stats",
+        label: "Spend your stat points",
+        hint: () => global.mobile
+            ? "Tap the stat bars until every point is spent."
+            : "Press {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the bars until every point is spent.",
+        ui: "skills",
+        progress: () => {
+            const b = state.base.points || 0;
+            return b > 0 ? clamp(1 - gui.points / b, 0, 1) : 1;
+        },
+        settle: 700,
+        done: () => gui.points <= 0 ||
+            !(gui.skills || []).some(sk => sk.amount < sk.cap),
     },
     {
         id: "rock",
-        label: "Break the rock",
-        hint: () => "Shoot the marked rock until it shatters.",
+        label: "Break a rock",
+        hint: () => global.mobile
+            ? "Aim with the right side of the screen and hold to fire. Shatter the marked rock."
+            : "Aim with your mouse, hold left click to fire. Shatter the marked rock.",
         acquire: () => {
             const r = acquireRock(true);
             return r ? { kind: "rock", k: r.k, x: r.x, y: r.y } : null;
@@ -281,7 +309,7 @@ const STEPS = [
     },
     {
         id: "bank",
-        label: "Bank your haul",
+        label: "Cash out",
         hint: () => "Carried gems drop when you die. Park on the vault pad to bank them.",
         acquire: () => {
             const v = nearestVault();
@@ -297,46 +325,28 @@ const STEPS = [
     {
         id: "done",
         title: "GOOD LUCK, MINER",
-        subtitle: "Out-bank the enemy team.",
+        subtitle: () => global.gems.banked > 0
+            ? `${global.gems.banked} banked. Now go take theirs.`
+            : "Out-bank the enemy team.",
         card: true,
-        hold: 3200,
         final: true,
-        done: () => T() - state.stepAt > 3200,
+        done: () => T() - state.stepAt > 3400,
     },
 ];
-
-// Contextual prompts — these fire the first time the game actually offers the
-// thing, rather than blocking the main chain on state that may never arrive.
-const TIPS = [
-    {
-        id: "stat",
-        label: "Spend a stat point",
-        hint: () => global.mobile
-            ? "Tap the stat bars to strengthen your tank."
-            : "Press {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the bars to strengthen your tank.",
-        when: () => gui.points > 0,
-        ui: "skills",
-        done: (b) => gui.points < b,
-        base: () => gui.points,
-    },
-    {
-        id: "evolve",
-        label: "Evolve your tank",
-        hint: () => global.mobile
-            ? "Tap a class to evolve."
-            : "Click a class to evolve, or press its key.",
-        when: () => (gui.upgrades || []).length > 0,
-        ui: "upgrades",
-        done: (b) => gui.type !== b,
-        base: () => gui.type,
-    },
-];
-let tip = null, tipShown = {};
 
 // ── UI rects (live geometry straight from the game's own hit regions) ───
 function uiRect(kind) {
     const cl = global.clickables;
     if (!cl) return null;
+    // app.js registers hit regions in *clickable* space:
+    //   place(i, x * clickableRatio, ...)  with
+    //   clickableRatio = canvas.height / screenHeight / devicePixelRatio
+    // so the stored rect must be divided back out to land on the drawn UI.
+    // This is recomputed every frame, which is what keeps the highlight glued
+    // to the real widget across resizes, DPI changes and monitor swaps.
+    const cr = (global.canvas && global.canvas.height && SH() && global.ratio)
+        ? global.canvas.height / SH() / global.ratio : 1;
+    if (!cr || !isFinite(cr)) return null;
     const pad = 10 * US();
     const rs = [];
     if (kind === "skills") {
@@ -349,11 +359,37 @@ function uiRect(kind) {
     for (const r of rs) {
         if (!r) continue;
         any = true;
-        x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y);
-        x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h);
+        x0 = Math.min(x0, r.x / cr); y0 = Math.min(y0, r.y / cr);
+        x1 = Math.max(x1, (r.x + r.w) / cr); y1 = Math.max(y1, (r.y + r.h) / cr);
     }
     if (!any) return null;
-    return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
+    let bx = x0 - pad, by = y0 - pad;
+    let bw = x1 - x0 + pad * 2, bh = y1 - y0 + pad * 2;
+    // The mobile skill bar lays its ten stats out in a row far wider than a
+    // phone screen, so the raw union runs thousands of px off the edge. Clamp
+    // to the viewport or we'd stroke a giant invisible rectangle.
+    const m = 2 * US();
+    const cx0 = Math.max(bx, m), cy0 = Math.max(by, m);
+    const cx1 = Math.min(bx + bw, SW() - m), cy1 = Math.min(by + bh, SH() - m);
+    if (cx1 <= cx0 || cy1 <= cy0) return null;
+    return { x: cx0, y: cy0, w: cx1 - cx0, h: cy1 - cy0 };
+}
+
+// pulsing highlight around whatever live UI the current objective is about
+function drawUiHighlight(c, kind) {
+    const box = uiRect(kind);
+    if (!box) return;
+    const S = US();
+    const pulse = 0.5 + 0.5 * Math.sin(T() / 260);
+    c.save();
+    roundRect(c, box.x, box.y, box.w, box.h, 9 * S);
+    c.lineWidth = 2.5;
+    c.strokeStyle = `rgba(${GOLD},${0.55 + 0.4 * pulse})`;
+    c.stroke();
+    c.lineWidth = 9;
+    c.strokeStyle = `rgba(${GOLD},${0.07 + 0.06 * pulse})`;
+    c.stroke();
+    c.restore();
 }
 
 // ── step machine ───────────────────────────────────────────────────────
@@ -365,6 +401,7 @@ function enterStep(i) {
     state.completedAt = 0;
     state.phase = "active";
     state.target = null;
+    state.settleAt = 0;
     snapshot();
     const s = stepDef();
     if (!s) return finish();
@@ -406,42 +443,37 @@ function update() {
     const s = stepDef();
     if (!s) return;
 
+    // track class evolutions wherever they happen, so the evolve objective
+    // knows whether the player actually upgraded or was already max tier
+    if (gui.type !== state.lastType) {
+        if (state.lastType !== null) state.evolveCount++;
+        state.lastType = gui.type;
+    }
+
     if (state.phase === "active") {
         // Success is checked BEFORE re-targeting: for the rock objective the
         // target's death *is* the win condition, and revalidate treats a dead
         // rock as "lost" — re-acquiring first would swap in a fresh live rock
         // every time you broke one, so the step could never complete.
         if (s.done(state.target)) {
-            completeStep();
-        } else if (s.revalidate) {
-            const next = s.revalidate(state.target);
-            state.target = (!next && s.acquire) ? s.acquire() : next;
-        } else if (!state.target && s.acquire) {
-            state.target = s.acquire();
+            // Some conditions are "absence of something" (no upgrades left to
+            // pick, no points left to spend) and flicker while the server
+            // sends the next batch — hold them steady before accepting.
+            if (!s.settle) completeStep();
+            else if (!state.settleAt) state.settleAt = T();
+            else if (T() - state.settleAt > s.settle) completeStep();
+        } else {
+            state.settleAt = 0;
+            if (s.revalidate) {
+                const next = s.revalidate(state.target);
+                state.target = (!next && s.acquire) ? s.acquire() : next;
+            } else if (!state.target && s.acquire) {
+                state.target = s.acquire();
+            }
         }
     } else if (state.phase === "clearing") {
         const wait = s.card ? 620 : 900;
         if (T() - state.completedAt > wait) advance();
-    }
-
-    // contextual tips run alongside the main chain, but never over a title
-    // card and never before the player has their hands on the controls
-    if (!tip) {
-        if (s.card || state.step < 2) return;
-        for (const t of TIPS) {
-            if (tipShown[t.id]) continue;
-            if (t.when()) {
-                tip = { def: t, at: T(), base: t.base(), gone: 0 };
-                tipShown[t.id] = true;
-                sfxAdvance();
-                break;
-            }
-        }
-    } else if (!tip.gone) {
-        if (tip.def.done(tip.base)) { tip.gone = T(); sfxObjective(); }
-        else if (T() - tip.at > 14000) tip.gone = T();
-    } else if (T() - tip.gone > 900) {
-        tip = null;
     }
 }
 
@@ -839,16 +871,17 @@ function drawTitleCard(c, s) {
     c.moveTo(cx - halfW, cy + size * 0.72); c.lineTo(cx + halfW, cy + size * 0.72);
     c.stroke();
 
-    if (s.subtitle) {
+    const subtitle = typeof s.subtitle === "function" ? s.subtitle() : s.subtitle;
+    if (subtitle) {
         c.globalAlpha = a * smooth((t - 320) / 700);
         c.font = `500 ${15 * S}px ${FONT}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.lineWidth = 3;
         c.strokeStyle = "rgba(0,0,0,.6)";
-        c.strokeText(s.subtitle, cx, cy + size * 0.72 + 22 * S);
+        c.strokeText(subtitle, cx, cy + size * 0.72 + 22 * S);
         c.fillStyle = `rgba(${PALE},.92)`;
-        c.fillText(s.subtitle, cx, cy + size * 0.72 + 22 * S);
+        c.fillText(subtitle, cx, cy + size * 0.72 + 22 * S);
     }
     c.restore();
 }
@@ -892,13 +925,14 @@ function drawObjective(c) {
     c.strokeStyle = `rgba(${GOLD},.28)`;
     c.stroke();
 
-    // left accent bar that fills with step progress
+    // progress slider, sitting just outside the card's left edge
     const pr = cleared ? 1 : (s.progress ? clamp(s.progress(state.target), 0, 1) : 0);
-    roundRect(c, x, y, 3.5 * S, boxH, 2 * S);
-    c.fillStyle = `rgba(${GOLD},.25)`;
+    const barW = 4 * S, barX = x - barW - 7 * S;
+    roundRect(c, barX, y, barW, boxH, barW / 2);
+    c.fillStyle = `rgba(${GOLD},.22)`;
     c.fill();
     if (pr > 0) {
-        roundRect(c, x, y + boxH * (1 - pr), 3.5 * S, boxH * pr, 2 * S);
+        roundRect(c, barX, y + boxH * (1 - pr), barW, boxH * pr, barW / 2);
         c.fillStyle = `rgb(${GOLD})`;
         c.fill();
     }
@@ -929,106 +963,55 @@ function drawObjective(c) {
     }
     c.restore();
 
-    // remember the card's band so the tip can dodge it when it has no UI anchor
-    state.card = { y, h: boxH };
     // mobile stacks the card at the bottom, so the skip control goes above it
     layoutSkip(global.mobile ? y - 36 * S : y + boxH);
 }
 
-// contextual tip card, anchored to the UI it is talking about
-function drawTip(c) {
-    if (!tip) return;
-    const S = US();
-    const a = smooth((T() - tip.at) / 380) *
-        (tip.gone ? 1 - smooth((T() - tip.gone) / 700) : 1);
-    if (a <= 0) return;
-    const box = uiRect(tip.def.ui);
-
-    c.save();
-    c.globalAlpha = a;
-
-    if (box) {
-        const pulse = 0.5 + 0.5 * Math.sin(T() / 260);
-        c.lineWidth = 2.5;
-        c.strokeStyle = `rgba(${GOLD},${0.55 + 0.4 * pulse})`;
-        roundRect(c, box.x, box.y, box.w, box.h, 8 * S);
-        c.stroke();
-        c.lineWidth = 8;
-        c.strokeStyle = `rgba(${GOLD},${0.08 + 0.07 * pulse})`;
-        c.stroke();
-    }
-
-    const hint = typeof tip.def.hint === "function" ? tip.def.hint() : tip.def.hint;
-    const maxW = Math.min(SW() * 0.8, 340 * S);
-    const lines = layout(c, tokenize(hint), maxW - 30 * S, S);
-    const lineH = 20 * S;
-    const boxW = maxW, boxH = 20 * S + 20 * S + lines.length * lineH;
-    const gap = 12 * S, edge = 8 * S;
-    let x, y;
-    if (!box) {
-        // no UI to anchor to — tuck it against the objective card
-        x = (SW() - boxW) / 2;
-        y = state.card
-            ? (global.mobile ? state.card.y - boxH - 12 * S : state.card.y + state.card.h + 34 * S)
-            : SH() - boxH - 90 * S;
-        y = clamp(y, edge, SH() - boxH - edge);
-    } else {
-        // Never cover the thing we are pointing at. Prefer the side of the
-        // highlight with room; fall back to above/below. The stat bars hug a
-        // screen corner, so "below" is usually off-screen and "beside" wins.
-        const roomR = SW() - (box.x + box.w) - gap - edge;
-        const roomL = box.x - gap - edge;
-        const roomB = SH() - (box.y + box.h) - gap - edge;
-        const roomT = box.y - gap - edge;
-        if (roomR >= boxW || roomL >= boxW) {
-            x = roomR >= boxW ? box.x + box.w + gap : box.x - gap - boxW;
-            y = clamp(box.y + box.h / 2 - boxH / 2, edge, SH() - boxH - edge);
-        } else if (roomB >= boxH || roomT >= boxH) {
-            y = roomB >= boxH ? box.y + box.h + gap : box.y - gap - boxH;
-            x = clamp(box.x + box.w / 2 - boxW / 2, edge, SW() - boxW - edge);
-        } else {
-            x = clamp(box.x + box.w / 2 - boxW / 2, edge, SW() - boxW - edge);
-            y = clamp(SH() - boxH - 90 * S, edge, SH() - boxH - edge);
-        }
-    }
-
-    roundRect(c, x, y, boxW, boxH, 10 * S);
-    c.fillStyle = "rgba(10,11,15,.86)";
-    c.fill();
-    c.lineWidth = 1.5;
-    c.strokeStyle = `rgba(${GOLD},.3)`;
-    c.stroke();
-
-    const cx2 = x + boxW / 2;
-    const done = !!tip.gone && tip.def.done(tip.base);
-    trackedText(c, (done ? "✓  " : "") + tip.def.label.toUpperCase(), cx2, y + 18 * S,
-        13 * S, done ? `rgb(${MINT})` : `rgb(${GOLD})`, 1.4 * S, a);
-    c.globalAlpha = a;
-    let ty = y + 20 * S + 18 * S;
-    c.textBaseline = "middle";
-    for (const line of lines) { drawLine(c, line, cx2, ty, S); ty += lineH; }
-    c.restore();
-}
-
-// ── skip control (DOM, so it is reliably clickable/tappable) ───────────
-let skipEl = null;
+// ── skip controls (DOM, so they are reliably clickable/tappable) ──────
+let skipBar = null, skipStepEl = null;
 function ensureSkip() {
-    if (skipEl) return;
-    skipEl = document.createElement("button");
-    skipEl.id = "dwTutSkip";
-    skipEl.textContent = "Skip tutorial";
-    skipEl.addEventListener("click", (e) => { e.stopPropagation(); finish(); });
-    document.body.appendChild(skipEl);
+    if (skipBar) return;
+    skipBar = document.createElement("div");
+    skipBar.id = "dwTutSkipBar";
+
+    skipStepEl = document.createElement("button");
+    skipStepEl.className = "dwTutSkipBtn dwTutSkipStep";
+    skipStepEl.textContent = "Skip this step";
+    skipStepEl.addEventListener("click", e => { e.stopPropagation(); skipStep(); });
+
+    const all = document.createElement("button");
+    all.className = "dwTutSkipBtn";
+    all.textContent = "Skip tutorial";
+    all.addEventListener("click", e => { e.stopPropagation(); finish(); });
+
+    skipBar.appendChild(skipStepEl);
+    skipBar.appendChild(all);
+    document.body.appendChild(skipBar);
 }
-// glue the button just under the canvas-drawn card (logical → CSS px)
-function layoutSkip(belowY) {
-    if (!skipEl) return;
+// glue the bar just under (or above) the canvas-drawn card: logical -> CSS px
+function layoutSkip(atY) {
+    if (!skipBar) return;
     const k = window.innerHeight / Math.max(1, SH());
-    skipEl.style.top = Math.round(belowY * k + 8) + "px";
+    skipBar.style.top = Math.round(atY * k + 8) + "px";
 }
 function showSkip(on) {
-    if (!skipEl) return;
-    skipEl.classList.toggle("show", !!on);
+    if (!skipBar) return;
+    skipBar.classList.toggle("show", !!on);
+}
+// A step must never be able to trap someone. Some objectives depend on game
+// state we do not control — most sharply, the mobile skill bar lays its stats
+// out wider than a phone screen, so the last points can be unreachable — so
+// after a while we offer a way past this one step without losing the rest.
+function offerStepSkip(on) {
+    if (skipStepEl) skipStepEl.classList.toggle("show", !!on);
+}
+function skipStep() {
+    const s = stepDef();
+    if (!s || !state.running) return;
+    if (state.phase !== "active") return;
+    state.phase = "clearing";
+    state.completedAt = T();
+    sfxAdvance();
 }
 
 // ── input ──────────────────────────────────────────────────────────────
@@ -1047,7 +1030,9 @@ function open() {
     state.running = true;
     state.bursts = [];
     state.lastBreak = null;
-    tip = null; tipShown = {};
+    state.settleAt = 0;
+    state.evolveCount = 0;
+    state.lastType = gui.type;
     showSkip(true);
     enterStep(0);
 }
@@ -1056,7 +1041,6 @@ function finish() {
     state.running = false;
     state.phase = "finished";
     state.target = null;
-    tip = null;
     showSkip(false);
 }
 
@@ -1088,11 +1072,14 @@ export function hook() {
         // park the skip control under the title card; no skipping the outro
         layoutSkip(SH() * 0.46);
         showSkip(!s.final);
+        offerStepSkip(false);
     } else {
+        // highlight first so the objective card always reads on top of it
+        if (s && s.ui) drawUiHighlight(c, s.ui);
         drawObjective(c);   // positions the skip control under its card
         showSkip(true);
+        offerStepSkip(state.phase === "active" && T() - state.stepAt > 25000);
     }
-    drawTip(c);
     c.restore();
 }
 

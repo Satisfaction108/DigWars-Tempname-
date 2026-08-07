@@ -1132,16 +1132,26 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 #ingameTutorialBtn:hover { background: #23252e; }
 #ingameTutorialBtn:active { transform: scale(.95); }
 
-/* ── tutorial: skip control ────────────────────────────────────────────
-   The tutorial itself is drawn on the game canvas; this is the one piece
-   that stays DOM so it is reliably clickable/tappable. Its vertical
-   position is synced each frame to sit just under the objective card. */
-#dwTutSkip {
+/* ── tutorial: skip controls ───────────────────────────────────────────
+   The tutorial itself is drawn on the game canvas; these are the pieces
+   that stay DOM so they are reliably clickable/tappable. The bar's vertical
+   position is synced each frame to sit with the objective card. */
+#dwTutSkipBar {
     position: fixed;
     left: 50%;
     top: 120px;
     transform: translateX(-50%) translateY(-4px);
     z-index: 41;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .3s ease, transform .3s ease;
+}
+#dwTutSkipBar.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+
+.dwTutSkipBtn {
     padding: 7px 16px;
     border: 0;
     border-radius: 999px;
@@ -1150,16 +1160,23 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
     font: 600 12px Rubik, Ubuntu, sans-serif;
     letter-spacing: .04em;
     cursor: pointer;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .3s ease, transform .3s ease, color .15s, background .15s;
+    white-space: nowrap;
+    transition: color .15s, background .15s, transform .05s;
 }
-#dwTutSkip.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
-#dwTutSkip:hover { background: rgba(18,20,26,.9); color: #f2ead6; }
-#dwTutSkip:active { transform: translateX(-50%) scale(.96); }
+.dwTutSkipBtn:hover { background: rgba(18,20,26,.9); color: #f2ead6; }
+.dwTutSkipBtn:active { transform: scale(.96); }
+
+/* only offered once a step has been sitting unsolved for a while */
+.dwTutSkipStep {
+    display: none;
+    color: #ffd75e;
+    background: rgba(10,11,15,.82);
+}
+.dwTutSkipStep.show { display: inline-block; }
+.dwTutSkipStep:hover { background: rgba(255,215,94,.16); color: #ffe9a6; }
 
 @media (max-width: 640px) {
-    #dwTutSkip { padding: 9px 18px; font-size: 13px; }
+    .dwTutSkipBtn { padding: 9px 16px; font-size: 12.5px; }
 }
 
 /* ── responsive menu: stacked fields + inline dropdown on small screens ── */
