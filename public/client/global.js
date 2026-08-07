@@ -54,9 +54,14 @@ function Clickable() {
         w: 0,
         h: 0,
     };
+    let raw = { x: 0, y: 0, w: 0, h: 0 };
     let active = false;
     return {
         set: (x, y, w, h) => {
+            raw.x = x;
+            raw.y = y;
+            raw.w = w;
+            raw.h = h;
             region.x = x * global.ratio;
             region.y = y * global.ratio;
             region.w = w * global.ratio;
@@ -71,6 +76,11 @@ function Clickable() {
         hide: () => {
             active = false;
         },
+        // Unscaled last-placed rect (matches the GUI-space coords passed to set()),
+        // or null if currently hidden/never placed. Lets external code (e.g. the
+        // tutorial overlay) draw highlights around real, live UI geometry instead
+        // of duplicating each layout's position math.
+        rect: () => active ? { x: raw.x, y: raw.y, w: raw.w, h: raw.h } : null,
     };
 }
 let Region = (size) => {
@@ -92,7 +102,9 @@ let Region = (size) => {
         hide: () => {
             for (let region of data) region.hide();
         },
-        check: x => data.findIndex(r => r.check(x))
+        check: x => data.findIndex(r => r.check(x)),
+        rect: index => index < data.length ? data[index].rect() : null,
+        size: () => data.length,
     };
 };
 

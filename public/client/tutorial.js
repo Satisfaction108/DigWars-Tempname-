@@ -11,6 +11,10 @@ import { gui } from "./socketinit.js";
 
 const STORAGE_KEY = "digwarsTutorialDone";
 
+// socketinit.js calls this whenever the server reports a rock was broken —
+// wire it to a counter the tutorial's "destroy rocks" step can watch.
+window.dwTutorialRock = () => { window.dwRocksBroken = (window.dwRocksBroken || 0) + 1; };
+
 const DEFAULTS = {
     KEY_UP: "W", KEY_DOWN: "S", KEY_LEFT: "A", KEY_RIGHT: "D",
     KEY_AUTO_FIRE: "E", KEY_AUTO_SPIN: "C",
@@ -64,6 +68,7 @@ const state = {
     spinSeen: false,
     autofireSeen: false,
     moveSeen: false,
+    spinSnapshot: false,
     _waitT: 0,
 };
 
@@ -82,7 +87,13 @@ function worldToScreen(wx, wy) {
 }
 
 function tr() { return window.terrainRenderer; }
+// dwCtx[0]=background, [1]=gameplay (world entities — rocks, tanks, ore),
+// [2]=GUI (minimap, skill bars, upgrade bar). World-space markers must draw
+// on the gameplay layer to sit with the entities they're pointing at; UI
+// highlight boxes must draw on the GUI layer or the GUI panel they're meant
+// to outline (drawn after, on top) paints right over them.
 function ctx2() { return window.dwCtx && window.dwCtx[1]; }
+function ctxGui() { return window.dwCtx && window.dwCtx[2]; }
 
 // the view rectangle in world coords (what's on screen)
 function viewWorld() {
@@ -149,8 +160,9 @@ const detectMove = () => {
     const dy = global.player.cy.animY - state.spawnY;
     return Math.hypot(dx, dy) > 50;
 };
-const detectShoot = () => state.fireSeen;
-const detectSpin = () => state.spinSeen;
+const detectShoot = () => state.fireSeen ||
+    (global.mobile && global.canvas && global.canvas.controlTouch !== null);
+const detectSpin = () => state.spinSeen || global.autoSpin !== state.spinSnapshot;
 const detectAutofire = () => state.autofireSeen;
 const detectRocks = () => (window.dwRocksBroken || 0) > state.lastRocks;
 const detectGems = () => global.gems.carried > 0;
@@ -171,21 +183,27 @@ const steps = [
     },
     {
         title: "Move around",
-        body: "Press {{KEY_UP}} {{KEY_DOWN}} {{KEY_LEFT}} {{KEY_RIGHT}} or the arrow keys to move your tank. Go ahead — drift through the rocks!",
+        body: () => global.mobile
+            ? "Drag the joystick on the <b>left</b> side of the screen to move your tank. Go ahead — drift through the rocks!"
+            : "Press {{KEY_UP}} {{KEY_DOWN}} {{KEY_LEFT}} {{KEY_RIGHT}} or the arrow keys to move your tank. Go ahead — drift through the rocks!",
         target: "tank",
         detect: detectMove,
         autoNext: true,
     },
     {
         title: "Aim & shoot",
-        body: "Your tank aims at your cursor. Hold the mouse's left button (or hold SPACE) to fire.",
+        body: () => global.mobile
+            ? "Hold down on the <b>right</b> side of the screen to aim and fire — drag it around to aim, keep holding to keep shooting."
+            : "Your tank aims at your cursor. Hold the mouse's left button (or hold SPACE) to fire.",
         target: "tank",
         detect: detectShoot,
         autoNext: true,
     },
     {
         title: "Auto-fire & auto-spin",
-        body: "Press {{KEY_AUTO_FIRE}} to toggle auto-fire (tank shoots on its own), and {{KEY_AUTO_SPIN}} to spin your guns.",
+        body: () => global.mobile
+            ? "Tap the <b>+</b> button to open the action menu, then tap <b>Autofire</b> (shoots on its own) or <b>Autospin</b> (spins your guns)."
+            : "Press {{KEY_AUTO_FIRE}} to toggle auto-fire (tank shoots on its own), and {{KEY_AUTO_SPIN}} to spin your guns.",
         target: "tank",
         detect: () => detectAutofire() || detectSpin(),
         autoNext: true,
@@ -206,14 +224,18 @@ const steps = [
     },
     {
         title: "Level up your tank",
-        body: "Destroying tanks earns you upgrade choices. Pick one from the bar at the bottom to evolve your tank.",
+        body: () => global.mobile
+            ? "Destroying enemy tanks earns you upgrade choices. Tap one from the bar in the top-left to evolve your tank."
+            : "Destroying tanks earns you upgrade choices. Pick one from the bar to evolve your tank.",
         target: "upgrades",
         detect: detectUpgrade,
         autoNext: false,
     },
     {
         title: "Upgrade your stats",
-        body: "Now spend your stat points — press {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the skill bars on the left to buff your tank.",
+        body: () => global.mobile
+            ? "Now spend your stat points — tap the skill bars along the top to buff your tank."
+            : "Now spend your stat points — press {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the skill bars on the left to buff your tank.",
         target: "skills",
         detect: detectStats,
         autoNext: true,
@@ -227,17 +249,21 @@ const steps = [
     },
     {
         title: "Mark enemies",
-        body: "Spot an enemy? Press {{KEY_AUTO_ALT}} to drop a danger marker at your cursor for your whole team.",
+        body: () => global.mobile
+            ? "Enemy pings are a desktop-only feature for now — teammates on keyboard press {{KEY_AUTO_ALT}} to drop a danger marker for the team."
+            : "Spot an enemy? Press {{KEY_AUTO_ALT}} to drop a danger marker at your cursor for your whole team.",
         target: "tank",
         detect: detectPing,
-        autoNext: true,
+        autoNext: () => !global.mobile,
     },
     {
         title: "Check the map",
-        body: "Press {{KEY_TOGGLE_MAP}} to open the full map, or glance at the minimap in the corner.",
+        body: () => global.mobile
+            ? "Keep an eye on the minimap in the corner to track the action as you play."
+            : "Press {{KEY_TOGGLE_MAP}} to open the full map, or glance at the minimap in the corner.",
         target: "minimap",
         detect: detectMap,
-        autoNext: true,
+        autoNext: () => !global.mobile,
     },
     {
         title: "That's it! Have fun playing!",
@@ -298,7 +324,7 @@ function renderStep() {
     const s = steps[state.step];
     if (!s) return;
     titleEl.textContent = s.title;
-    bodyEl.innerHTML = fillBody(s.body);
+    bodyEl.innerHTML = fillBody(typeof s.body === "function" ? s.body() : s.body);
     nextBtn.textContent = s.final ? "Play!" : "Next";
     skipBtn.style.display = s.final ? "none" : "";
 
@@ -326,6 +352,18 @@ function onMouseDown(e) {
     if (!state.running) return;
     if (e.button === 0) state.fireSeen = true;
 }
+// Autofire has no client-observable on/off state (server-authoritative), on
+// either platform — so unlike auto-spin (global.autoSpin) it can only be
+// detected by catching the action that triggers it. On mobile that means
+// watching for a tap that actually lands on the "Autofire" button, using the
+// game's own hit-testing (mobileButtons index 3 — see canvas.js touchStart).
+function onTouchStart(e) {
+    if (!state.running || !global.mobile || !global.clickables) return;
+    for (const touch of e.changedTouches) {
+        const mpos = { x: touch.clientX * global.ratio, y: touch.clientY * global.ratio };
+        if (global.clickables.mobileButtons.check(mpos) === 3) state.autofireSeen = true;
+    }
+}
 
 function onNext() { advance(); }
 function onSkip() { finish(); }
@@ -349,6 +387,7 @@ function snapshot() {
     state.lastGuiType = gui.type;
     state.fireSeen = false;
     state.spinSeen = false;
+    state.spinSnapshot = global.autoSpin;
     state.autofireSeen = false;
     state.moveSeen = false;
     state._waitT = 0;
@@ -394,7 +433,13 @@ export function startTutorial() { if (isComplete()) return; open(); }
 export function replayTutorial() { open(); }
 
 let startedOnce = false;
+// Called every frame from app.js, right after drawGUI() — this is the hook
+// point that lets our overlay draw last (on top of the GUI layer) instead of
+// racing our own independent requestAnimationFrame loop against the game's,
+// which non-deterministically painted our highlight boxes UNDER that frame's
+// GUI redraw and made them invisible.
 export function hook() {
+    render();
     if (startedOnce) return;
     if (global.gameStart && !global.died && !isComplete()) {
         startedOnce = true;
@@ -402,41 +447,79 @@ export function hook() {
     }
 }
 
-// ── per-frame render + auto-advance ────────────────────────────────────
+function render() {
+    if (!state.running || !state.visible) return;
+    const s = steps[state.step];
+    if (!s) return;
+    drawMarkers(s);
+}
+
+// ── auto-advance (timing only — no drawing here, see render()) ─────────
 function tick() {
     requestAnimationFrame(tick);
     if (!state.running || !state.visible) return;
     const s = steps[state.step];
     if (!s) return;
 
-    if (s.autoNext && s.detect && s.detect()) {
+    const autoNext = typeof s.autoNext === "function" ? s.autoNext() : s.autoNext;
+    if (autoNext && s.detect && s.detect()) {
         if (!state._waitT) state._waitT = performance.now() + 400;
         else if (performance.now() > state._waitT) { advance(); return; }
     } else {
         state._waitT = 0;
     }
+}
 
-    drawMarkers(s);
+// Bounding box around a set of live UI rects, padded a bit. Rects come from
+// global.clickables' Region.rect(i) — the exact geometry the game itself
+// just placed this frame, so this tracks desktop and mobile layouts (which
+// put the skill bar and upgrade bar in very different places) automatically,
+// instead of us duplicating each layout's position math and drifting out of
+// sync whenever app.js's GUI layout changes.
+function unionRect(rects) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+    for (const r of rects) {
+        if (!r) continue;
+        any = true;
+        minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
+        maxX = Math.max(maxX, r.x + r.w); maxY = Math.max(maxY, r.y + r.h);
+    }
+    if (!any) return null;
+    const pad = 8;
+    return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
 }
 
 function uiBoxRect(target) {
-    const W = global.screenWidth, H = global.screenHeight;
+    const cl = global.clickables;
     switch (target) {
         case "upgrades": {
-            // tank upgrade bar at the bottom
-            if (!(gui.upgrades || []).length) return { x: W / 2 - 200, y: H - 150, w: 400, h: 120 };
-            return { x: W / 2 - 220, y: H - 170, w: 440, h: 140 };
+            // tank upgrade choice bar — same Region on desktop & mobile
+            const n = (gui.upgrades || []).length;
+            const rs = [];
+            for (let i = 0; i < n; i++) rs.push(cl.upgrade.rect(i));
+            return unionRect(rs);
         }
         case "skills": {
-            // skill bars on the left
-            return { x: 12, y: 10, w: 210, h: H - 60 };
+            // stat spend bars — bottom-left vertical stack on desktop,
+            // top horizontal row on mobile; live rects cover both
+            const rs = [];
+            for (let i = 0; i < cl.stat.size(); i++) rs.push(cl.stat.rect(i));
+            return unionRect(rs);
         }
         case "minimap": {
-            const len = Math.min(210, W / 4);
-            return { x: W - len - 24, y: 20, w: len, h: len };
+            // reproduces app.js drawMinimapAndDebug's own layout formula
+            const spacing = 20;
+            const alcoveSize = 200 / util.getScreenRatio();
+            const len = alcoveSize;
+            const height = (len / gw()) * gh();
+            const x = global.mobile ? spacing : global.screenWidth - spacing - len - 5;
+            const y = global.mobile ? spacing : global.screenHeight - height - spacing - 5;
+            return { x, y, w: len, h: height };
         }
         case "vault": {
-            return { x: W / 2 - 175, y: H - 320, w: 350, h: 150 };
+            // reproduces app.js drawVaultUI's own layout formula (same on both platforms)
+            const W = 340, H = 136;
+            return { x: (global.screenWidth - W) / 2, y: global.screenHeight - 318, w: W, h: H };
         }
         default:
             return null;
@@ -444,7 +527,7 @@ function uiBoxRect(target) {
 }
 
 function drawUiBox(target) {
-    const c = ctx2();
+    const c = ctxGui();
     const r = uiBoxRect(target);
     if (!r || !c) return;
     const now = performance.now();
@@ -563,4 +646,5 @@ function drawWorldArrow(text, col, target) {
 
 document.addEventListener("keydown", onKeyDown);
 document.addEventListener("mousedown", onMouseDown);
+document.addEventListener("touchstart", onTouchStart, { passive: true });
 tick();

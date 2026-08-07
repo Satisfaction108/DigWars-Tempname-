@@ -1224,6 +1224,20 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 .dwTutDot.active { background: #ffd75e; transform: scale(1.25); }
 .dwTutDot.done { background: #6b6f7a; }
 
+/* ── tutorial: small-screen / touch-device tightening ─────────────────── */
+@media (max-width: 640px) {
+    #dwTutorial {
+        top: max(10px, env(safe-area-inset-top, 10px));
+        width: calc(100vw - 24px);
+        border-radius: 12px;
+    }
+    .dwTutTitle { font-size: 17px; padding: 13px 14px 4px; }
+    .dwTutBody { font-size: 13px; padding: 4px 14px 10px; }
+    .dwTutBtns { padding: 6px 14px 14px; gap: 8px; }
+    .dwTutBtn { padding: 11px 16px; font-size: 13px; min-height: 40px; }
+    .dwTutDots { padding: 0 14px 12px; }
+}
+
 /* ── responsive menu: stacked fields + inline dropdown on small screens ── */
 @media (max-width: 640px) {
     .menu-row { grid-template-columns: 1fr; gap: 12px; }
