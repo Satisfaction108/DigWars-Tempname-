@@ -2964,33 +2964,114 @@ import * as tutorial from './tutorial.js';
         };
     }
 
-    // A classic polygon RING (hollow border, not a filled boulder): 15 equal
-    // sides on the unit circle, rotated by a per-chamber angle so the two
-    // chambers don't sit at identical angles. Built in UNIT space + scaled at
-    // draw time so zoom changes never invalidate the cache. `ring` is the two
-    // outlines in one path so a single evenodd fill punches the hollow center
-    // out - the treasury gems drift inside it and stay on show.
-    function chamberRockPath(h) {
+    // The chamber is a carved treasury vault: masonry walls in the same flat,
+    // dark-outlined language as the vault, a lit floor inside so it reads as a
+    // ROOM rather than an outline, and the owning team's colour inlaid into
+    // the wall. All of that detail is baked ONCE into an offscreen sprite, so
+    // the per-frame cost is a single drawImage regardless of how much art the
+    // sprite carries. Built at a fixed resolution and scaled on draw, so
+    // zooming never rebuilds it.
+    const CHAMBER_SPRITE = 512;
+    const CHAMBER_PAD = 0.13;     // headroom for the outer stroke + ground shadow
+
+    function makeChamberSprite(h, team) {
+        const S = CHAMBER_SPRITE, C = S / 2;
+        const R = C * (1 - CHAMBER_PAD);
+        const inR = R * (CHAMBER_INNER / 160);
         const rot = (h(0, 110) - 0.5) * 0.6;
-        const outer = new Path2D();
-        const inner = new Path2D();
+        const teamCol = team === -1 ? gameDraw.getColor("blue") : gameDraw.getColor("red");
+        const wallW = R - inR;
+
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = S;
+        const c = cv.getContext("2d");
+        c.translate(C, C);
+        c.lineJoin = "round";
+        c.lineCap = "round";
+
+        const mkPath = (r, dy = 0) => {
+            const p = new Path2D();
+            for (let i = 0; i < CHAMBER_SIDES; i++) {
+                const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
+                const x = Math.cos(a) * r, y = Math.sin(a) * r + dy;
+                if (i) p.lineTo(x, y); else p.moveTo(x, y);
+            }
+            p.closePath();
+            return p;
+        };
+        const outer = mkPath(R), inner = mkPath(inR);
         const ring = new Path2D();
-        const inR = CHAMBER_INNER / 160;
-        for (let i = 0; i < CHAMBER_SIDES; i++) {
-            const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
-            const x = Math.cos(a), y = Math.sin(a);
-            if (i) outer.lineTo(x, y); else outer.moveTo(x, y);
+        ring.addPath(outer); ring.addPath(inner);
+
+        // 1. grounding shadow so the chamber sits ON the cavern floor
+        c.globalAlpha = 0.4;
+        c.fillStyle = "#000000";
+        c.fill(mkPath(R * 1.012, wallW * 0.5));
+        c.globalAlpha = 1;
+
+        // 2. the floor of the room: a faint team wash lit from the middle and
+        //    pooling to black under the walls. This is what turns a border
+        //    into an interior you can stand in.
+        c.fillStyle = teamCol;
+        c.globalAlpha = 0.055;
+        c.fill(inner);
+        c.globalAlpha = 1;
+        const floor = c.createRadialGradient(0, 0, inR * 0.08, 0, 0, inR);
+        floor.addColorStop(0, "rgba(255,255,255,0.05)");
+        floor.addColorStop(0.6, "rgba(0,0,0,0.06)");
+        floor.addColorStop(0.88, "rgba(0,0,0,0.34)");
+        floor.addColorStop(1, "rgba(0,0,0,0.6)");
+        c.fillStyle = floor;
+        c.fill(inner);
+
+        // 3. the masonry band. Kept darker than the vault's armour plate - it
+        //    is rock hewn out of the cavern, not machined steel.
+        const stone = c.createLinearGradient(0, -R, 0, R);
+        stone.addColorStop(0, "#4b5262");
+        stone.addColorStop(0.5, "#3a404d");
+        stone.addColorStop(1, "#2b303a");
+        c.fillStyle = stone;
+        c.fill(ring, "evenodd");
+
+        // 4. lit top face / shaded inner face, clipped to the band so the wall
+        //    reads as having real thickness rather than being a drawn line
+        c.save();
+        c.clip(ring, "evenodd");
+        c.lineWidth = wallW * 0.5;
+        c.strokeStyle = "rgba(198,212,236,0.17)";
+        c.stroke(mkPath(R - wallW * 0.2));
+        c.strokeStyle = "rgba(0,0,0,0.35)";
+        c.stroke(mkPath(inR + wallW * 0.2));
+
+        // 5. block joints, so it reads as courses of cut stone
+        c.strokeStyle = "rgba(0,0,0,0.5)";
+        c.lineWidth = Math.max(1, wallW * 0.11);
+        const JOINTS = CHAMBER_SIDES * 2;
+        for (let i = 0; i < JOINTS; i++) {
+            const a = (i / JOINTS) * Math.PI * 2 + rot;
+            const ca = Math.cos(a), sa = Math.sin(a);
+            c.beginPath();
+            c.moveTo(ca * (inR - wallW * 0.1), sa * (inR - wallW * 0.1));
+            c.lineTo(ca * (R + wallW * 0.1), sa * (R + wallW * 0.1));
+            c.stroke();
         }
-        outer.closePath();
-        for (let i = 0; i < CHAMBER_SIDES; i++) {
-            const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
-            const x = Math.cos(a) * inR, y = Math.sin(a) * inR;
-            if (i) inner.lineTo(x, y); else inner.moveTo(x, y);
-        }
-        inner.closePath();
-        ring.addPath(outer);
-        ring.addPath(inner);
-        return { outer, inner, ring };
+        c.restore();
+
+        // 6. team inlay seam along the inside face - whose treasury this is,
+        //    readable from across the cavern
+        c.globalAlpha = 0.95;
+        c.strokeStyle = teamCol;
+        c.lineWidth = wallW * 0.17;
+        c.stroke(mkPath(inR + wallW * 0.13));
+        c.globalAlpha = 1;
+
+        // 7. arras-style dark borders on both faces, heavier on the outside
+        c.strokeStyle = "#15171c";
+        c.lineWidth = wallW * 0.42;
+        c.stroke(outer);
+        c.lineWidth = wallW * 0.3;
+        c.stroke(inner);
+        return cv;
     }
 
     function drawChambers(roomX, roomY, ratio) {
@@ -3019,55 +3100,49 @@ import * as tutorial from './tutorial.js';
             const scale = regrowing ? Math.max(0.05, st.s || 0.05) : 1;
             const h = chamberHash(ch.id, ch.x, ch.y);
 
-            let rock = chamberArt.rock.get(ch.id);
-            if (!rock) {
-                rock = chamberRockPath(h);
-                chamberArt.rock.set(ch.id, rock);
+            let sprite = chamberArt.rock.get(ch.id);
+            if (!sprite) {
+                sprite = makeChamberSprite(h, ch.team);
+                chamberArt.rock.set(ch.id, sprite);
             }
+            // one blit, whatever the zoom or the state: the empty pocket is the
+            // same art ghosted back, the regrowing ring is it scaled up from
+            // nothing, so no state needs a second sprite
+            const size = (2 * R * scale) / (1 - CHAMBER_PAD);
             c.save();
-            c.translate(sx, sy);
-            c.lineJoin = "round";
-
-            if (mode === 1) {
-                // empty pocket: a faint grey ghost of the ring
-                c.scale(R, R);
-                c.globalAlpha = 0.14;
-                c.strokeStyle = "#6a6f7a";
-                c.lineWidth = 0.03;
-                c.stroke(rock.outer);
-                c.stroke(rock.inner);
-                c.restore();
-                continue;
-            }
-
-            // the ring itself: a hollow black polygon border - the interior is
-            // punched out with an evenodd fill so the treasury gems inside (real
-            // entities, drawn on top of this floor layer) stay on show. A faint
-            // cool rim keeps both silhouettes off the dark floor.
-            const s = R * scale;
-            if (s !== 1) c.scale(s, s);
-            c.globalAlpha = regrowing ? 0.55 : 1;
-            c.fillStyle = "#000000";
-            c.fill(rock.ring, "evenodd");
-            c.strokeStyle = "rgba(160,160,178,0.16)";
-            c.lineWidth = 0.018;
-            c.stroke(rock.outer);
-            c.stroke(rock.inner);
-            c.globalAlpha = 1;
+            c.globalAlpha = mode === 1 ? 0.16 : (regrowing ? 0.6 : 1);
+            c.drawImage(sprite, sx - size / 2, sy - size / 2, size, size);
             c.restore();
+            if (mode === 1) continue;
 
             // HP bar: below the boulder, filled with the owning team's color
             // (hidden while the pocket is empty or the ring is still forming)
             if (alive && st.h !== undefined && st.h > 0.003) {
-                const barW = R * 2.6, barH = Math.max(3, R * 0.06);
-                const barY = R * scale + 8;
-                c.fillStyle = "rgba(0,0,0,0.6)";
-                c.fillRect(sx - barW / 2, sy + barY, barW, barH);
-                c.fillStyle = teamCol;
-                c.fillRect(sx - barW / 2 + 1, sy + barY + 1, (barW - 2) * st.h, barH - 2);
-                c.lineWidth = 1.5;
-                c.strokeStyle = "rgba(0,0,0,0.7)";
-                c.strokeRect(sx - barW / 2, sy + barY, barW, barH);
+                const barW = R * 1.05, barH = Math.max(5, R * 0.08);
+                const barY = R * scale + barH * 2.2;
+                const rr = barH / 2;
+                const cap = (x, y, w, hh, r) => {
+                    c.beginPath();
+                    c.moveTo(x + r, y);
+                    c.arcTo(x + w, y, x + w, y + hh, r);
+                    c.arcTo(x + w, y + hh, x, y + hh, r);
+                    c.arcTo(x, y + hh, x, y, r);
+                    c.arcTo(x, y, x + w, y, r);
+                    c.closePath();
+                };
+                cap(sx - barW / 2, sy + barY, barW, barH, rr);
+                c.fillStyle = "rgba(12,13,17,0.82)";
+                c.fill();
+                c.lineWidth = Math.max(1.5, barH * 0.3);
+                c.strokeStyle = "#16181d";
+                c.stroke();
+                if (st.h > 0.02) {
+                    const iw = (barW - barH * 0.5) * st.h;
+                    cap(sx - barW / 2 + barH * 0.25, sy + barY + barH * 0.25,
+                        iw, barH * 0.5, barH * 0.25);
+                    c.fillStyle = teamCol;
+                    c.fill();
+                }
             }
         }
     }
@@ -3095,14 +3170,35 @@ import * as tutorial from './tutorial.js';
             const R = ch.r * ratio;
             if (sx < -R * 2 || sx > global.screenWidth + R * 2 ||
                 sy < -R * 2 || sy > global.screenHeight + R * 2) continue;
-            // core chambers wear their name just above the ring's outer edge
-            // (the old 1.55× offset floated it ~88px up in open air - hidden
-            // while the pocket is empty - there's nothing to read then)
-            const labelSize = Math.min(32, ch.r * ratio * 0.42);
-            drawText(ch.name, sx, sy - ch.r * ratio - 0.8 * labelSize - 6,
-                     labelSize,
-                     ch.team === -1 ? gameDraw.getColor("blue") : gameDraw.getColor("red"),
-                     "center", false, 1, true, c);
+            // Core chambers wear their name on a small plaque above the wall.
+            // The heavy black text outline every other label uses read as
+            // scrappy on a structure this large, so the name sits on a dark
+            // slab instead - same trick the vault's own UI uses.
+            const labelSize = Math.min(26, ch.r * ratio * 0.3);
+            const teamC = ch.team === -1 ? gameDraw.getColor("blue") : gameDraw.getColor("red");
+            const ly = sy - ch.r * ratio - labelSize * 1.15;
+            c.font = "bold " + labelSize + "px Rubik, Ubuntu";
+            const tw = c.measureText(ch.name).width;
+            const px2 = labelSize * 0.62, ph = labelSize * 1.62;
+            c.save();
+            c.beginPath();
+            const bx = sx - tw / 2 - px2, bw = tw + px2 * 2, by = ly - ph / 2, br = ph / 2;
+            c.moveTo(bx + br, by);
+            c.arcTo(bx + bw, by, bx + bw, by + ph, br);
+            c.arcTo(bx + bw, by + ph, bx, by + ph, br);
+            c.arcTo(bx, by + ph, bx, by, br);
+            c.arcTo(bx, by, bx + bw, by, br);
+            c.closePath();
+            c.fillStyle = "rgba(12,13,17,0.8)";
+            c.fill();
+            c.lineWidth = Math.max(2, labelSize * 0.11);
+            c.strokeStyle = "#16181d";
+            c.stroke();
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.fillStyle = teamC;
+            c.fillText(ch.name, sx, ly + labelSize * 0.04);
+            c.restore();
         }
     }
 
