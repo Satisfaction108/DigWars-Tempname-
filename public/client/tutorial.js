@@ -35,7 +35,7 @@ const FONT = "Rubik, Ubuntu, sans-serif";
 const DEFAULTS = {
     KEY_UP: "W", KEY_DOWN: "S", KEY_LEFT: "A", KEY_RIGHT: "D",
     KEY_AUTO_FIRE: "E", KEY_AUTO_SPIN: "C",
-    KEY_AUTO_ALT: "G", KEY_TOGGLE_MAP: "F",
+    KEY_AUTO_ALT: "G", KEY_TOGGLE_MAP: "F", KEY_OVER_RIDE: "R",
     KEY_UPGRADE_ATK: "1", KEY_UPGRADE_SHI: "0",
 };
 let keyLabelCache = null;
@@ -180,7 +180,9 @@ const state = {
     target: null,       // {kind:'rock'|'point'|'vault'|'ui', ...}
     base: {},           // per-step baseline snapshot
     fireSeen: false,
-    autofireSeen: false,
+    autofireCount: 0,   // auto-fire has no readable state; count the toggles
+    spinOn: false,      // saw auto-spin switched on, so we can wait for off
+    overrideSeen: false,
     pingSeen: false,
     mapOpened: false,   // saw the big map open, so we can wait for the close
     bursts: [],         // world-space completion particles
@@ -204,7 +206,9 @@ function snapshot() {
         pings: global.enemyPings.length,
     };
     state.fireSeen = false;
-    state.autofireSeen = false;
+    state.autofireCount = 0;
+    state.spinOn = false;
+    state.overrideSeen = false;
     state.pingSeen = false;
     state.mapOpened = false;
 }
@@ -272,23 +276,36 @@ const ALL_STEPS = [
         id: "autofire",
         label: "Auto-fire",
         hint: () => global.mobile
-            ? "Tap + to open the action menu, then tap Autofire — your tank keeps shooting on its own."
-            : "Press {{KEY_AUTO_FIRE}} for auto-fire — your tank keeps shooting on its own.",
+            ? "Tap + to open the action menu, then tap Autofire to switch it on — tap it again to switch it off."
+            : "Press {{KEY_AUTO_FIRE}} to switch auto-fire on — your tank keeps shooting on its own. Press it again to switch it off.",
         target: () => ({ kind: "self" }),
-        // Auto-fire is server-side state with nothing mirrored on the client,
-        // so the only honest signal is catching the input that toggles it.
-        done: () => state.autofireSeen,
+        // Auto-fire is a server-side toggle with nothing mirrored on the
+        // client, so there is no state to read back — count the toggles
+        // instead: one to turn it on, one to turn it off.
+        progress: () => clamp(state.autofireCount / 2, 0, 1),
+        done: () => state.autofireCount >= 2,
     },
     {
         id: "autospin",
         label: "Auto-spin",
         hint: () => global.mobile
-            ? "Now tap Autospin — your turret sweeps on its own while you drive."
-            : "Press {{KEY_AUTO_SPIN}} for auto-spin — your turret sweeps while you drive.",
+            ? "Tap Autospin to start your turret sweeping — tap it again to stop."
+            : "Press {{KEY_AUTO_SPIN}} to start your turret sweeping while you drive. Press it again to stop.",
         target: () => ({ kind: "self" }),
-        // global.autoSpin is real client state, toggled by key, mobile button
-        // and gamepad alike, so watching it covers every input path.
-        done: () => global.autoSpin !== state.base.autoSpin,
+        // Unlike auto-fire this one *is* real client state, so we can watch
+        // the actual on-then-off cycle rather than counting keypresses.
+        progress: () => state.spinOn ? (global.autoSpin ? 0.5 : 1) : 0,
+        done: () => state.spinOn && !global.autoSpin,
+    },
+    {
+        id: "override",
+        label: "AI override",
+        hint: () => global.mobile
+            ? "Tap Override — your drones and auto-turrets aim where you aim instead of picking their own targets."
+            : "Press {{KEY_OVER_RIDE}} for AI override — drones and auto-turrets follow your cursor instead of picking their own targets.",
+        target: () => ({ kind: "self" }),
+        progress: () => state.overrideSeen ? 1 : 0,
+        done: () => state.overrideSeen,
     },
     {
         id: "rock",
@@ -525,6 +542,7 @@ function update() {
     }
 
     if (global.showBigMap) state.mapOpened = true;
+    if (global.autoSpin) state.spinOn = true;
 
     if (state.phase === "active") {
         // Success is checked BEFORE re-targeting: for the rock objective the
@@ -1095,17 +1113,20 @@ function onKeyDown(e) {
     if (!state.running) return;
     const k = e.keyCode;
     if (k === 32) state.fireSeen = true;
-    if (k === global.KEY_AUTO_FIRE) state.autofireSeen = true;
+    if (k === global.KEY_AUTO_FIRE) state.autofireCount++;
+    if (k === global.KEY_OVER_RIDE) state.overrideSeen = true;
     if (k === global.KEY_AUTO_ALT) state.pingSeen = true;
 }
 // Mobile has no key events, so catch the taps that land on the action buttons
-// using the game's own hit regions (index 3 = Autofire — see canvas.js
-// touchStart). Auto-spin needs no such hook: it sets global.autoSpin.
+// using the game's own hit regions (index 3 = Autofire, 7 = Override — see
+// canvas.js touchStart). Auto-spin needs no such hook: it sets global.autoSpin.
 function onTouchStart(e) {
     if (!state.running || !global.mobile || !global.clickables) return;
     for (const t of e.changedTouches) {
         const mpos = { x: t.clientX * global.ratio, y: t.clientY * global.ratio };
-        if (global.clickables.mobileButtons.check(mpos) === 3) state.autofireSeen = true;
+        const b = global.clickables.mobileButtons.check(mpos);
+        if (b === 3) state.autofireCount++;      // Autofire
+        else if (b === 7) state.overrideSeen = true;  // Override
     }
 }
 function onMouseDown(e) {
