@@ -622,7 +622,7 @@ import * as tutorial from './tutorial.js';
                     Oa: !0,
                     vanished: !1,
                 }));
-                if (global.gameStart) a.remove();
+                if (global.gameStart) fireworkCanvas.remove();
                 else requestAnimationFrame(updateFireworks);
             };
             setInterval(() => {
