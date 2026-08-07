@@ -657,6 +657,8 @@ import * as tutorial from './tutorial.js';
         document.getElementById("gameCanvas-gameplay").getContext("2d"),
         document.getElementById("gameCanvas-gui").getContext("2d"),
     ];
+    window.dwCtx = ctx;
+    window.dwCtxCtor = (i) => ctx[i];
     var c2 = document.createElement("canvas");
     var ctx2 = c2.getContext("2d");
     ctx2.imageSmoothingEnabled = false;

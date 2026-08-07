@@ -1,10 +1,12 @@
 import { global } from "./global.js";
+import { util } from "./util.js";
 import { gui } from "./socketinit.js";
 
-// ── Intergliouette: Dig Wars interactive tutorial ──────────────────────
-// A guided, play-while-you-read walkthrough. Autodetects the action the
-// player is being taught (fire, mine, bank, ping…) and advances on its
-// own, but every step also has a Next button so nobody is ever forced.
+// ── Dig Wars interactive tutorial ──────────────────────────────────────
+// A guided, do-it-yourself walkthrough. Prompts float above your tank or
+// box the relevant UI, and auto-advance the moment you actually DO the
+// thing being taught (move, shoot, mine, upgrade, bank, ping, map…). Every
+// step also has a Next button so nobody is ever forced.
 // Persists via localStorage so it only plays once per browser.
 
 const STORAGE_KEY = "digwarsTutorialDone";
@@ -21,7 +23,7 @@ const DEFAULTS = {
     KEY_UPGRADE_SHI: "0",
 };
 
-const FIRE_KEY = 32; // space (left mouse has no keycode)
+const SPACE_KEY = 32;
 
 let keyLabelCache = null;
 function keyLabels() {
@@ -38,10 +40,7 @@ function keyLabels() {
     }
     return keyLabelCache;
 }
-
-function lbl(id) {
-    return keyLabels()[id] || DEFAULTS[id] || id;
-}
+function lbl(id) { return keyLabels()[id] || DEFAULTS[id] || id; }
 
 function fillBody(text) {
     return text.replace(/\{\{KEY_([A-Z0-9_]+)\}\}/g, (m, id) => {
@@ -50,129 +49,201 @@ function fillBody(text) {
     });
 }
 
-// ── building blocks for the step definitions ───────────────────────────
+// ── state ──────────────────────────────────────────────────────────────
 const state = {
     running: false,
     visible: false,
     step: 0,
-    glide: 1,
-    glowT: 0,
-    spawnX: 0,
-    spawnY: 0,
+    spawnX: 0, spawnY: 0,
     lastCarried: 0,
-    lastUpgrades: 0,
     lastPoints: 0,
     lastPings: 0,
     lastRocks: 0,
-    buttonPulse: 0,
+    lastGuiType: "",
+    fireSeen: false,
+    spinSeen: false,
+    autofireSeen: false,
+    moveSeen: false,
+    _waitT: 0,
 };
 
-function waitMove() {
+const ratio = () => util.getRatio();
+const gw = () => global.gameWidth, gh = () => global.gameHeight;
+const halfW = () => gw() / 2, halfH = () => gh() / 2;
+
+function worldToScreen(wx, wy) {
+    const px = global.player.renderx, py = global.player.rendery;
+    const roomX = -px + global.screenWidth / 2 - ratio() * halfW();
+    const roomY = -py + global.screenHeight / 2 - ratio() * halfH();
+    return {
+        x: roomX + (wx + halfW()) * ratio(),
+        y: roomY + (wy + halfH()) * ratio(),
+    };
+}
+
+function tr() { return window.terrainRenderer; }
+function ctx2() { return window.dwCtx && window.dwCtx[1]; }
+
+// the view rectangle in world coords (what's on screen)
+function viewWorld() {
+    const screenW = global.screenWidth, screenH = global.screenHeight;
+    const r = ratio();
+    const px = global.player.renderx, py = global.player.rendery;
+    const vw = screenW / r, vh = screenH / r;
+    return { px, py, vw, vh, left: px - vw / 2, right: px + vw / 2,
+             top: py - vh / 2, bottom: py + vh / 2 };
+}
+
+function findRockInView() {
+    const t = tr();
+    if (!t || !t.ready) return null;
+    const w = t._world;
+    const v = viewWorld();
+    let best = null, bestD = Infinity;
+    for (const [k] of t._rockHealth) {
+        if (t._rockDead.has(k)) continue;
+        const cell = t._cellPolys.get(k);
+        if (!cell) continue;
+        const wx = cell.cx * w.s - halfW(), wy = cell.cy * w.s - halfH();
+        if (wx < v.left - 40 || wx > v.right + 40 || wy < v.top - 40 || wy > v.bottom + 40) continue;
+        const dx = wx - v.px, dy = wy - v.py;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = { wx, wy }; }
+    }
+    return best;
+}
+
+function findOreInView() {
+    const t = tr();
+    if (!t || !t.ready) return null;
+    const w = t._world;
+    const v = viewWorld();
+    let best = null, bestD = Infinity;
+    for (const [k] of t._ore) {
+        if (t._rockDead.has(k)) continue;
+        const cell = t._cellPolys.get(k);
+        if (!cell) continue;
+        const wx = cell.cx * w.s - halfW(), wy = cell.cy * w.s - halfH();
+        if (wx < v.left - 40 || wx > v.right + 40 || wy < v.top - 40 || wy > v.bottom + 40) continue;
+        const dx = wx - v.px, dy = wy - v.py;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = { wx, wy, tier: t._ore.get(k) }; }
+    }
+    return best;
+}
+
+function findVault() {
+    if (!global.vaults.length) return null;
+    let best = null, bestD = Infinity;
+    for (const v of global.vaults) {
+        const dx = v.x - global.player.renderx, dy = v.y - global.player.rendery;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = v; }
+    }
+    return best;
+}
+
+// ── detection ──────────────────────────────────────────────────────────
+const detectMove = () => {
     const dx = global.player.cx.animX - state.spawnX;
     const dy = global.player.cy.animY - state.spawnY;
-    return Math.hypot(dx, dy) > 40;
-}
-
-function waitShoot() { return state.fireSeen; }
-
-function waitSpin() { return state.spinSeen; }
-function waitAutofire() { return state.autofireSeen; }
-
-function waitGems() { return global.gems.carried > 0; }
-
-function waitUpgrade() {
-    return (gui.upgrades || []).length > state.lastUpgrades ||
-           gui.points < state.lastPoints;
-}
-
-function waitVault() { return !!global.vault.onPad; }
-
-function waitPing() { return global.enemyPings.length > state.lastPings; }
-
-function waitMap() { return !!global.showBigMap; }
-
-function waitRocks() { return (window.dwRocksBroken || 0) > state.lastRocks; }
-
-// fired from socketinit when a rock is destroyed
-window.dwTutorialRock = () => { window.dwRocksBroken = (window.dwRocksBroken || 0) + 1; };
+    return Math.hypot(dx, dy) > 50;
+};
+const detectShoot = () => state.fireSeen;
+const detectSpin = () => state.spinSeen;
+const detectAutofire = () => state.autofireSeen;
+const detectRocks = () => (window.dwRocksBroken || 0) > state.lastRocks;
+const detectGems = () => global.gems.carried > 0;
+const detectUpgrade = () => gui.type !== state.lastGuiType;
+const detectStats = () => gui.points < state.lastPoints;
+const detectVault = () => !!global.vault.onPad;
+const detectPing = () => global.enemyPings.length > state.lastPings;
+const detectMap = () => !!global.showBigMap;
 
 // ── the steps ──────────────────────────────────────────────────────────
 const steps = [
     {
         title: "Welcome to Dig Wars",
-        body: "You're a tank on a living rock map. Two teams fight to mine gems and bank them before the enemy does. Let's learn how to play — this is fully interactive, so just do what you're told and the tutorial advances on its own. (Or hit Next to skip a step.)",
-        target: null,
-        detect: () => true,
+        body: "Two teams fight to mine gems and bank them before the enemy does. Let's learn how to play — this is fully interactive, so just do what you're told and it advances on its own. (Or hit Next to skip.)",
+        target: "none",
+        detect: () => false,
         autoNext: false,
     },
     {
         title: "Move around",
-        body: "Press {{KEY_UP}} {{KEY_DOWN}} {{KEY_LEFT}} {{KEY_RIGHT}} (or the arrow keys) to move your tank. Try drifting through the rocks to get a feel for the controls.",
-        target: null,
-        detect: waitMove,
+        body: "Press {{KEY_UP}} {{KEY_DOWN}} {{KEY_LEFT}} {{KEY_RIGHT}} or the arrow keys to move your tank. Go ahead — drift through the rocks!",
+        target: "tank",
+        detect: detectMove,
         autoNext: true,
     },
     {
         title: "Aim & shoot",
-        body: "Your tank aims at your cursor. Hold the the mouse's left button — or press and hold {{KEY_MOUSE_0_SP}} — to fire a stream of bullets at whatever's in front of you.",
-        target: null,
-        detect: waitShoot,
+        body: "Your tank aims at your cursor. Hold the mouse's left button (or hold SPACE) to fire.",
+        target: "tank",
+        detect: detectShoot,
         autoNext: true,
     },
     {
         title: "Auto-fire & auto-spin",
-        body: "Don't want to hold the button all game? Press {{KEY_AUTO_FIRE}} to toggle auto-fire (your tank shoots on its own), and {{KEY_AUTO_SPIN}} to make your guns spin around.",
-        target: null,
-        detect: () => waitAutofire() || waitSpin(),
+        body: "Press {{KEY_AUTO_FIRE}} to toggle auto-fire (tank shoots on its own), and {{KEY_AUTO_SPIN}} to spin your guns.",
+        target: "tank",
+        detect: () => detectAutofire() || detectSpin(),
         autoNext: true,
     },
     {
         title: "Destroy rocks",
-        body: "Shoot the grey rock around you to break it apart. Mining rock is how you expose the shiny gem ore buried underneath — and it clears the way to move around the map.",
-        target: null,
-        detect: waitRocks,
+        body: "Shoot the grey rock! Every rock in your view is flashing yellow — break one to expose the gem ore underneath.",
+        target: "rocks",
+        detect: detectRocks,
         autoNext: true,
     },
     {
-        title: "Collect gems",
-        body: "Gems drop from broken ore and from defeated enemies. Drive over them to pick them up — they're stored in your satchel on the spot. Watch your carried count tick up!",
-        target: null,
-        detect: waitGems,
+        title: "Mine the gem ore",
+        body: "See that glowing ore? Destroy its rock to release the gems, then drive over them to collect them into your satchel.",
+        target: "ore",
+        detect: detectGems,
         autoNext: true,
     },
     {
         title: "Level up your tank",
-        body: "When tanks are destroyed you gain upgrade choices. Pick a tank upgrade from the bar at the bottom and spend stat points with keys {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} to get stronger.",
+        body: "Destroying tanks earns you upgrade choices. Pick one from the bar at the bottom to evolve your tank.",
         target: "upgrades",
-        detect: waitUpgrade,
+        detect: detectUpgrade,
+        autoNext: false,
+    },
+    {
+        title: "Upgrade your stats",
+        body: "Now spend your stat points — press {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the skill bars on the left to buff your tank.",
+        target: "skills",
+        detect: detectStats,
         autoNext: true,
     },
     {
         title: "Bank your gems",
-        body: "Carrying gems makes you a target. Find your team's Vault and park on it to cash out — your gems are then safe and count toward your team's score. Don't hold them forever!",
+        body: "Carrying gems makes you a target. Head to your team's Vault and park on the pad to cash out — the arrow points the way.",
         target: "vault",
-        detect: waitVault,
+        detect: detectVault,
         autoNext: true,
     },
     {
         title: "Mark enemies",
-        body: "Spot an enemy sneaking up? Press {{KEY_AUTO_ALT}} to drop a danger marker at your cursor for your whole team to see. Use it to point out threats on the map.",
-        target: null,
-        detect: waitPing,
+        body: "Spot an enemy? Press {{KEY_AUTO_ALT}} to drop a danger marker at your cursor for your whole team.",
+        target: "tank",
+        detect: detectPing,
         autoNext: true,
     },
     {
         title: "Check the map",
-        body: "Press {{KEY_TOGGLE_MAP}} to open the full map (or glance at the minimap in the corner). It shows the battlefield, the vaults, and where your team is.",
+        body: "Press {{KEY_TOGGLE_MAP}} to open the full map, or glance at the minimap in the corner.",
         target: "minimap",
-        detect: waitMap,
+        detect: detectMap,
         autoNext: true,
     },
     {
         title: "That's it! Have fun playing!",
-        body: "You now know the basics: move, shoot, mine, bank, and mark. Head out there, dig deep, and out-bank the enemy team. Good luck, miner!",
-        target: null,
-        detect: () => true,
+        body: "You now know how to move, shoot, mine, upgrade, bank, and mark. Head out there and out-bank the enemy team. Good luck, miner!",
+        target: "none",
+        detect: () => false,
         autoNext: false,
         final: true,
     },
@@ -180,15 +251,12 @@ const steps = [
 
 // ── DOM scaffold ───────────────────────────────────────────────────────
 let root = null, bodyEl = null, titleEl = null, dotsEl = null,
-    nextBtn = null, skipBtn = null, spotlight = null, dim = null;
+    nextBtn = null, skipBtn = null, dim = null;
 
 function ensureRoot() {
     if (root) return;
     dim = document.createElement("div");
     dim.id = "dwTutDim";
-
-    spotlight = document.createElement("div");
-    spotlight.id = "dwTutSpotlight";
 
     root = document.createElement("div");
     root.id = "dwTutorial";
@@ -223,7 +291,6 @@ function ensureRoot() {
     root.appendChild(dotsEl);
 
     document.body.appendChild(dim);
-    document.body.appendChild(spotlight);
     document.body.appendChild(root);
 }
 
@@ -232,7 +299,6 @@ function renderStep() {
     if (!s) return;
     titleEl.textContent = s.title;
     bodyEl.innerHTML = fillBody(s.body);
-
     nextBtn.textContent = s.final ? "Play!" : "Next";
     skipBtn.style.display = s.final ? "none" : "";
 
@@ -242,62 +308,27 @@ function renderStep() {
         d.className = "dwTutDot" + (i === state.step ? " active" : "") + (i < state.step ? " done" : "");
         dotsEl.appendChild(d);
     }
-    positionSpotlight(s.target);
 }
 
-// spotlight targets, in viewport px (computed fresh each time)
-function spotlightRect(target) {
-    const W = window.innerWidth, H = window.innerHeight;
-    switch (target) {
-        case "vault":
-            return { x: W / 2 - 175, y: H - 320, w: 350, h: 150 };
-        case "minimap": {
-            const len = Math.min(210, W / 4);
-            return { x: W - len - 24, y: 20, w: len, h: len };
-        }
-        case "upgrades":
-            return { x: W / 2 - 200, y: H - 185, w: 400, h: 90 };
-        default:
-            return null;
-    }
-}
-
-function positionSpotlight(target) {
-    const r = spotlightRect(target);
-    if (!r) {
-        spotlight.style.opacity = "0";
-        spotlight.style.transform = "scale(0.8)";
-        return;
-    }
-    spotlight.style.opacity = "1";
-    spotlight.style.left = r.x + "px";
-    spotlight.style.top = r.y + "px";
-    spotlight.style.width = r.w + "px";
-    spotlight.style.height = r.h + "px";
-}
-
-// ── input listeners for the "do it yourself" steps ─────────────────────
+// ── input ──────────────────────────────────────────────────────────────
 function onKeyDown(e) {
     if (!state.running) return;
     const kc = e.keyCode;
     if (kc === global["KEY_AUTO_FIRE"]) state.autofireSeen = true;
     if (kc === global["KEY_AUTO_SPIN"]) state.spinSeen = true;
-    if (kc === FIRE_KEY) state.fireSeen = true;
-    // enemy ping is sent on keyup of KEY_AUTO_ALT; we detect via pings
-    // array anyway, but also light it up on press for responsiveness
+    if (kc === SPACE_KEY) state.fireSeen = true;
     if (kc === global["KEY_AUTO_ALT"]) state.pingPressed = true;
+    const moves = [global["KEY_UP"], global["KEY_DOWN"], global["KEY_LEFT"],
+                   global["KEY_RIGHT"], 38, 40, 37, 39];
+    if (moves.includes(kc)) state.moveSeen = true;
 }
 function onMouseDown(e) {
     if (!state.running) return;
     if (e.button === 0) state.fireSeen = true;
 }
 
-function onNext() {
-    advance();
-}
-function onSkip() {
-    finish();
-}
+function onNext() { advance(); }
+function onSkip() { finish(); }
 
 function advance() {
     if (!state.running) return;
@@ -312,18 +343,18 @@ function snapshot() {
     state.spawnX = global.player.cx.animX;
     state.spawnY = global.player.cy.animY;
     state.lastCarried = global.gems.carried;
-    state.lastUpgrades = (gui.upgrades || []).length;
     state.lastPoints = gui.points;
     state.lastPings = global.enemyPings.length;
     state.lastRocks = window.dwRocksBroken || 0;
+    state.lastGuiType = gui.type;
     state.fireSeen = false;
     state.spinSeen = false;
     state.autofireSeen = false;
-    state.pingPressed = false;
+    state.moveSeen = false;
+    state._waitT = 0;
 }
 
 function pulse() {
-    state.buttonPulse = 1;
     nextBtn.classList.remove("dwTutPulse");
     void nextBtn.offsetWidth;
     nextBtn.classList.add("dwTutPulse");
@@ -342,38 +373,26 @@ function open() {
     renderStep();
     show();
 }
-
 function show() {
     state.visible = true;
     requestAnimationFrame(() => {
         root.classList.add("show");
         dim.classList.add("show");
-        spotlight.classList.add("show");
     });
 }
-
 function hide() {
     state.visible = false;
     state.running = false;
     root.classList.remove("show");
     dim.classList.remove("show");
-    spotlight.classList.remove("show");
 }
 
 export function isComplete() {
     try { return localStorage.getItem(STORAGE_KEY) === "1"; } catch (e) { return false; }
 }
+export function startTutorial() { if (isComplete()) return; open(); }
+export function replayTutorial() { open(); }
 
-export function startTutorial() {
-    if (isComplete()) return;
-    open();
-}
-
-export function replayTutorial() {
-    open();
-}
-
-// autostart when the very first spawn happens
 let startedOnce = false;
 export function hook() {
     if (startedOnce) return;
@@ -383,22 +402,165 @@ export function hook() {
     }
 }
 
-// per-frame: autodetect to advance the current step
+// ── per-frame render + auto-advance ────────────────────────────────────
 function tick() {
     requestAnimationFrame(tick);
     if (!state.running || !state.visible) return;
     const s = steps[state.step];
-    if (s && s.autoNext && s.detect && s.detect()) {
-        // small delay so the player sees their action register
-        if (!s._waitT) s._waitT = performance.now() + 350;
-        else if (performance.now() > s._waitT) {
-            s._waitT = 0;
-            advance();
+    if (!s) return;
+
+    if (s.autoNext && s.detect && s.detect()) {
+        if (!state._waitT) state._waitT = performance.now() + 400;
+        else if (performance.now() > state._waitT) { advance(); return; }
+    } else {
+        state._waitT = 0;
+    }
+
+    drawMarkers(s);
+}
+
+function uiBoxRect(target) {
+    const W = global.screenWidth, H = global.screenHeight;
+    switch (target) {
+        case "upgrades": {
+            // tank upgrade bar at the bottom
+            if (!(gui.upgrades || []).length) return { x: W / 2 - 200, y: H - 150, w: 400, h: 120 };
+            return { x: W / 2 - 220, y: H - 170, w: 440, h: 140 };
         }
+        case "skills": {
+            // skill bars on the left
+            return { x: 12, y: 10, w: 210, h: H - 60 };
+        }
+        case "minimap": {
+            const len = Math.min(210, W / 4);
+            return { x: W - len - 24, y: 20, w: len, h: len };
+        }
+        case "vault": {
+            return { x: W / 2 - 175, y: H - 320, w: 350, h: 150 };
+        }
+        default:
+            return null;
     }
 }
-tick();
 
-// wire listeners once
+function drawUiBox(target) {
+    const c = ctx2();
+    const r = uiBoxRect(target);
+    if (!r || !c) return;
+    const now = performance.now();
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+    c.save();
+    c.lineWidth = 3;
+    c.strokeStyle = `rgba(255,215,94,${0.55 + 0.45 * pulse})`;
+    c.lineJoin = "round";
+    c.strokeRect(r.x, r.y, r.w, r.h);
+    // soft outer glow
+    c.lineWidth = 8;
+    c.strokeStyle = `rgba(255,215,94,${0.12 + 0.1 * pulse})`;
+    c.strokeRect(r.x, r.y, r.w, r.h);
+    c.restore();
+}
+
+function drawMarkers(s) {
+    const c = ctx2();
+    if (!c) return;
+    const now = performance.now();
+
+    // UI highlight boxes (screen-space)
+    if (s.target === "upgrades" || s.target === "skills" ||
+        s.target === "minimap" || s.target === "vault") {
+        drawUiBox(s.target);
+    }
+
+    if (s.target === "rocks") {
+        const t = tr();
+        if (!t || !t.ready) return;
+        const w = t._world;
+        const v = viewWorld();
+        const pulse = 0.5 + 0.5 * Math.sin(now / 180);
+        c.save();
+        c.lineWidth = 3;
+        c.strokeStyle = `rgba(255,215,94,${0.5 + 0.5 * pulse})`;
+        let any = false;
+        for (const [k] of t._rockHealth) {
+            if (t._rockDead.has(k)) continue;
+            const cell = t._cellPolys.get(k);
+            if (!cell) continue;
+            const wx = cell.cx * w.s - halfW(), wy = cell.cy * w.s - halfH();
+            if (wx < v.left - 40 || wx > v.right + 40 || wy < v.top - 40 || wy > v.bottom + 40) continue;
+            const sp = worldToScreen(wx, wy);
+            c.beginPath();
+            c.arc(sp.x, sp.y, 14 + 2 * Math.sin(now / 150 + k), 0, Math.PI * 2);
+            c.stroke();
+            any = true;
+        }
+        c.restore();
+        return;
+    }
+
+    if (s.target === "ore") {
+        const o = findOreInView();
+        if (!o) { drawWorldArrow("Find some ore to mine!", "gold", { x: 0, y: 0 }); return; }
+        const sp = worldToScreen(o.wx, o.wy);
+        const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+        c.save();
+        c.lineWidth = 3;
+        c.strokeStyle = `rgba(120,255,200,${0.6 + 0.4 * pulse})`;
+        c.beginPath();
+        c.arc(sp.x, sp.y, 20 + 3 * Math.sin(now / 160), 0, Math.PI * 2);
+        c.stroke();
+        c.restore();
+        return;
+    }
+
+    if (s.target === "vault") {
+        const v = findVault();
+        if (!v) { drawWorldArrow("Find the vault!", "gold", { x: 0, y: 0 }); return; }
+        const sp = worldToScreen(v.x, v.y);
+        const onScreen = sp.x > 0 && sp.x < global.screenWidth && sp.y > 0 && sp.y < global.screenHeight;
+        if (onScreen) {
+            const pulse = 0.5 + 0.5 * Math.sin(now / 250);
+            c.save();
+            c.lineWidth = 3;
+            c.strokeStyle = `rgba(255,215,94,${0.6 + 0.4 * pulse})`;
+            c.beginPath();
+            c.arc(sp.x, sp.y, 22 + 3 * Math.sin(now / 180), 0, Math.PI * 2);
+            c.stroke();
+            c.restore();
+        } else {
+            drawWorldArrow("Vault →", "gold", { x: v.x, y: v.y });
+        }
+        return;
+    }
+}
+
+// a screen-edge arrow pointing toward a world target
+function drawWorldArrow(text, col, target) {
+    const c = ctx2();
+    if (!c || !target) return;
+    const px = global.player.renderx, py = global.player.rendery;
+    const sp = worldToScreen(target.x, target.y);
+    const cx = global.screenWidth / 2, cy = global.screenHeight / 2;
+    const dx = sp.x - cx, dy = sp.y - cy;
+    const ang = Math.atan2(dy, dx);
+    const margin = 46;
+    const r = Math.min(cx, cy) - margin;
+    const ax = cx + Math.cos(ang) * r, ay = cy + Math.sin(ang) * r;
+    const now = performance.now();
+    const pulse = 0.5 + 0.5 * Math.sin(now / 220);
+    c.save();
+    c.translate(ax, ay);
+    c.rotate(ang);
+    c.globalAlpha = 0.7 + 0.3 * pulse;
+    c.fillStyle = col;
+    c.strokeStyle = "#000";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(10, 0); c.lineTo(-6, -7); c.lineTo(-6, 7); c.closePath();
+    c.fill(); c.stroke();
+    c.restore();
+}
+
 document.addEventListener("keydown", onKeyDown);
 document.addEventListener("mousedown", onMouseDown);
+tick();

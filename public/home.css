@@ -1147,8 +1147,8 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 #dwTutorial {
     position: fixed;
     left: 50%;
-    bottom: 34px;
-    transform: translate(-50%, 24px);
+    top: 18px;
+    transform: translate(-50%, -16px);
     z-index: 41;
     width: min(560px, calc(100vw - 40px));
     border-radius: 14px;
@@ -1223,20 +1223,6 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 }
 .dwTutDot.active { background: #ffd75e; transform: scale(1.25); }
 .dwTutDot.done { background: #6b6f7a; }
-
-/* spotlight ring around the thing being taught */
-#dwTutSpotlight {
-    position: fixed;
-    z-index: 39;
-    border-radius: 14px;
-    border: 3px solid rgba(255,215,94,.9);
-    box-shadow: 0 0 0 4px rgba(255,215,94,.18), 0 0 24px rgba(255,215,94,.35);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .25s ease, left .3s ease, top .3s ease,
-                width .3s ease, height .3s ease;
-}
-#dwTutSpotlight.show { opacity: 1; }
 
 /* ── responsive menu: stacked fields + inline dropdown on small screens ── */
 @media (max-width: 640px) {
