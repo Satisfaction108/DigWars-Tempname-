@@ -3009,68 +3009,70 @@ import * as tutorial from './tutorial.js';
         c.fill(mkPath(R * 1.012, wallW * 0.5));
         c.globalAlpha = 1;
 
-        // 2. the floor of the room: a faint team wash lit from the middle and
-        //    pooling to black under the walls. This is what turns a border
-        //    into an interior you can stand in.
+        // 2. the floor: flat, barely-there team tint. No gradient shading -
+        //    this game paints in solid colour with hard dark borders.
+        c.globalAlpha = 0.06;
         c.fillStyle = teamCol;
-        c.globalAlpha = 0.055;
         c.fill(inner);
         c.globalAlpha = 1;
-        const floor = c.createRadialGradient(0, 0, inR * 0.08, 0, 0, inR);
-        floor.addColorStop(0, "rgba(255,255,255,0.05)");
-        floor.addColorStop(0.6, "rgba(0,0,0,0.06)");
-        floor.addColorStop(0.88, "rgba(0,0,0,0.34)");
-        floor.addColorStop(1, "rgba(0,0,0,0.6)");
-        c.fillStyle = floor;
-        c.fill(inner);
 
-        // 3. the masonry band. Kept darker than the vault's armour plate - it
-        //    is rock hewn out of the cavern, not machined steel.
-        const stone = c.createLinearGradient(0, -R, 0, R);
-        stone.addColorStop(0, "#4b5262");
-        stone.addColorStop(0.5, "#3a404d");
-        stone.addColorStop(1, "#2b303a");
-        c.fillStyle = stone;
-        c.fill(ring, "evenodd");
-
-        // 4. lit top face / shaded inner face, clipped to the band so the wall
-        //    reads as having real thickness rather than being a drawn line
-        c.save();
-        c.clip(ring, "evenodd");
-        c.lineWidth = wallW * 0.5;
-        c.strokeStyle = "rgba(198,212,236,0.17)";
-        c.stroke(mkPath(R - wallW * 0.2));
-        c.strokeStyle = "rgba(0,0,0,0.35)";
-        c.stroke(mkPath(inR + wallW * 0.2));
-
-        // 5. block joints, so it reads as courses of cut stone
-        c.strokeStyle = "rgba(0,0,0,0.5)";
-        c.lineWidth = Math.max(1, wallW * 0.11);
-        const JOINTS = CHAMBER_SIDES * 2;
-        for (let i = 0; i < JOINTS; i++) {
-            const a = (i / JOINTS) * Math.PI * 2 + rot;
+        // 3. buttress spokes standing on the floor inside the wall, the same
+        //    low-alpha white radials the outpost's body uses
+        c.globalAlpha = 0.06;
+        c.strokeStyle = "#ffffff";
+        c.lineWidth = Math.max(1, wallW * 0.3);
+        for (let i = 0; i < CHAMBER_SIDES; i++) {
+            const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot + Math.PI / CHAMBER_SIDES;
             const ca = Math.cos(a), sa = Math.sin(a);
             c.beginPath();
-            c.moveTo(ca * (inR - wallW * 0.1), sa * (inR - wallW * 0.1));
-            c.lineTo(ca * (R + wallW * 0.1), sa * (R + wallW * 0.1));
+            c.moveTo(ca * inR, sa * inR);
+            c.lineTo(ca * inR * 0.55, sa * inR * 0.55);
             c.stroke();
         }
-        c.restore();
-
-        // 6. team inlay seam along the inside face - whose treasury this is,
-        //    readable from across the cavern
-        c.globalAlpha = 0.95;
-        c.strokeStyle = teamCol;
-        c.lineWidth = wallW * 0.17;
-        c.stroke(mkPath(inR + wallW * 0.13));
         c.globalAlpha = 1;
 
-        // 7. arras-style dark borders on both faces, heavier on the outside
-        c.strokeStyle = "#15171c";
-        c.lineWidth = wallW * 0.42;
+        // 4. the wall: one flat fill, exactly the outpost foundation's colour
+        c.fillStyle = "#23262d";
+        c.fill(ring, "evenodd");
+
+        // 5. chunky dark borders, heavier outside - the outpost's structural
+        //    language, and what makes it read as built rather than drawn
+        c.strokeStyle = "#111318";
+        c.lineWidth = wallW * 0.5;
         c.stroke(outer);
-        c.lineWidth = wallW * 0.3;
+        c.strokeStyle = "#16181d";
+        c.lineWidth = wallW * 0.34;
         c.stroke(inner);
+
+        // 6. bold team plates filling each wall face - saturated, not a tint,
+        //    the way the outpost wears its team colour
+        const midR2 = (R + inR) / 2;
+        c.globalAlpha = 0.92;
+        c.strokeStyle = teamCol;
+        c.lineWidth = wallW * 0.52;
+        for (let i = 0; i < CHAMBER_SIDES; i++) {
+            const a0 = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
+            const a1 = ((i + 1) / CHAMBER_SIDES) * Math.PI * 2 + rot;
+            const p0 = { x: Math.cos(a0) * midR2, y: Math.sin(a0) * midR2 };
+            const p1 = { x: Math.cos(a1) * midR2, y: Math.sin(a1) * midR2 };
+            c.beginPath();
+            c.moveTo(p0.x + (p1.x - p0.x) * 0.2, p0.y + (p1.y - p0.y) * 0.2);
+            c.lineTo(p0.x + (p1.x - p0.x) * 0.8, p0.y + (p1.y - p0.y) * 0.8);
+            c.stroke();
+        }
+        c.globalAlpha = 1;
+
+        // 7. bright stud bolts on every corner - the outpost's signature
+        for (let i = 0; i < CHAMBER_SIDES; i++) {
+            const a = (i / CHAMBER_SIDES) * Math.PI * 2 + rot;
+            const x = Math.cos(a) * midR2, y = Math.sin(a) * midR2;
+            c.beginPath(); c.arc(x, y, wallW * 0.44, 0, Math.PI * 2);
+            c.fillStyle = teamCol;
+            c.fill();
+            c.lineWidth = wallW * 0.22;
+            c.strokeStyle = "#111318";
+            c.stroke();
+        }
         return cv;
     }
 
@@ -3114,6 +3116,48 @@ import * as tutorial from './tutorial.js';
             c.drawImage(sprite, sx - size / 2, sy - size / 2, size, size);
             c.restore();
             if (mode === 1) continue;
+
+            // The living layer, drawn fresh each frame the way the outposts do
+            // theirs: a containment ring that breathes in the owner's colour
+            // and a set of arc segments orbiting the wall. A handful of strokes
+            // - everything static already came out of the sprite above.
+            const now = performance.now();
+            const inRpx = R * scale * (CHAMBER_INNER / 160);
+            const pulse = 0.5 + 0.5 * Math.sin(now / 700 + ch.id);
+            c.save();
+            c.translate(sx, sy);
+            c.lineCap = "round";
+            c.globalAlpha = (0.5 + 0.25 * pulse) * (regrowing ? 0.5 : 1);
+            c.lineWidth = Math.max(2.5, R * 0.05);
+            c.strokeStyle = teamCol;
+            c.beginPath(); c.arc(0, 0, inRpx * 0.94, 0, Math.PI * 2); c.stroke();
+            // integrity ring around the wall, exactly the outpost's capture
+            // ring: a dark track with a white arc sweeping the remaining health
+            if (alive && st.h !== undefined) {
+                const ringR = R * scale * 1.07;
+                c.globalAlpha = 0.22;
+                c.strokeStyle = "#000000";
+                c.lineWidth = Math.max(3, R * 0.05);
+                c.beginPath(); c.arc(0, 0, ringR, 0, Math.PI * 2); c.stroke();
+                if (st.h > 0.001) {
+                    c.globalAlpha = 0.85;
+                    c.strokeStyle = "#ffffff";
+                    c.beginPath();
+                    c.arc(0, 0, ringR, -Math.PI / 2, -Math.PI / 2 + st.h * Math.PI * 2);
+                    c.stroke();
+                }
+            }
+            c.rotate(now / 5200 + ch.id);
+            c.globalAlpha = (0.42 + 0.2 * pulse) * (regrowing ? 0.5 : 1);
+            c.lineWidth = Math.max(2, R * 0.036);
+            c.strokeStyle = teamCol;
+            for (let i = 0; i < 6; i++) {
+                const a = (i / 6) * Math.PI * 2;
+                c.beginPath();
+                c.arc(0, 0, inRpx * 1.16, a - 0.13, a + 0.13);
+                c.stroke();
+            }
+            c.restore();
 
             // HP bar: below the boulder, filled with the owning team's color
             // (hidden while the pocket is empty or the ring is still forming)
