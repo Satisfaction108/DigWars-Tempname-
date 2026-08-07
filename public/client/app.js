@@ -6196,6 +6196,10 @@ import * as tutorial from './tutorial.js';
         drawFloor(px, py, ratio, tick);
         drawEntities(px, py, ratio, tick, spacing);
         drawOutpostLabels(px, py, ratio);
+        // World-anchored tutorial markers: drawn here so they share the exact
+        // camera transform the entities just used, and sit above the world but
+        // below the GUI. (The screen-space tutorial HUD draws later, in hook().)
+        tutorial.drawWorld(px, py, ratio);
     };
 
     const drawGUI = (tick, scaleRatio) => {
