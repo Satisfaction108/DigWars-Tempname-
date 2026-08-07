@@ -180,6 +180,9 @@ const state = {
     target: null,       // {kind:'rock'|'point'|'vault'|'ui', ...}
     base: {},           // per-step baseline snapshot
     fireSeen: false,
+    autofireSeen: false,
+    pingSeen: false,
+    mapOpened: false,   // saw the big map open, so we can wait for the close
     bursts: [],         // world-space completion particles
     titleAt: 0,
     settleAt: 0,        // when an "absence" condition first held (see update)
@@ -197,14 +200,19 @@ function snapshot() {
         points: gui.points,
         type: gui.type,
         rocks: window.dwRocksBroken || 0,
+        autoSpin: global.autoSpin,
+        pings: global.enemyPings.length,
     };
     state.fireSeen = false;
+    state.autofireSeen = false;
+    state.pingSeen = false;
+    state.mapOpened = false;
 }
 
 // ── objectives ─────────────────────────────────────────────────────────
 // Each: label (short, uppercase-ish), hint (tokens with {{KEY_x}} glyphs),
 // acquire() to lock a world target, progress() 0..1, done() to advance.
-const STEPS = [
+const ALL_STEPS = [
     {
         id: "wake",
         title: "DIG WARS",
@@ -261,6 +269,28 @@ const STEPS = [
             !(gui.skills || []).some(sk => sk.amount < sk.cap),
     },
     {
+        id: "autofire",
+        label: "Auto-fire",
+        hint: () => global.mobile
+            ? "Tap + to open the action menu, then tap Autofire — your tank keeps shooting on its own."
+            : "Press {{KEY_AUTO_FIRE}} for auto-fire — your tank keeps shooting on its own.",
+        target: () => ({ kind: "self" }),
+        // Auto-fire is server-side state with nothing mirrored on the client,
+        // so the only honest signal is catching the input that toggles it.
+        done: () => state.autofireSeen,
+    },
+    {
+        id: "autospin",
+        label: "Auto-spin",
+        hint: () => global.mobile
+            ? "Now tap Autospin — your turret sweeps on its own while you drive."
+            : "Press {{KEY_AUTO_SPIN}} for auto-spin — your turret sweeps while you drive.",
+        target: () => ({ kind: "self" }),
+        // global.autoSpin is real client state, toggled by key, mobile button
+        // and gamepad alike, so watching it covers every input path.
+        done: () => global.autoSpin !== state.base.autoSpin,
+    },
+    {
         id: "rock",
         label: "Break a rock",
         hint: () => global.mobile
@@ -308,6 +338,31 @@ const STEPS = [
         done: () => global.gems.carried > state.base.carried,
     },
     {
+        id: "marker",
+        label: "Mark an enemy",
+        hint: () => "Press {{KEY_AUTO_ALT}} to drop a danger marker at your cursor for the whole team.",
+        // no ping binding exists on touch — do not teach a control they cannot press
+        omit: () => global.mobile,
+        target: () => ({ kind: "self" }),
+        done: () => global.enemyPings.length > state.base.pings || state.pingSeen,
+    },
+    {
+        id: "minimap",
+        label: "Read the map",
+        hint: () => global.mobile
+            ? "Your minimap sits in the corner — gems, teammates and enemies all show up on it."
+            : "Press {{KEY_TOGGLE_MAP}} to open the full map, then press it again to close it.",
+        ui: "minimap",
+        // Desktop gets the real open-then-close loop. Touch has no map toggle,
+        // so there it is a beat to actually look at the corner instead.
+        progress: () => global.mobile
+            ? clamp((T() - state.stepAt) / 4500, 0, 1)
+            : (state.mapOpened ? (global.showBigMap ? 0.5 : 1) : 0),
+        done: () => global.mobile
+            ? T() - state.stepAt > 4500
+            : (state.mapOpened && !global.showBigMap),
+    },
+    {
         id: "bank",
         label: "Cash out",
         hint: () => "Carried gems drop when you die. Park on the vault pad to bank them.",
@@ -348,6 +403,18 @@ function uiRect(kind) {
         ? global.canvas.height / SH() / global.ratio : 1;
     if (!cr || !isFinite(cr)) return null;
     const pad = 10 * US();
+    if (kind === "minimap") {
+        // The minimap is drawn, not clickable, so mirror app.js's own layout
+        // (drawMinimapAndDebug). Dig Wars swaps in a square terrain minimap on
+        // desktop once the satchel exists; mobile keeps the top-left rect one.
+        const spacing = 20;
+        const len = 200 / util.getScreenRatio();
+        const square = !global.mobile && terr() && global.gems && global.gems.cap > 0;
+        const h = square ? len : (len / Math.max(1, global.gameWidth)) * global.gameHeight;
+        const x = global.mobile ? spacing : SW() - spacing - len - 5;
+        const y = global.mobile ? spacing : SH() - h - spacing - 5;
+        return { x: x - pad, y: y - pad, w: len + pad * 2, h: h + pad * 2 };
+    }
     const rs = [];
     if (kind === "skills") {
         for (let i = 0; i < cl.stat.size(); i++) rs.push(cl.stat.rect(i));
@@ -393,6 +460,13 @@ function drawUiHighlight(c, kind) {
 }
 
 // ── step machine ───────────────────────────────────────────────────────
+// active chain for this device: steps whose control does not exist here are
+// dropped entirely rather than shown as busywork you cannot complete
+let STEPS = ALL_STEPS;
+function buildChain() {
+    STEPS = ALL_STEPS.filter(s => !s.omit || !s.omit());
+    state.chain = STEPS.map(s => s.id);   // debug aid, mirrors window.dwTut
+}
 function stepDef() { return STEPS[state.step]; }
 
 function enterStep(i) {
@@ -449,6 +523,8 @@ function update() {
         if (state.lastType !== null) state.evolveCount++;
         state.lastType = gui.type;
     }
+
+    if (global.showBigMap) state.mapOpened = true;
 
     if (state.phase === "active") {
         // Success is checked BEFORE re-targeting: for the rock objective the
@@ -1017,7 +1093,20 @@ function skipStep() {
 // ── input ──────────────────────────────────────────────────────────────
 function onKeyDown(e) {
     if (!state.running) return;
-    if (e.keyCode === 32) state.fireSeen = true;
+    const k = e.keyCode;
+    if (k === 32) state.fireSeen = true;
+    if (k === global.KEY_AUTO_FIRE) state.autofireSeen = true;
+    if (k === global.KEY_AUTO_ALT) state.pingSeen = true;
+}
+// Mobile has no key events, so catch the taps that land on the action buttons
+// using the game's own hit regions (index 3 = Autofire — see canvas.js
+// touchStart). Auto-spin needs no such hook: it sets global.autoSpin.
+function onTouchStart(e) {
+    if (!state.running || !global.mobile || !global.clickables) return;
+    for (const t of e.changedTouches) {
+        const mpos = { x: t.clientX * global.ratio, y: t.clientY * global.ratio };
+        if (global.clickables.mobileButtons.check(mpos) === 3) state.autofireSeen = true;
+    }
 }
 function onMouseDown(e) {
     if (!state.running) return;
@@ -1027,6 +1116,7 @@ function onMouseDown(e) {
 // ── lifecycle ──────────────────────────────────────────────────────────
 function open() {
     ensureSkip();
+    buildChain();
     state.running = true;
     state.bursts = [];
     state.lastBreak = null;
@@ -1085,6 +1175,7 @@ export function hook() {
 
 document.addEventListener("keydown", onKeyDown);
 document.addEventListener("mousedown", onMouseDown);
+document.addEventListener("touchstart", onTouchStart, { passive: true });
 
 // read-only handle for debugging/automation: which objective is live and what
 // it is currently pointing at
