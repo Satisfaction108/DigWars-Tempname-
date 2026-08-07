@@ -170,6 +170,65 @@ function nearestVault() {
     return best;
 }
 
+// ── the tank you are driving ───────────────────────────────────────────
+// Everything the client knows about a tank's archetype comes off its mockup.
+// There is no explicit "is a drone tank" flag, but the stat NAMES the server
+// renames per archetype are a reliable fingerprint (a drone tank calls bullet
+// damage "Drone Damage"), and a real auto-turret is a non-prop turret that
+// carries guns - a Smasher's spinning shape is also a turret, but has none.
+function myMockup() {
+    try {
+        const i = parseInt(String(gui.type).split("-")[0]);
+        return global.mockups[i] || null;
+    } catch (e) { return null; }
+}
+function archetype(m) {
+    if (!m) return null;
+    const sn = m.statnames || {};
+    const dam = String(sn.bullet_damage || "");
+    const rld = String(sn.reload || "");
+    const guns = (m.guns || []).length;
+    const auto = (m.turrets || []).some(t => !t.isProp && (t.guns || []).length > 0);
+    return {
+        name: m.name || "",
+        auto,
+        drone: /drone/i.test(dam) || /drone/i.test(rld),   // covers necromancers too
+        swarm: /swarm/i.test(dam),
+        trap: /trap/i.test(dam),
+        rammer: guns === 0 && !auto,
+    };
+}
+
+// ── the ten stats, in the order the skill bar shows them ───────────────
+// Index here is the same index the game's own hit regions and its "x" packet
+// use. gui.skills is stored in the reverse order, hence the 9 - i below.
+// Blurbs describe what the stat actually does in THIS game, including its
+// effect on mining: bullets chew rock faster with penetration, bullet health
+// and bullet damage (server: mining.skillFactor), while a rammer grinds rock
+// with body damage (server: mining.grindSecondsFor).
+const STAT_INFO = [
+    { i: 0, why: "Ramming damage — and for a rammer, how fast you grind through rock." },
+    { i: 1, why: "How much punishment you can take before you pop." },
+    { i: 2, why: "How fast your shots travel, so they land before the target moves." },
+    { i: 3, why: "How much your shots survive — they chew through rock faster too." },
+    { i: 4, why: "How many things a shot punches through, rock included." },
+    { i: 5, why: "How hard your shots hit, and how quickly they break rock." },
+    { i: 6, why: "How fast you fire." },
+    { i: 7, why: "How fast you drive." },
+    { i: 8, why: "How quickly your shield starts refilling." },
+    { i: 9, why: "How much shield you carry." },
+];
+function statName(i) {
+    const m = myMockup();
+    try { return gui.getStatNames(m && m.statnames)[i] || "Stat"; }
+    catch (e) { return "Stat"; }
+}
+function statSkill(i) { return (gui.skills || [])[9 - i] || null; }
+function statUsable(i) {
+    const sk = statSkill(i);
+    return !!sk && sk.cap > 0;
+}
+
 // ── state ──────────────────────────────────────────────────────────────
 const state = {
     running: false,
@@ -204,6 +263,12 @@ function snapshot() {
         rocks: window.dwRocksBroken || 0,
         autoSpin: global.autoSpin,
         pings: global.enemyPings.length,
+        statAmt: (() => {
+            const sd = STEPS[state.step];
+            if (!sd || sd.statIndex === undefined) return 0;
+            const sk = statSkill(sd.statIndex);
+            return sk ? sk.amount : 0;
+        })(),
     };
     state.fireSeen = false;
     state.autofireCount = 0;
@@ -239,40 +304,6 @@ const ALL_STEPS = [
             global.player.rendery - state.base.y) > 260,
     },
     {
-        id: "evolve",
-        label: "Evolve your tank",
-        hint: () => global.mobile
-            ? "Tap a class to evolve. Keep going until you reach your final form."
-            : "Pick a class to evolve. Keep going until you reach your final form.",
-        ui: "upgrades",
-        // Not a fixed number of picks: you are done when the game stops
-        // offering upgrades, i.e. you are at your final tier.
-        progress: () => (gui.upgrades || []).length ? 0 : 1,
-        settle: 1100,
-        done: () => {
-            const offered = (gui.upgrades || []).length > 0;
-            if (offered) return false;
-            if (state.evolveCount > 0) return true;
-            // already max tier / nothing was ever offered — nothing to teach
-            return T() - state.stepAt > 6000;
-        },
-    },
-    {
-        id: "stats",
-        label: "Spend your stat points",
-        hint: () => global.mobile
-            ? "Tap the stat bars until every point is spent."
-            : "Press {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the bars until every point is spent.",
-        ui: "skills",
-        progress: () => {
-            const b = state.base.points || 0;
-            return b > 0 ? clamp(1 - gui.points / b, 0, 1) : 1;
-        },
-        settle: 700,
-        done: () => gui.points <= 0 ||
-            !(gui.skills || []).some(sk => sk.amount < sk.cap),
-    },
-    {
         id: "autofire",
         label: "Auto-fire",
         hint: () => global.mobile
@@ -298,14 +329,31 @@ const ALL_STEPS = [
         done: () => state.spinOn && !global.autoSpin,
     },
     {
-        id: "override",
-        label: "AI override",
+        id: "evolve",
+        label: "Evolve your tank",
         hint: () => global.mobile
-            ? "Tap Override — your drones and auto-turrets aim where you aim instead of picking their own targets."
-            : "Press {{KEY_OVER_RIDE}} for AI override — drones and auto-turrets follow your cursor instead of picking their own targets.",
-        target: () => ({ kind: "self" }),
-        progress: () => state.overrideSeen ? 1 : 0,
-        done: () => state.overrideSeen,
+            ? "Tap a class to evolve. Keep going until you reach your final form."
+            : "Pick a class to evolve. Keep going until you reach your final form.",
+        ui: "upgrades",
+        // Not a fixed number of picks: you are done when the game stops
+        // offering upgrades, i.e. you are at your final tier.
+        progress: () => (gui.upgrades || []).length ? 0 : 1,
+        settle: 1100,
+        done: () => {
+            const offered = (gui.upgrades || []).length > 0;
+            if (offered) return false;
+            if (state.evolveCount > 0) return true;
+            // already max tier / nothing was ever offered — nothing to teach
+            return T() - state.stepAt > 6000;
+        },
+    },
+    {
+        id: "stats",
+        expand: true,          // replaced at chain-build time by one step per stat
+        label: "Spend your stat points",
+        hint: () => "Put your points into the bars.",
+        ui: "skills",
+        done: () => gui.points <= 0,
     },
     {
         id: "rock",
@@ -406,6 +454,117 @@ const ALL_STEPS = [
     },
 ];
 
+// ── tank lessons ───────────────────────────────────────────────────────
+// Short, one-off cards that fire the first time you actually pilot a tank
+// that has the thing being taught. They are deliberately NOT part of the main
+// chain: teaching drone control to a Twin pilot is noise, and a rammer needs
+// to hear something a gun tank never does. Each fires once per browser, ever,
+// whether or not the main tutorial is still running.
+const LESSON_KEY = "digwarsLessons";
+function lessonsSeen() {
+    try { return JSON.parse(localStorage.getItem(LESSON_KEY) || "[]") || []; }
+    catch (e) { return []; }
+}
+function markLesson(id) {
+    try {
+        const seen = lessonsSeen();
+        if (!seen.includes(id)) { seen.push(id); localStorage.setItem(LESSON_KEY, JSON.stringify(seen)); }
+    } catch (e) { }
+}
+
+const LESSONS = [
+    {
+        id: "rammer",
+        when: a => a.rammer,
+        title: "Rammer",
+        body: () => `You have no guns — you ARE the weapon. Drive into rocks to grind them down, and into enemies to crush them. Pour points into ${statName(0)}: it is both your ramming damage and your mining speed.`,
+    },
+    {
+        id: "drone",
+        when: a => a.drone,
+        title: "Drone tank",
+        body: () => "Your drones fly on their own and chase what you point at. Press {{KEY_OVER_RIDE}} for AI override to seize direct control — they hold formation on your cursor instead of hunting by themselves.",
+    },
+    {
+        id: "auto",
+        when: a => a.auto,
+        title: "Auto turret",
+        body: () => "The turret on your hull picks its own targets and fires by itself. Hold left click or switch on {{KEY_AUTO_FIRE}} to make it shoot where you shoot, and press {{KEY_OVER_RIDE}} to override it and aim it yourself.",
+        bodyMobile: () => "The turret on your hull picks its own targets and fires by itself. Hold the right side of the screen or switch on Autofire to make it shoot where you aim, and tap Override to aim it yourself.",
+    },
+    {
+        id: "swarm",
+        when: a => a.swarm,
+        title: "Swarm tank",
+        body: () => "Your swarms home in on whatever you aim at and keep hunting after you let go. Press {{KEY_OVER_RIDE}} to override them and steer the flock yourself.",
+    },
+    {
+        id: "trap",
+        when: a => a.trap,
+        title: "Trap tank",
+        body: () => "You lay traps rather than fire at range. They sit where you drop them, block chokepoints and shred anything that runs into them — including rock, if you place them against it.",
+    },
+];
+
+let lesson = null;            // {def, at, gone}
+function pollLessons() {
+    const a = archetype(myMockup());
+    state.tank = a;           // debug aid, mirrors window.dwTut
+    if (lesson || !a) return;
+    const seen = lessonsSeen();
+    for (const L of LESSONS) {
+        if (seen.includes(L.id)) continue;
+        if (!L.when(a)) continue;
+        lesson = { def: L, at: T(), gone: 0 };
+        markLesson(L.id);
+        sfxObjective();
+        return;
+    }
+}
+function dismissLesson() {
+    if (lesson && !lesson.gone) lesson.gone = T();
+}
+
+// A lesson takes over the card slot while it shows, so there is never a second
+// tutorial competing with the objective for attention.
+function drawLesson(c) {
+    if (!lesson) return true;
+    const S = US();
+    const t = T() - lesson.at;
+    const a = smooth(t / 420) * (lesson.gone ? 1 - smooth((T() - lesson.gone) / 600) : 1);
+    if (lesson.gone && T() - lesson.gone > 700) { lesson = null; return true; }
+    if (a <= 0) return false;
+
+    const raw = (global.mobile && lesson.def.bodyMobile) ? lesson.def.bodyMobile() : lesson.def.body();
+    const maxW = Math.min(SW() * (global.mobile ? 0.94 : 0.86), 470 * S);
+    const lines = layout(c, tokenize(raw), maxW - 36 * S, S);
+    const lineH = 21 * S, padX = 18 * S, padY = 14 * S, labelH = 26 * S;
+    const boxH = padY * 2 + labelH + lines.length * lineH + 10 * S;
+    const x = (SW() - maxW) / 2;
+    const y = (global.mobile ? SH() - boxH - 152 * S : 78 * S) + (1 - smooth(t / 420)) * -12;
+    const cx = SW() / 2;
+
+    c.save();
+    c.globalAlpha = a;
+    roundRect(c, x, y, maxW, boxH, 12 * S);
+    c.fillStyle = "rgba(10,11,15,.86)";
+    c.fill();
+    c.lineWidth = 1.5;
+    c.strokeStyle = `rgba(${MINT},.4)`;
+    c.stroke();
+    trackedText(c, lesson.def.title.toUpperCase(), cx, y + padY + labelH / 2,
+                16 * S, `rgb(${MINT})`, 1.6 * S, a);
+    c.globalAlpha = a;
+    let ty = y + padY + labelH + 12 * S;
+    c.textBaseline = "middle";
+    for (const line of lines) { drawLine(c, line, cx, ty, S); ty += lineH; }
+    c.restore();
+
+    state.card = { y, h: boxH };
+    layoutSkip(global.mobile ? y - 36 * S : y + boxH);
+    return false;
+}
+
 // ── UI rects (live geometry straight from the game's own hit regions) ───
 function uiRect(kind) {
     const cl = global.clickables;
@@ -480,10 +639,69 @@ function drawUiHighlight(c, kind) {
 // active chain for this device: steps whose control does not exist here are
 // dropped entirely rather than shown as busywork you cannot complete
 let STEPS = ALL_STEPS;
+
+// One objective per stat, in skill-bar order, skipping any this tank cannot
+// use (a rammer's bullet stats are capped at zero). Each completes the moment
+// a point actually lands in that stat, so the player learns it by doing it.
+function statSteps() {
+    const out = [];
+    const usable = STAT_INFO.filter(si => statUsable(si.i));
+    usable.forEach((si, n) => {
+        out.push({
+            id: "stat" + si.i,
+            group: "stats",
+            groupPos: n + 1,
+            groupLen: usable.length + 1,
+            label: () => statName(si.i),
+            hint: () => si.why + "  Put a point into it.",
+            ui: "skills",
+            statIndex: si.i,
+            progress: () => {
+                const sk = statSkill(si.i);
+                const base = state.base.statAmt || 0;
+                return sk && sk.amount > base ? 1 : 0;
+            },
+            done: () => {
+                const sk = statSkill(si.i);
+                if (!sk) return true;
+                if (sk.amount >= sk.cap) return true;          // nothing to spend here
+                return sk.amount > (state.base.statAmt || 0);
+            },
+        });
+    });
+    // whatever is left over is theirs to place however they like
+    out.push({
+        id: "statsRest",
+        group: "stats",
+        groupPos: usable.length + 1,
+        groupLen: usable.length + 1,
+        label: "Spend the rest",
+        hint: () => global.mobile
+            ? "Now pour the remaining points wherever suits your build."
+            : "Now pour the remaining points wherever suits your build — {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the bars.",
+        ui: "skills",
+        settle: 700,
+        progress: () => {
+            const b = state.base.points || 1;
+            return clamp(1 - gui.points / b, 0, 1);
+        },
+        done: () => gui.points <= 0 ||
+            !(gui.skills || []).some(sk => sk.amount < sk.cap),
+    });
+    return out;
+}
+
 function buildChain() {
-    STEPS = ALL_STEPS.filter(s => !s.omit || !s.omit());
+    const out = [];
+    for (const st of ALL_STEPS) {
+        if (st.omit && st.omit()) continue;
+        if (st.expand) { out.push(...statSteps()); continue; }
+        out.push(st);
+    }
+    STEPS = out;
     state.chain = STEPS.map(s => s.id);   // debug aid, mirrors window.dwTut
 }
+
 function stepDef() { return STEPS[state.step]; }
 
 function enterStep(i) {
@@ -515,6 +733,14 @@ function completeStep() {
 }
 
 function advance() {
+    const finished = stepDef();
+    // Stat caps depend on the tank just chosen, so the per-stat objectives are
+    // rebuilt the moment evolution is done rather than at tutorial start.
+    if (finished && finished.id === "evolve") {
+        buildChain();
+        const at = STEPS.findIndex(s2 => s2.group === "stats");
+        if (at >= 0) return enterStep(at);
+    }
     if (state.step >= STEPS.length - 1) return finish();
     enterStep(state.step + 1);
 }
@@ -1034,17 +1260,31 @@ function drawObjective(c) {
     // label — struck through and ticked once satisfied
     const ly = y + padY + labelH / 2;
     const done = cleared;
-    trackedText(c, (done ? "✓  " : "") + (s.label || "").toUpperCase(), cx, ly,
+    const lblTxt = (typeof s.label === "function" ? s.label() : s.label) || "";
+    trackedText(c, (done ? "✓  " : "") + lblTxt.toUpperCase(), cx, ly,
         16 * S, done ? `rgb(${MINT})` : `rgb(${GOLD})`, 1.6 * S, a);
     c.globalAlpha = a;
 
+    if (s.groupLen) {
+        c.font = `700 ${11 * S}px ${FONT}`;
+        c.textAlign = "right";
+        c.fillStyle = `rgba(${GOLD},.55)`;
+        c.fillText(`${s.groupPos}/${s.groupLen}`, x + boxW - padX, ly);
+    }
     let ty = y + padY + labelH + 12 * S;
     c.textBaseline = "middle";
     for (const line of lines) { drawLine(c, line, cx, ty, S); ty += lineH; }
 
     // step pips
-    const total = STEPS.filter(s2 => !s2.card).length;
-    const idx = STEPS.slice(0, state.step + 1).filter(s2 => !s2.card).length - 1;
+    const keys = [];
+    for (const s2 of STEPS) {
+        if (s2.card) continue;
+        const k = s2.group || s2.id;
+        if (keys[keys.length - 1] !== k) keys.push(k);
+    }
+    const curKey = s.group || s.id;
+    const total = keys.length;
+    const idx = keys.indexOf(curKey);
     const gap = 13 * S;
     let dx = cx - (total - 1) * gap / 2;
     for (let i = 0; i < total; i++) {
@@ -1062,7 +1302,7 @@ function drawObjective(c) {
 }
 
 // ── skip controls (DOM, so they are reliably clickable/tappable) ──────
-let skipBar = null, skipStepEl = null;
+let skipBar = null, skipStepEl = null, gotItEl = null;
 function ensureSkip() {
     if (skipBar) return;
     skipBar = document.createElement("div");
@@ -1078,8 +1318,14 @@ function ensureSkip() {
     all.textContent = "Skip tutorial";
     all.addEventListener("click", e => { e.stopPropagation(); finish(); });
 
+    gotItEl = document.createElement("button");
+    gotItEl.className = "dwTutSkipBtn dwTutGotIt";
+    gotItEl.textContent = "Got it";
+    gotItEl.addEventListener("click", e => { e.stopPropagation(); dismissLesson(); });
+
     skipBar.appendChild(skipStepEl);
     skipBar.appendChild(all);
+    skipBar.appendChild(gotItEl);
     document.body.appendChild(skipBar);
 }
 // glue the bar just under (or above) the canvas-drawn card: logical -> CSS px
@@ -1091,6 +1337,12 @@ function layoutSkip(atY) {
 function showSkip(on) {
     if (!skipBar) return;
     skipBar.classList.toggle("show", !!on);
+}
+function showGotIt(on) {
+    if (!skipBar) return;
+    if (on) skipBar.classList.add("show");
+    skipBar.classList.toggle("lesson", !!on);
+    if (gotItEl) gotItEl.classList.toggle("show", !!on);
 }
 // A step must never be able to trap someone. Some objectives depend on game
 // state we do not control — most sharply, the mobile skill bar lays its stats
@@ -1161,6 +1413,7 @@ export function isComplete() {
 export function startTutorial() { if (!isComplete()) open(); }
 export function replayTutorial() { open(); }
 
+ensureSkip();
 let startedOnce = false;
 // Called every frame from app.js right after drawGUI() — screen-space pass.
 export function hook() {
@@ -1168,13 +1421,33 @@ export function hook() {
         startedOnce = true;
         open();
     }
-    if (!state.running) return;
     if (global.died || global.disconnected) return;
 
-    update();
+    // Lessons keep working for the life of the session, long after the main
+    // tutorial is done - that is the whole point of them.
+    if (global.gameStart && !global.showTree) pollLessons();
+    if (lesson && !lesson.gone && T() - lesson.at > 11000) dismissLesson();
 
     const c = ctxGui();
     if (!c) return;
+
+    if (lesson) {
+        c.save();
+        c.textBaseline = "middle";
+        const gone = drawLesson(c);
+        c.restore();
+        showGotIt(!gone);
+        // a lesson never shares the screen; the .lesson class already hides the
+        // skip buttons, so do NOT clear .show here or the bar disappears with it
+        if (!gone) return;
+    } else {
+        showGotIt(false);
+    }
+
+    if (!state.running) return;
+
+    update();
+
     const s = stepDef();
     c.save();
     c.textBaseline = "middle";

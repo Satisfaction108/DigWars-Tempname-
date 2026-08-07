@@ -1166,6 +1166,12 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 .dwTutSkipBtn:hover { background: rgba(18,20,26,.9); color: #f2ead6; }
 .dwTutSkipBtn:active { transform: scale(.96); }
 
+/* the lesson dismiss button replaces the skip pair while a lesson is up */
+.dwTutGotIt { display: none; color: #78ffc8; background: rgba(10,11,15,.85); }
+.dwTutGotIt.show { display: inline-block; }
+.dwTutGotIt:hover { background: rgba(120,255,200,.16); color: #b6ffe2; }
+#dwTutSkipBar.lesson .dwTutSkipBtn:not(.dwTutGotIt) { display: none; }
+
 /* only offered once a step has been sitting unsolved for a while */
 .dwTutSkipStep {
     display: none;
