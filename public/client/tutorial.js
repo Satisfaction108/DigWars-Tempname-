@@ -199,6 +199,43 @@ function archetype(m) {
     };
 }
 
+// The client is never told its team number outright, but gui.color arrives as
+// e.g. "blue 0 1 0 false", and vaults/outposts use -1 for blue, -2 for red.
+function myTeam() {
+    const c = String(gui.color || "");
+    if (c.indexOf("blue") === 0) return -1;
+    if (c.indexOf("red") === 0) return -2;
+    return 0;
+}
+// Roughly "is it on my screen": the visible world radius is half the viewport
+// divided by the camera scale.
+function viewRadius() {
+    const r = util.getRatio() || 1;
+    return (Math.max(SW(), SH()) / 2) / r * 1.05;
+}
+function nearAny(list, pick) {
+    const px = global.player.renderx, py = global.player.rendery, R = viewRadius();
+    for (const o of list || []) {
+        if (!pick(o)) continue;
+        if (Math.hypot(o.x - px, o.y - py) <= R) return true;
+    }
+    return false;
+}
+function seesTakeableOutpost() {
+    const mine = myTeam();
+    const st = global.outpostState || [];
+    return nearAny(global.outposts, o => {
+        const s2 = st.find(x => x.id === o.id);
+        const t = s2 ? s2.t : 0;
+        return !t || t !== mine;          // unclaimed, or held by the other side
+    });
+}
+function seesChamber() { return nearAny(global.chambers, () => true); }
+function settingsOpen() {
+    const el = document.getElementById("homeSettingsPanel");
+    return !!(el && el.classList.contains("open"));
+}
+
 // ── the ten stats, in the order the skill bar shows them ───────────────
 // Index here is the same index the game's own hit regions and its "x" packet
 // use. gui.skills is stored in the reverse order, hence the 9 - i below.
@@ -207,7 +244,7 @@ function archetype(m) {
 // and bullet damage (server: mining.skillFactor), while a rammer grinds rock
 // with body damage (server: mining.grindSecondsFor).
 const STAT_INFO = [
-    { i: 0, why: "Ramming damage — and for a rammer, how fast you grind through rock." },
+    { i: 0, why: "How hard you hurt anything you drive into — and every tank grinds rock by ramming it, so this is your mining speed on contact no matter what you pilot." },
     { i: 1, why: "How much punishment you can take before you pop." },
     { i: 2, why: "How fast your shots travel, so they land before the target moves." },
     { i: 3, why: "How much your shots survive — they chew through rock faster too." },
@@ -244,6 +281,8 @@ const state = {
     overrideSeen: false,
     pingSeen: false,
     mapOpened: false,   // saw the big map open, so we can wait for the close
+    review: false,      // arrived here via Back, so do not auto-bounce forward
+    enteredDone: false, // this objective was already satisfied on arrival
     bursts: [],         // world-space completion particles
     titleAt: 0,
     settleAt: 0,        // when an "absence" condition first held (see update)
@@ -358,9 +397,14 @@ const ALL_STEPS = [
     {
         id: "rock",
         label: "Break a rock",
-        hint: () => global.mobile
-            ? "Aim with the right side of the screen and hold to fire. Shatter the marked rock."
-            : "Aim with your mouse, hold left click to fire. Shatter the marked rock.",
+        hint: () => {
+            const a = archetype(myMockup());
+            // no barrels means no aiming - you mine by driving into it
+            if (a && a.rammer) return "Drive into the marked rock and keep pushing — your hull grinds straight through it.";
+            return global.mobile
+                ? "Aim with the right side of the screen and hold to fire. Shatter the marked rock."
+                : "Aim with your mouse, hold left click to fire. Shatter the marked rock.";
+        },
         acquire: () => {
             const r = acquireRock(true);
             return r ? { kind: "rock", k: r.k, x: r.x, y: r.y } : null;
@@ -443,6 +487,27 @@ const ALL_STEPS = [
             (global.vault.onPad && state.base.carried > 0 && global.gems.carried === 0),
     },
     {
+        id: "keys",
+        group: "keys",
+        groupPos: 1, groupLen: 2,
+        label: "Learn your controls",
+        hint: () => "Open settings — every control in the game is listed there, and you can rebind any of them.",
+        ui: "settings",
+        // the in-game gear toggles the DOM settings panel, which is where the
+        // keybind list actually lives (index.html .kb-row entries)
+        done: () => settingsOpen(),
+    },
+    {
+        id: "keysClose",
+        group: "keys",
+        groupPos: 2, groupLen: 2,
+        label: "Close settings",
+        hint: () => "That is your whole keybind list. Close it when you have had a look.",
+        ui: "settings",
+        done: () => !settingsOpen(),
+        settle: 400,
+    },
+    {
         id: "done",
         title: "GOOD LUCK, MINER",
         subtitle: () => global.gems.banked > 0
@@ -461,6 +526,13 @@ const ALL_STEPS = [
 // to hear something a gun tank never does. Each fires once per browser, ever,
 // whether or not the main tutorial is still running.
 const LESSON_KEY = "digwarsLessons";
+const LESSON_MUTE = "digwarsLessonsOff";
+function lessonsMuted() {
+    try { return localStorage.getItem(LESSON_MUTE) === "1"; } catch (e) { return false; }
+}
+function muteLessons() {
+    try { localStorage.setItem(LESSON_MUTE, "1"); } catch (e) { }
+}
 function lessonsSeen() {
     try { return JSON.parse(localStorage.getItem(LESSON_KEY) || "[]") || []; }
     catch (e) { return []; }
@@ -493,6 +565,20 @@ const LESSONS = [
         bodyMobile: () => "The turret on your hull picks its own targets and fires by itself. Hold the right side of the screen or switch on Autofire to make it shoot where you aim, and tap Override to aim it yourself.",
     },
     {
+        id: "outpost",
+        afterTutorial: true,
+        when: () => seesTakeableOutpost(),
+        title: "Outpost",
+        body: () => "That is a capturable outpost. Shoot it down to claim it for your team — it feeds you gems and map control while you hold it. A rammer cannot break one: ramming does nothing to a structure, so bring guns or a teammate who has them.",
+    },
+    {
+        id: "chamber",
+        afterTutorial: true,
+        when: () => seesChamber(),
+        title: "Core chamber",
+        body: () => "A core chamber is a team's treasury vault, packed with gems. Break the ring to spill what is inside — and defend your own, because the enemy wants yours just as badly. Like outposts, ramming will not dent it.",
+    },
+    {
         id: "swarm",
         when: a => a.swarm,
         title: "Swarm tank",
@@ -510,10 +596,14 @@ let lesson = null;            // {def, at, gone}
 function pollLessons() {
     const a = archetype(myMockup());
     state.tank = a;           // debug aid, mirrors window.dwTut
-    if (lesson || !a) return;
+    state.myColor = gui.color;
+    if (lesson || !a || lessonsMuted()) return;
     const seen = lessonsSeen();
     for (const L of LESSONS) {
         if (seen.includes(L.id)) continue;
+        // Site lessons never interrupt the tutorial - if they walk past an
+        // outpost mid-chain it simply fires the next time they see one.
+        if (L.afterTutorial && state.running) continue;
         if (!L.when(a)) continue;
         lesson = { def: L, at: T(), gone: 0 };
         markLesson(L.id);
@@ -592,7 +682,9 @@ function uiRect(kind) {
         return { x: x - pad, y: y - pad, w: len + pad * 2, h: h + pad * 2 };
     }
     const rs = [];
-    if (kind === "skills") {
+    if (kind && kind.indexOf("stat:") === 0) {
+        rs.push(cl.stat.rect(parseInt(kind.slice(5))));
+    } else if (kind === "skills") {
         for (let i = 0; i < cl.stat.size(); i++) rs.push(cl.stat.rect(i));
     } else if (kind === "upgrades") {
         const n = (gui.upgrades || []).length;
@@ -654,7 +746,7 @@ function statSteps() {
             groupLen: usable.length + 1,
             label: () => statName(si.i),
             hint: () => si.why + "  Put a point into it.",
-            ui: "skills",
+            ui: "stat:" + si.i,
             statIndex: si.i,
             progress: () => {
                 const sk = statSkill(si.i);
@@ -704,8 +796,9 @@ function buildChain() {
 
 function stepDef() { return STEPS[state.step]; }
 
-function enterStep(i) {
+function enterStep(i, review) {
     state.step = i;
+    state.review = !!review;
     state.stepAt = T();
     state.completedAt = 0;
     state.phase = "active";
@@ -715,6 +808,11 @@ function enterStep(i) {
     const s = stepDef();
     if (!s) return finish();
     if (s.acquire) state.target = s.acquire();
+    // Remember whether this objective was ALREADY satisfied the moment we
+    // landed on it. Revisiting a done step must not instantly bounce forward.
+    state.enteredDone = false;
+    try { state.enteredDone = !!s.done(state.target); } catch (e) { }
+    refreshNav();
     if (s.card) { state.titleAt = T(); if (s.final) sfxFinale(); }
     else sfxAdvance();
 }
@@ -775,7 +873,10 @@ function update() {
         // target's death *is* the win condition, and revalidate treats a dead
         // rock as "lost" — re-acquiring first would swap in a fresh live rock
         // every time you broke one, so the step could never complete.
-        if (s.done(state.target)) {
+        const isDone = s.done(state.target);
+        if (state.review && isDone && state.enteredDone) {
+            state.settleAt = 0;          // already satisfied when we came back
+        } else if (isDone) {
             // Some conditions are "absence of something" (no upgrades left to
             // pick, no points left to spend) and flicker while the server
             // sends the next batch — hold them steady before accepting.
@@ -1301,31 +1402,27 @@ function drawObjective(c) {
     layoutSkip(global.mobile ? y - 36 * S : y + boxH);
 }
 
-// ── skip controls (DOM, so they are reliably clickable/tappable) ──────
-let skipBar = null, skipStepEl = null, gotItEl = null;
+// ── controls (DOM, so they are reliably clickable/tappable) ───────────
+let skipBar = null, backEl = null, nextEl = null, skipAllEl = null,
+    gotItEl = null, ignoreEl = null;
 function ensureSkip() {
     if (skipBar) return;
     skipBar = document.createElement("div");
     skipBar.id = "dwTutSkipBar";
 
-    skipStepEl = document.createElement("button");
-    skipStepEl.className = "dwTutSkipBtn dwTutSkipStep";
-    skipStepEl.textContent = "Skip this step";
-    skipStepEl.addEventListener("click", e => { e.stopPropagation(); skipStep(); });
-
-    const all = document.createElement("button");
-    all.className = "dwTutSkipBtn";
-    all.textContent = "Skip tutorial";
-    all.addEventListener("click", e => { e.stopPropagation(); finish(); });
-
-    gotItEl = document.createElement("button");
-    gotItEl.className = "dwTutSkipBtn dwTutGotIt";
-    gotItEl.textContent = "Got it";
-    gotItEl.addEventListener("click", e => { e.stopPropagation(); dismissLesson(); });
-
-    skipBar.appendChild(skipStepEl);
-    skipBar.appendChild(all);
-    skipBar.appendChild(gotItEl);
+    const mk = (cls, text, fn) => {
+        const b = document.createElement("button");
+        b.className = "dwTutSkipBtn " + cls;
+        b.textContent = text;
+        b.addEventListener("click", e => { e.stopPropagation(); fn(); });
+        skipBar.appendChild(b);
+        return b;
+    };
+    backEl    = mk("dwTutBack", "‹ Back", goBack);
+    nextEl    = mk("dwTutNext", "Next ›", goNext);
+    skipAllEl = mk("dwTutSkipAll", "Skip tutorial", finish);
+    gotItEl   = mk("dwTutGotIt", "Got it", dismissLesson);
+    ignoreEl  = mk("dwTutIgnore", "Ignore tips", () => { muteLessons(); dismissLesson(); });
     document.body.appendChild(skipBar);
 }
 // glue the bar just under (or above) the canvas-drawn card: logical -> CSS px
@@ -1342,22 +1439,33 @@ function showGotIt(on) {
     if (!skipBar) return;
     if (on) skipBar.classList.add("show");
     skipBar.classList.toggle("lesson", !!on);
-    if (gotItEl) gotItEl.classList.toggle("show", !!on);
 }
-// A step must never be able to trap someone. Some objectives depend on game
-// state we do not control — most sharply, the mobile skill bar lays its stats
-// out wider than a phone screen, so the last points can be unreachable — so
-// after a while we offer a way past this one step without losing the rest.
-function offerStepSkip(on) {
-    if (skipStepEl) skipStepEl.classList.toggle("show", !!on);
+// Back is meaningless on the very first objective, so it is not offered there.
+// "First" means the first real objective, not index 0 — the title card sits in
+// front of it and there is nothing to go back to.
+function prevStepIndex() {
+    for (let i = state.step - 1; i >= 0; i--) if (!STEPS[i].card) return i;
+    return -1;
 }
-function skipStep() {
-    const s = stepDef();
-    if (!s || !state.running) return;
-    if (state.phase !== "active") return;
+function refreshNav() {
+    if (!backEl) return;
+    backEl.classList.toggle("show", state.running && prevStepIndex() >= 0);
+}
+
+function goNext() {
+    if (!state.running || state.phase !== "active") return;
     state.phase = "clearing";
     state.completedAt = T();
     sfxAdvance();
+}
+// Stepping back is a REVIEW: the objective is re-shown but will not bounce
+// straight forward again just because its condition is already satisfied (you
+// already have auto-spin on, that stat is already maxed, and so on). It only
+// advances if the condition newly flips while you are sitting there.
+function goBack() {
+    const i = prevStepIndex();
+    if (!state.running || i < 0) return;
+    enterStep(i, true);
 }
 
 // ── input ──────────────────────────────────────────────────────────────
@@ -1456,13 +1564,13 @@ export function hook() {
         // park the skip control under the title card; no skipping the outro
         layoutSkip(SH() * 0.46);
         showSkip(!s.final);
-        offerStepSkip(false);
+        refreshNav();
     } else {
         // highlight first so the objective card always reads on top of it
         if (s && s.ui) drawUiHighlight(c, s.ui);
         drawObjective(c);   // positions the skip control under its card
         showSkip(true);
-        offerStepSkip(state.phase === "active" && T() - state.stepAt > 25000);
+        refreshNav();
     }
     c.restore();
 }
