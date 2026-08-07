@@ -7,6 +7,7 @@ import { gameDraw } from "./gameDraw.js";
 import * as socketStuff from "./socketinit.js";
 import './terrainRenderer.js';
 import { gameSound } from "./sound.js";
+import * as tutorial from './tutorial.js';
 
 (async function (util, global, config, Canvas, color, gameDraw, socketStuff) {
     let { socketInit, resync, gui, leaderboard, minimap, moveCompensation, lag, getNow } = socketStuff;
@@ -6345,10 +6346,24 @@ import { gameSound } from "./sound.js";
             if (cv && global.gameStart) cv.focus();
         };
         document.body.appendChild(chatBtn);
+
+        const tutBtn = document.createElement("button");
+        tutBtn.id = "ingameTutorialBtn";
+        tutBtn.textContent = "?";
+        tutBtn.title = "How to play";
+        tutBtn.onclick = () => {
+            tutorial.replayTutorial();
+            tutBtn.blur();
+            const cv = document.getElementById("gameCanvas");
+            if (cv && global.gameStart) cv.focus();
+        };
+        document.body.appendChild(tutBtn);
+
         setInterval(() => {
             const show = (global.gameStart && !global.died && !global.disconnected) ? "flex" : "none";
             btn.style.display = show;
             chatBtn.style.display = show;
+            tutBtn.style.display = show;
         }, 250);
         
         const panel = document.getElementById("homeSettingsPanel");
@@ -6501,6 +6516,7 @@ import { gameSound } from "./sound.js";
         try {
             drawGameplay(tick, ratio);
             drawGUI(tick, util.getScreenRatio());
+            tutorial.hook();
             if (global.gameConnecting && !global.disconnected) {
                 drawConnectingScreen();
             };

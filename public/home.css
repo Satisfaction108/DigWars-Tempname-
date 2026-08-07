@@ -1111,6 +1111,133 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 #ingameChatModeBtn:hover { background: #23252e; }
 #ingameChatModeBtn:active { transform: scale(.96); }
 
+/* In-game "?" tutorial button, docked right of the chat toggle */
+#ingameTutorialBtn {
+    position: fixed;
+    top: 6px; left: 170px;
+    z-index: 30;
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    border: 2px solid #000;
+    background: #16171d;
+    color: #ffd75e;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font: 800 20px Rubik, Ubuntu, sans-serif;
+    box-shadow: 0 2px 0 rgba(0,0,0,.4);
+    transition: background .12s, transform .05s;
+}
+#ingameTutorialBtn:hover { background: #23252e; }
+#ingameTutorialBtn:active { transform: scale(.95); }
+
+/* ── tutorial overlay ──────────────────────────────────────────────── */
+#dwTutDim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0,0,0,.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease;
+}
+#dwTutDim.show { opacity: 1; pointer-events: none; }
+
+#dwTutorial {
+    position: fixed;
+    left: 50%;
+    bottom: 34px;
+    transform: translate(-50%, 24px);
+    z-index: 41;
+    width: min(560px, calc(100vw - 40px));
+    border-radius: 14px;
+    border: 3px solid #000;
+    background: #16171d;
+    color: #e8e3d4;
+    box-shadow: 0 14px 44px rgba(0,0,0,.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+}
+#dwTutorial.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+
+.dwTutTitle {
+    font: 800 20px Rubik, Ubuntu, sans-serif;
+    color: #ffd75e;
+    padding: 16px 20px 4px;
+}
+.dwTutBody {
+    font: 400 14px/1.5 Rubik, Ubuntu, sans-serif;
+    color: #e8e3d4;
+    padding: 4px 20px 12px;
+}
+.dwTutKey {
+    display: inline-block;
+    min-width: 22px;
+    padding: 1px 7px;
+    margin: 0 2px;
+    border-radius: 6px;
+    border: 2px solid #000;
+    background: #0d0e14;
+    color: #ffd75e;
+    font-weight: 800;
+    text-align: center;
+}
+.dwTutBtns {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 6px 20px 16px;
+}
+.dwTutBtn {
+    border: 2px solid #000;
+    border-radius: 8px;
+    font: 700 14px Rubik, Ubuntu, sans-serif;
+    cursor: pointer;
+    padding: 8px 18px;
+    transition: background .12s, transform .05s;
+}
+.dwTutBtn:active { transform: scale(.96); }
+.dwTutSkip { background: #23252e; color: #9b968a; }
+.dwTutSkip:hover { background: #2d2f3a; color: #e8e3d4; }
+.dwTutNext { background: #ffd75e; color: #101116; }
+.dwTutNext:hover { background: #ffe08a; }
+.dwTutPulse { animation: dwTutPulse .5s ease; }
+@keyframes dwTutPulse {
+    0% { box-shadow: 0 0 0 0 rgba(255,215,94,.55); }
+    100% { box-shadow: 0 0 0 16px rgba(255,215,94,0); }
+}
+
+.dwTutDots {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    padding: 0 20px 14px;
+}
+.dwTutDot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #2d2f3a;
+    transition: background .2s, transform .2s;
+}
+.dwTutDot.active { background: #ffd75e; transform: scale(1.25); }
+.dwTutDot.done { background: #6b6f7a; }
+
+/* spotlight ring around the thing being taught */
+#dwTutSpotlight {
+    position: fixed;
+    z-index: 39;
+    border-radius: 14px;
+    border: 3px solid rgba(255,215,94,.9);
+    box-shadow: 0 0 0 4px rgba(255,215,94,.18), 0 0 24px rgba(255,215,94,.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease, left .3s ease, top .3s ease,
+                width .3s ease, height .3s ease;
+}
+#dwTutSpotlight.show { opacity: 1; }
+
 /* ── responsive menu: stacked fields + inline dropdown on small screens ── */
 @media (max-width: 640px) {
     .menu-row { grid-template-columns: 1fr; gap: 12px; }

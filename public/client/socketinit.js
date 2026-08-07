@@ -996,6 +996,7 @@ let incoming = async function(message, socket) {
             case 'TR': {
                 
                 if (window.terrainRenderer) window.terrainRenderer.applyRockEvents(JSON.parse(m[0]));
+                if (window.dwTutorialRock) window.dwTutorialRock();
             } break;
             case "temporaryban": {
                 global.message = "You have been temporarily banned from the game. You will be able to rejoin after a server restart.";
