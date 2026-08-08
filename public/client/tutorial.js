@@ -1678,7 +1678,12 @@ export function hook() {
         startedOnce = true;
         open();
     }
-    if (global.died || global.disconnected) return;
+    if (global.died || global.disconnected) {
+        // the death panel owns the screen; nothing of ours floats over it
+        showGotIt(false);
+        showSkip(false);
+        return;
+    }
 
     // Lessons keep working for the life of the session, long after the main
     // tutorial is done - that is the whole point of them.

@@ -823,6 +823,7 @@ class gameHandler {
                                             true);
                                         
                                         
+                                        if (destroyed) instance.rocksMined = (instance.rocksMined || 0) + 1;
                                         if (destroyed && rock.ore && !wasGrowing) {
                                             gems.spawnOreBurst(rock, instance);
                                             if (rock.ore === 4) announceEmerald(instance);
@@ -870,6 +871,7 @@ class gameHandler {
                             // breaking an ore cell erupts its gem payout -
                             
                             
+                            if (destroyed) owner.rocksMined = (owner.rocksMined || 0) + 1;
                             if (destroyed && rock.ore && !wasGrowing) {
                                 gems.spawnOreBurst(rock, owner);
                                 if (rock.ore === 4) announceEmerald(owner);

@@ -1209,6 +1209,9 @@ let incoming = async function(message, socket) {
             for (let i = 0; i < m[8]; i++) {
                 global.finalKillers.push(m[9 + i]);
             }
+            // appended after the killer list by records()
+            global.finalRocks = m[9 + m[8]] | 0;
+            global.finalBanked = m[10 + m[8]] | 0;
             global.canvas.reverseDirection = false;
             global.died = true;
             global.autoSpin = false;

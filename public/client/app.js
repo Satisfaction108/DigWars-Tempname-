@@ -6165,63 +6165,162 @@ import * as tutorial from './tutorial.js';
         c.restore();
     }
 
+    // ── Death screen ───────────────────────────────────────────────────────
+    // A single framed panel in the same flat, dark-bordered language as the
+    // vault and the outposts: portrait on the left in its own recess, run
+    // summary on the right. The old layout drew the tank and its name at
+    // roughly the same x as the stat column, so a wide tank sat on top of the
+    // text - everything now lives in reserved columns that cannot collide.
+    const deathStat = (label, value, iconKind, bx, by, bw, alpha) => {
+        const c = ctx[2];
+        c.save();
+        c.globalAlpha = alpha;
+        roundRectPath(c, bx, by, bw, 40, 7);
+        c.fillStyle = "rgba(255,255,255,0.045)";
+        c.fill();
+        c.lineWidth = 2;
+        c.strokeStyle = "rgba(0,0,0,0.45)";
+        c.stroke();
+        c.restore();
+        if (iconKind) drawDeathIcon(iconKind, bx + 20, by + 20, 17, alpha);
+        drawText(label, bx + 40, by + 13, 11, color.grey, "left");
+        drawText(value, bx + 40, by + 29, 16, color.guiwhite, "left");
+    };
+    const roundRectPath = (c, x, y, w, h, r) => {
+        r = Math.min(r, w / 2, h / 2);
+        c.beginPath();
+        c.moveTo(x + r, y);
+        c.arcTo(x + w, y, x + w, y + h, r);
+        c.arcTo(x + w, y + h, x, y + h, r);
+        c.arcTo(x, y + h, x, y, r);
+        c.arcTo(x, y, x + w, y, r);
+        c.closePath();
+    };
+
     const gameDrawDead = () => {
         let glide = global.deathAnimation.get();
-        let x = global.screenWidth / 2,
-            y = Math.min(global.screenHeight / 2 - 60, global.screenHeight - 500) - 800 * (1 - global.lerp(0, 1, glide)),
-            len = 140,
-            position = global.mockups[parseInt(gui.type.split("-")[0])].position,
-            scale = len / position.axis,
-            xx = global.screenWidth / 2 - scale * position.middle.x * 0.707,
-            yy = y + scale * position.middle.y * Math.SQRT1_2,
-            picture = util.getEntityImageFromMockup(gui.type, gui.color),
-            baseColor = picture.color,
-            name = global.player.name.substring(7, global.player.name.length + 1);
-
-        clearScreen(color.black, 0.1 + 0.15 * global.lerp(0, 0.5, glide), ctx[2]);
+        clearScreen(color.black, 0.32 + 0.28 * global.lerp(0, 0.5, glide), ctx[2]);
         let ratio = util.getScreenRatio();
         scaleScreenRatio(ratio, true);
 
-        drawEntity(baseColor, (xx - 190 - len / 2 + 0.5) | 0, (yy - -5 + 0.5) | 0, picture, 1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
-        // (no level line - everyone lives at 45 in Dig Wars, it says nothing)
-        drawText(picture.name, x - 275, y - -110, 24, color.guiwhite, "center");
-        drawText(name == "" ? "Your Score: " : name + "'s Score: ", x - 170, y - 30, 24, color.guiwhite);
-        drawText(util.formatLargeNumber(Math.round(global.finalScore.get())), x - 170, y + 25, 50, color.gold);
-        const iconX = x - 192;
-        ctx[2].globalAlpha = global.lerp(1, 1.25, glide);
-        drawDeathIcon("clock", iconX, y + 50, 16, ctx[2].globalAlpha);
-        drawText("Survived for " + util.timeForHumans(Math.round(global.finalLifetime.get())), x - 170, y + 55, 16, color.guiwhite);
-        ctx[2].globalAlpha = global.lerp(1.25, 1.5, glide);
-        drawDeathIcon("combat", iconX, y + 72, 16, ctx[2].globalAlpha);
-        drawText(getKills(), x - 170, y + 77, 16, color.guiwhite);
-        ctx[2].globalAlpha = global.lerp(1.5, 1.75, glide);
-        drawDeathIcon("skull", iconX, y + 94, 16, ctx[2].globalAlpha);
-        drawText(getDeath(), x - 170, y + 99, 16, color.guiwhite);
-        ctx[2].globalAlpha = global.lerp(1.75, 2, glide);
-        drawDeathIcon("gem", iconX, y + 117, 16, ctx[2].globalAlpha);
-        drawText(getTips(), x - 170, y + 122, 16, color.guiwhite);
-        ctx[2].globalAlpha = global.lerp(2, 2.25, glide);
-        drawDeathIcon("pulse", iconX, y + 139, 16, ctx[2].globalAlpha);
-        drawText("The server was alive for " + (100 * gui.fps).toFixed(0) + "%" + " for the run", x - 170, y + 144, 16, color.guiwhite);
+        const c = ctx[2];
+        const cx = global.screenWidth / 2;
+        const PW = Math.min(620, global.screenWidth - 40);
+        const PH = 362;
+        const px = cx - PW / 2;
+        const py = Math.max(12, global.screenHeight / 2 - PH / 2 - 10)
+                 - 700 * (1 - global.lerp(0, 1, glide));
+
+        // panel
+        c.save();
+        roundRectPath(c, px, py, PW, PH, 16);
+        c.fillStyle = "rgba(16,17,22,0.93)";
+        c.fill();
+        c.lineWidth = 4;
+        c.strokeStyle = "#111318";
+        c.stroke();
+        c.lineWidth = 1.5;
+        c.strokeStyle = "rgba(255,215,94,0.22)";
+        c.stroke();
+        c.restore();
+
+        drawText("YOU DIED", cx, py + 34, 27, color.gold, "center");
+
+        // ── left column: portrait recess + tank name ──────────────────────
+        const COLW = 176;
+        const lx = px + 22, ly = py + 62;
+        c.save();
+        roundRectPath(c, lx, ly, COLW, 168, 12);
+        c.fillStyle = "rgba(255,255,255,0.04)";
+        c.fill();
+        c.lineWidth = 2;
+        c.strokeStyle = "rgba(0,0,0,0.5)";
+        c.stroke();
+        c.restore();
+        try {
+            const picture = util.getEntityImageFromMockup(gui.type, gui.color);
+            const position = global.mockups[parseInt(gui.type.split("-")[0])].position;
+            const len = 104;
+            const scale = len / position.axis;
+            const pcx = lx + COLW / 2 - scale * position.middle.x * 0.707;
+            const pcy = ly + 84 + scale * position.middle.y * Math.SQRT1_2;
+            drawEntity(picture.color, (pcx + 0.5) | 0, (pcy + 0.5) | 0, picture,
+                       1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
+            drawText(picture.name, lx + COLW / 2, ly + 150, 17, color.guiwhite, "center");
+        } catch (e) { }
+
+        const name = global.player.name.substring(7, global.player.name.length + 1);
+        drawText(name === "" ? "You" : name, lx + COLW / 2, ly + 186, 15, color.grey, "center");
+
+        // ── right column: the run in numbers ──────────────────────────────
+        const rx = lx + COLW + 18;
+        const rw = px + PW - 22 - rx;
+        let ry = py + 62;
+
+        // headline score
+        c.save();
+        c.globalAlpha = global.lerp(0, 1, glide);
+        roundRectPath(c, rx, ry, rw, 58, 9);
+        c.fillStyle = "rgba(255,215,94,0.10)";
+        c.fill();
+        c.lineWidth = 2;
+        c.strokeStyle = "rgba(255,215,94,0.35)";
+        c.stroke();
+        c.restore();
+        drawText(global.gameStart && window.terrainRenderer ? "GEMS BANKED" : "SCORE",
+                 rx + 14, ry + 18, 11, color.grey, "left");
+        drawText(util.formatLargeNumber(Math.round(global.finalScore.get())),
+                 rx + 14, ry + 39, 26, color.gold, "left");
+        ry += 68;
+
+        const half = (rw - 8) / 2;
+        const rows = [
+            ["SURVIVED", util.timeForHumans(Math.round(global.finalLifetime.get())), "clock"],
+            ["ROCKS MINED", String(global.finalRocks | 0), "gem"],
+            ["KILLS", String(Math.round(global.finalKills[0].get())), "combat"],
+            ["ASSISTS", String(Math.round(global.finalKills[1].get())), "combat"],
+            ["STRUCTURES", String(Math.round(global.finalKills[3].get())), "skull"],
+            ["SERVER HEALTH", (100 * gui.fps).toFixed(0) + "%", "pulse"],
+        ];
+        for (let i = 0; i < rows.length; i++) {
+            const col = i % 2, row = (i / 2) | 0;
+            const a = global.lerp(1 + i * 0.2, 1.25 + i * 0.2, glide);
+            deathStat(rows[i][0], rows[i][1], rows[i][2],
+                      rx + col * (half + 8), ry + row * 46, half, a);
+        }
+        ry += 3 * 46 + 4;
+
+        // who got you
+        const killedBy = global.finalKillers.length
+            ? "Taken down by " + global.finalKillers.join(" and ")
+            : "Nobody finished you off";
+        c.save();
+        c.globalAlpha = global.lerp(2.4, 2.7, glide);
+        drawText(killedBy, cx, ry + 12, 13, color.grey, "center");
+        c.restore();
+
+        // ── respawn controls ──────────────────────────────────────────────
+        const by = py + PH - 52;
         ctx[2].globalAlpha = global.lerp(3, 3.25, glide);
-        if (global.cannotRespawn || global.mobile || global.gamepadMode) drawText(global.cannotRespawn ?
-            global.respawnTimeout ?
-            "(you may respawn in " + global.respawnTimeout + " Secon" + `${global.respawnTimeout <= 1 ? 'd' : 'ds'}` + ")"
-            : "(you cannot respawn)"
-            : global.mobile ?
-            "(tap to respawn)"
-            : global.gamepadMode ?
-            "(Press RT or R2 button to respawn)"
-            : '',
-            x, y + 189, 16, color.guiwhite, "center");
+        if (global.cannotRespawn || global.mobile || global.gamepadMode) {
+            drawText(global.cannotRespawn
+                ? (global.respawnTimeout
+                    ? "(you may respawn in " + global.respawnTimeout + " Secon" + `${global.respawnTimeout <= 1 ? 'd' : 'ds'}` + ")"
+                    : "(you cannot respawn)")
+                : global.mobile ? "(tap to respawn)"
+                : global.gamepadMode ? "(Press RT or R2 button to respawn)" : '',
+                cx, by - 12, 14, color.guiwhite, "center");
+        }
         if (!global.disconnected && !global.cannotRespawn) {
+            const cr = global.canvas.height / global.screenHeight / global.ratio;
             if (!global.mobile && !global.gamepadMode) {
-                drawButton(x - 80, y + 195, 130, 30, global.lerp(3, 3.25, glide), "rect", "Back", 15, false, false, false, true, "exitGame", global.canvas.height / global.screenHeight / global.ratio, 0);
-                drawButton(x + 80, y + 195, 130, 30, global.lerp(3, 3.25, glide), "rect", "Respawn", 15, false, false, false, true, "deathRespawn", global.canvas.height / global.screenHeight / global.ratio, 0);
-            } else drawButton(x, y + 215, 150, 50, global.lerp(3, 3.25, glide), "rect", "Back", 25, false, false, false, true, "exitGame", global.canvas.height / global.screenHeight / global.ratio, 0);
+                drawButton(cx - 85, by + 12, 140, 34, global.lerp(3, 3.25, glide), "rect", "Back", 15, false, false, false, true, "exitGame", cr, 0);
+                drawButton(cx + 85, by + 12, 140, 34, global.lerp(3, 3.25, glide), "rect", "Respawn", 15, false, false, false, true, "deathRespawn", cr, 0);
+            } else {
+                drawButton(cx, by + 14, 160, 46, global.lerp(3, 3.25, glide), "rect", "Back", 22, false, false, false, true, "exitGame", cr, 0);
+            }
         }
     };
-
     const applyScreenShake = (type = "camera", returnOption = false) => {
         let properties = type == "gui" ? config.graphical.shakeProperties.UIShake : config.graphical.shakeProperties.CameraShake;
         var cdx = 0;

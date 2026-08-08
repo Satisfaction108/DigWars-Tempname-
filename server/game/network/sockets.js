@@ -1321,6 +1321,10 @@ class socketManager {
                 player.body.killCount.polygons,
                 player.body.killCount.killers.length,
                 ...player.body.killCount.killers,
+                // appended after the variable-length killer list, so the client
+                // reads it at m[9 + killerCount]
+                player.body.rocksMined | 0,
+                (socket && socket.gemBanked | 0) || 0,
             ];
         }
 
