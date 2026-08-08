@@ -6220,6 +6220,20 @@ import * as tutorial from './tutorial.js';
         c.closePath();
     };
 
+    // Everything that must sit above the whole interface: the leader arrow, the
+    // team's enemy markers and the tutorial's off-screen pointer. Drawn after
+    // all other GUI so nothing can paint over them.
+    const drawTopIndicators = () => {
+        // drawGUI has already put us in GUI space; calling scaleScreenRatio
+        // again would divide screenWidth a second time every frame
+        if (global.died || global.disconnected) return;
+        if (global.GUIStatus.renderGUI && global.GUIStatus.renderPlayerBars) {
+            drawLeaderArrow();
+            drawEnemyPings();
+        }
+        try { tutorial.drawIndicators(); } catch (e) { }
+    };
+
     const gameDrawDead = () => {
         let glide = global.deathAnimation.get();
         clearScreen(color.black, 0.32 + 0.28 * global.lerp(0, 0.5, glide), ctx[2]);
@@ -6454,12 +6468,9 @@ import * as tutorial from './tutorial.js';
             drawMinimapAndDebug(spacing, alcoveSize, global.GRAPHDATA, tick);
             if (global.GUIStatus.renderLeaderboard) drawLeaderboard(spacing, alcoveSize, max);
             if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
-            if (global.GUIStatus.renderPlayerBars) {
-                
-                
-                drawLeaderArrow(); 
-                drawEnemyPings();  
-            }
+            // leader arrow + enemy pings moved to drawTopIndicators(), which
+            // runs at the very end of the frame - here they were being covered
+            // by the minimap, leaderboard, big map and upgrade tree
         } else if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
         drawBigMap(); 
         if (global.showTree) {
@@ -6743,6 +6754,7 @@ import * as tutorial from './tutorial.js';
             drawGameplay(tick, ratio);
             drawGUI(tick, util.getScreenRatio());
             tutorial.hook();
+            drawTopIndicators();
             if (global.gameConnecting && !global.disconnected) {
                 drawConnectingScreen();
             };

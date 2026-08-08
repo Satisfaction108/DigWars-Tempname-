@@ -1043,6 +1043,7 @@ function update() {
 // ── world pass ─────────────────────────────────────────────────────────
 export function drawWorld(px, py, ratio) {
     const c = ctxWorld();
+    state.edge = null;
     if (!c || !state.running) return;
     const now = T();
 
@@ -1086,7 +1087,9 @@ export function drawWorld(px, py, ratio) {
         else drawPointTarget(c, sp, ratio, fade);
         drawChevrons(c, sp, px, py, ratio, fade);
     } else {
-        drawEdgeArrow(c, sp, tg, fade);
+        // queued for the late pass; drawing it here would put it under the
+        // whole GUI, since this runs during the gameplay pass
+        state.edge = { sp: { x: sp.x, y: sp.y }, tg: { x: tg.x, y: tg.y }, fade, at: T() };
     }
 }
 
@@ -1320,6 +1323,14 @@ function drawEdgeArrow(c_unused, sp, tg, fade) {
     c.fillStyle = `rgb(${PALE})`;
     c.fillText(txt, tx, ty);
     c.restore();
+}
+
+// Drawn from the very end of the frame so no GUI element can cover it.
+export function drawIndicators() {
+    if (!state.running || global.died || global.disconnected) return;
+    const e = state.edge;
+    if (!e || T() - e.at > 250) return;
+    drawEdgeArrow(null, e.sp, e.tg, e.fade);
 }
 
 // ── HUD pass ───────────────────────────────────────────────────────────
