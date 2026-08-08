@@ -1655,6 +1655,25 @@ function ensureDom() {
     domCard.appendChild(domCardB);
     document.body.appendChild(domCard);
 }
+// The settings panel keeps its layout when closed and merely fades to
+// opacity 0, so getBoundingClientRect still returns a real box. Without this
+// the close-button outline hung around for the step's settle plus clearing
+// window after the panel had visually gone.
+function domVisible(el) {
+    if (!el) return false;
+    // Walk the ancestors ourselves rather than trusting checkVisibility alone:
+    // that only treats opacity of EXACTLY 0 as hidden, so a panel one frame
+    // into its fade (opacity 0.004) still counted as visible and the outline
+    // flashed for a frame after it had gone.
+    let n = el;
+    while (n && n.nodeType === 1) {
+        const cs = getComputedStyle(n);
+        if (cs.display === "none" || cs.visibility === "hidden") return false;
+        if (parseFloat(cs.opacity || "1") < 0.35) return false;
+        n = n.parentElement;
+    }
+    return true;
+}
 function hideDomStep() {
     if (!spotEl) return;
     spotEl.classList.remove("show");
@@ -1668,7 +1687,7 @@ function drawDomStep(step) {
     ensureDom();
     const sel = step.ui.slice(4);
     const el = document.querySelector(sel);
-    if (!el) { hideDomStep(); return false; }
+    if (!el || !domVisible(el)) { hideDomStep(); return false; }
     const r = el.getBoundingClientRect();
     if (!r.width) { hideDomStep(); return false; }
 
