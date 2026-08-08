@@ -3,7 +3,7 @@ import { util } from "./util.js";
 import { gui } from "./socketinit.js";
 import { gameSound } from "./sound.js";
 
-// ── Dig Wars — guided descent ──────────────────────────────────────────
+// ── Dig Wars - guided descent ──────────────────────────────────────────
 // A diegetic, objective-driven tutorial. Instead of a dialog box telling you
 // to "go break a rock", it *picks a rock*, paints its real silhouette in the
 // world, walks a trail of chevrons to it, tracks that specific rock's health
@@ -11,10 +11,10 @@ import { gameSound } from "./sound.js";
 // fell out. Then at your vault.
 //
 // Two render passes, both on the game's own canvases:
-//   drawWorld(px, py, ratio)  — world-anchored markers, called from
+//   drawWorld(px, py, ratio)  - world-anchored markers, called from
 //                               drawGameplay() so it shares the camera
 //                               transform the entities were just drawn with.
-//   hook()                    — screen-space HUD, called after drawGUI() so
+//   hook()                    - screen-space HUD, called after drawGUI() so
 //                               the objective card sits above everything.
 //
 // Progress persists in localStorage so it plays once per browser.
@@ -134,7 +134,7 @@ function acquireRock(wantOre) {
     const px = global.player.renderx, py = global.player.rendery;
     // Judge distance in *screen* terms, not world units: the camera zoom and
     // the viewport both vary, and what actually matters is that the marked
-    // rock lands comfortably inside the view — close enough to see it and the
+    // rock lands comfortably inside the view - close enough to see it and the
     // marker together, far enough that you have to aim. World-unit thresholds
     // put the target in the screen corner (under the minimap) on wide screens.
     const r = util.getRatio() || 1;
@@ -143,7 +143,7 @@ function acquireRock(wantOre) {
     const near = (span * 0.09) / r;
     // Soft preference, not a hard window: you spawn inside a cleared base
     // pocket, so the closest rock can be well outside the viewport. Score by
-    // distance from ideal and always return the best candidate — if it starts
+    // distance from ideal and always return the best candidate - if it starts
     // off-screen the edge arrow walks you to it, which is the point.
     let best = null, bestScore = Infinity;
     const keys = wantOre ? t._ore.keys() : t._rockHealth.keys();
@@ -230,7 +230,20 @@ function seesTakeableOutpost() {
         return !t || t !== mine;          // unclaimed, or held by the other side
     });
 }
-function seesChamber() { return nearAny(global.chambers, () => true); }
+function seesChamber() {
+    const mine = myTeam();
+    const px = global.player.renderx, py = global.player.rendery, R = viewRadius();
+    for (const ch of global.chambers || []) {
+        const d = Math.hypot(ch.x - px, ch.y - py);
+        if (ch.team !== mine) { if (d <= R) return true; }   // enemy: on sight
+        else if (d <= (ch.r || 160) * 2.2) return true;      // yours: on arrival
+    }
+    return false;
+}
+function keybindsTabOpen() {
+    const t = document.querySelector('.sp-tab[data-tab="sp-keybinds"]');
+    return !!(t && t.classList.contains("active"));
+}
 function settingsOpen() {
     const el = document.getElementById("homeSettingsPanel");
     return !!(el && el.classList.contains("open"));
@@ -244,10 +257,10 @@ function settingsOpen() {
 // and bullet damage (server: mining.skillFactor), while a rammer grinds rock
 // with body damage (server: mining.grindSecondsFor).
 const STAT_INFO = [
-    { i: 0, why: "How hard you hurt anything you drive into — and every tank grinds rock by ramming it, so this is your mining speed on contact no matter what you pilot." },
+    { i: 0, why: "How hard you hurt anything you drive into - and every tank grinds rock by ramming it, so this is your mining speed on contact no matter what you pilot." },
     { i: 1, why: "How much punishment you can take before you pop." },
     { i: 2, why: "How fast what you fire travels, so it lands before the target moves." },
-    { i: 3, why: "How much what you fire can survive — it chews through rock faster too." },
+    { i: 3, why: "How much what you fire can survive - it chews through rock faster too." },
     { i: 4, why: "How many things one shot punches through, rock included." },
     { i: 5, why: "How hard your shots hit, and how quickly they break rock." },
     { i: 6, why: "How fast you fire." },
@@ -268,7 +281,7 @@ function statWhy(i) {
     const base = (STAT_INFO.find(x => x.i === i) || {}).why || "";
     if (i !== 6) return base;
     const n = statName(i);
-    if (/engine/i.test(n)) return "How hard you accelerate — how quickly you build up ramming speed and close on a target.";
+    if (/engine/i.test(n)) return "How hard you accelerate - how quickly you build up ramming speed and close on a target.";
     if (/max drone/i.test(n)) return "How many drones you can keep in the air at once.";
     if (/respawn/i.test(n)) return "How quickly drones you lose are replaced.";
     if (/density/i.test(n)) return "How heavy what you throw is.";
@@ -360,11 +373,11 @@ const ALL_STEPS = [
         id: "autofire",
         label: "Auto-fire",
         hint: () => global.mobile
-            ? "Tap + to open the action menu, then tap Autofire to switch it on — tap it again to switch it off."
-            : "Press {{KEY_AUTO_FIRE}} to switch auto-fire on — your tank keeps shooting on its own. Press it again to switch it off.",
+            ? "Tap + to open the action menu, then tap Autofire to switch it on - tap it again to switch it off."
+            : "Press {{KEY_AUTO_FIRE}} to switch auto-fire on - your tank keeps shooting on its own. Press it again to switch it off.",
         target: () => ({ kind: "self" }),
         // Auto-fire is a server-side toggle with nothing mirrored on the
-        // client, so there is no state to read back — count the toggles
+        // client, so there is no state to read back - count the toggles
         // instead: one to turn it on, one to turn it off.
         progress: () => clamp(state.autofireCount / 2, 0, 1),
         done: () => state.autofireCount >= 2,
@@ -373,7 +386,7 @@ const ALL_STEPS = [
         id: "autospin",
         label: "Auto-spin",
         hint: () => global.mobile
-            ? "Tap Autospin to start your turret sweeping — tap it again to stop."
+            ? "Tap Autospin to start your turret sweeping - tap it again to stop."
             : "Press {{KEY_AUTO_SPIN}} to start your turret sweeping while you drive. Press it again to stop.",
         target: () => ({ kind: "self" }),
         // Unlike auto-fire this one *is* real client state, so we can watch
@@ -396,7 +409,7 @@ const ALL_STEPS = [
             const offered = (gui.upgrades || []).length > 0;
             if (offered) return false;
             if (state.evolveCount > 0) return true;
-            // already max tier / nothing was ever offered — nothing to teach
+            // already max tier / nothing was ever offered - nothing to teach
             return T() - state.stepAt > 6000;
         },
     },
@@ -414,7 +427,7 @@ const ALL_STEPS = [
         hint: () => {
             const a = archetype(myMockup());
             // no barrels means no aiming - you mine by driving into it
-            if (a && a.rammer) return "Drive into the marked rock and keep pushing — your hull grinds straight through it.";
+            if (a && a.rammer) return "Drive into the marked rock and keep pushing - your hull grinds straight through it.";
             return global.mobile
                 ? "Aim with the right side of the screen and hold to fire. Shatter the marked rock."
                 : "Aim with your mouse, hold left click to fire. Shatter the marked rock.";
@@ -464,7 +477,7 @@ const ALL_STEPS = [
         id: "marker",
         label: "Mark an enemy",
         hint: () => "Press {{KEY_AUTO_ALT}} to drop a danger marker at your cursor for the whole team.",
-        // no ping binding exists on touch — do not teach a control they cannot press
+        // no ping binding exists on touch - do not teach a control they cannot press
         omit: () => global.mobile,
         target: () => ({ kind: "self" }),
         done: () => global.enemyPings.length > state.base.pings || state.pingSeen,
@@ -473,7 +486,7 @@ const ALL_STEPS = [
         id: "minimap",
         label: "Read the map",
         hint: () => global.mobile
-            ? "Your minimap sits in the corner — gems, teammates and enemies all show up on it."
+            ? "Your minimap sits in the corner - gems, teammates and enemies all show up on it."
             : "Press {{KEY_TOGGLE_MAP}} to open the full map, then press it again to close it.",
         ui: "minimap",
         // Desktop gets the real open-then-close loop. Touch has no map toggle,
@@ -502,24 +515,37 @@ const ALL_STEPS = [
     },
     {
         id: "keys",
-        group: "keys",
-        groupPos: 1, groupLen: 2,
-        label: "Learn your controls",
-        hint: () => "Open settings — every control in the game is listed there, and you can rebind any of them.",
-        ui: "settings",
-        // the in-game gear toggles the DOM settings panel, which is where the
-        // keybind list actually lives (index.html .kb-row entries)
+        group: "keys", groupPos: 1, groupLen: 4,
+        label: "Open settings",
+        hint: () => "Hit the settings button to see everything you can control.",
+        ui: "dom:#ingameSettingsBtn",
         done: () => settingsOpen(),
     },
     {
+        id: "keysTab",
+        group: "keys", groupPos: 2, groupLen: 4,
+        label: "Find your keybinds",
+        hint: () => "Open the Keybinds tab.",
+        ui: "dom:.sp-tab[data-tab=\'sp-keybinds\']",
+        done: () => keybindsTabOpen() || !settingsOpen(),
+    },
+    {
+        id: "keysRead",
+        group: "keys", groupPos: 3, groupLen: 4,
+        label: "Rebind anything",
+        hint: () => "Every control is listed here, and you can click any of them to set it to a key you prefer.",
+        ui: "dom:.sp-tab[data-tab=\'sp-keybinds\']",
+        settle: 300,
+        done: () => T() - state.stepAt > 3200 || !settingsOpen(),
+    },
+    {
         id: "keysClose",
-        group: "keys",
-        groupPos: 2, groupLen: 2,
+        group: "keys", groupPos: 4, groupLen: 4,
         label: "Close settings",
-        hint: () => "That is your whole keybind list. Close it when you have had a look.",
-        ui: "settings",
+        hint: () => "Close it with the X when you are done looking.",
+        ui: "dom:#homeSettingsClose",
         done: () => !settingsOpen(),
-        settle: 400,
+        settle: 300,
     },
     {
         id: "done",
@@ -593,13 +619,13 @@ const LESSONS = [
         id: "rammer",
         when: a => a.rammer,
         title: "Rammer",
-        body: () => `You have no guns — you ARE the weapon. Drive into rocks to grind them down, and into enemies to crush them. Pour points into ${statName(0)}: it is both your ramming damage and your mining speed.`,
+        body: () => `You have no guns - you ARE the weapon. Drive into rocks to grind them down, and into enemies to crush them. Pour points into ${statName(0)}: it is both your ramming damage and your mining speed.`,
     },
     {
         id: "drone",
         when: a => a.drone,
         title: "Drone tank",
-        body: () => "Your drones fly on their own and chase what you point at. Press {{KEY_OVER_RIDE}} for AI override to seize direct control — they hold formation on your cursor instead of hunting by themselves.",
+        body: () => "Your drones fly on their own and chase what you point at. Press {{KEY_OVER_RIDE}} for AI override to seize direct control - they hold formation on your cursor instead of hunting by themselves.",
     },
     {
         id: "auto",
@@ -617,12 +643,15 @@ const LESSONS = [
         // recomputing at draw time would render an empty list.
         capture: () => unseenStats(),
         onShow: (cap) => markStatsTaught((cap || []).map(x => x.name)),
+        // One card per stat so each gets read properly, walked with Next.
+        // Ignore tips still bails out of the whole run.
+        pages: (cap) => (cap || []).map((x, i, all) => ({
+            title: all.length > 1 ? `New stat ${i + 1}/${all.length}` : "New stat",
+            body: `${x.name}. ${x.why}`,
+        })),
         body: (cap) => {
             const n = cap || [];
-            const head = n.length === 1
-                ? "This tank brings a stat you have not used before."
-                : "This tank brings stats you have not used before.";
-            return head + "  " + n.map(x => `${x.name} — ${x.why}`).join("   ");
+            return n.length ? `${n[0].name}. ${n[0].why}` : "";
         },
     },
     {
@@ -630,14 +659,14 @@ const LESSONS = [
         afterTutorial: true,
         when: () => seesTakeableOutpost(),
         title: "Outpost",
-        body: () => "That is a capturable outpost. Shoot it down to claim it for your team — it feeds you gems and map control while you hold it. A rammer cannot break one: ramming does nothing to a structure, so bring guns or a teammate who has them.",
+        body: () => "That is a capturable outpost. Shoot it down to claim it for your team - it feeds you gems and map control while you hold it. A rammer cannot break one: ramming does nothing to a structure, so bring guns or a teammate who has them.",
     },
     {
         id: "chamber",
         afterTutorial: true,
         when: () => seesChamber(),
         title: "Core chamber",
-        body: () => "A core chamber is a team's treasury vault, packed with gems. Break the ring to spill what is inside — and defend your own, because the enemy wants yours just as badly. Like outposts, ramming will not dent it.",
+        body: () => "A core chamber is a team's treasury vault, packed with gems. Break the ring to spill what is inside - and defend your own, because the enemy wants yours just as badly. Like outposts, ramming will not dent it.",
     },
     {
         id: "swarm",
@@ -649,7 +678,7 @@ const LESSONS = [
         id: "trap",
         when: a => a.trap,
         title: "Trap tank",
-        body: () => "You lay traps rather than fire at range. They sit where you drop them, block chokepoints and shred anything that runs into them — including rock, if you place them against it.",
+        body: () => "You lay traps rather than fire at range. They sit where you drop them, block chokepoints and shred anything that runs into them - including rock, if you place them against it.",
     },
 ];
 
@@ -671,7 +700,9 @@ function pollLessons() {
         // outpost mid-chain it simply fires the next time they see one.
         if ((L.afterTutorial || L.repeat) && state.running) continue;
         if (!L.when(a)) continue;
-        lesson = { def: L, at: T(), gone: 0, cap: L.capture ? L.capture() : null };
+        const cap = L.capture ? L.capture() : null;
+        lesson = { def: L, at: T(), gone: 0, cap, page: 0,
+                   pages: L.pages ? L.pages(cap) : null };
         state.lessonId = L.id;        // debug aid, mirrors window.dwTut
         if (L.onShow) L.onShow(lesson.cap);
         if (!L.repeat) markLesson(L.id);
@@ -680,7 +711,18 @@ function pollLessons() {
     }
 }
 function dismissLesson() {
-    if (lesson && !lesson.gone) lesson.gone = T();
+    if (!lesson || lesson.gone) return;
+    // step through a multi-page lesson before closing it
+    if (lesson.pages && lesson.page < lesson.pages.length - 1) {
+        lesson.page++;
+        lesson.at = T();
+        sfxAdvance();
+        return;
+    }
+    lesson.gone = T();
+}
+function lessonPagesLeft() {
+    return !!(lesson && lesson.pages && lesson.page < lesson.pages.length - 1);
 }
 
 // A lesson takes over the card slot while it shows, so there is never a second
@@ -693,8 +735,10 @@ function drawLesson(c) {
     if (lesson.gone && T() - lesson.gone > 700) { lesson = null; state.lessonId = null; return true; }
     if (a <= 0) return false;
 
-    const raw = (global.mobile && lesson.def.bodyMobile)
-        ? lesson.def.bodyMobile(lesson.cap) : lesson.def.body(lesson.cap);
+    const pg = lesson.pages && lesson.pages[lesson.page];
+    const raw = pg ? pg.body
+        : ((global.mobile && lesson.def.bodyMobile)
+            ? lesson.def.bodyMobile(lesson.cap) : lesson.def.body(lesson.cap));
     const maxW = Math.min(SW() * (global.mobile ? 0.94 : 0.86), 470 * S);
     const lines = layout(c, tokenize(raw), maxW - 36 * S, S);
     const lineH = 21 * S, padX = 18 * S, padY = 14 * S, labelH = 26 * S;
@@ -711,7 +755,7 @@ function drawLesson(c) {
     c.lineWidth = 1.5;
     c.strokeStyle = `rgba(${MINT},.4)`;
     c.stroke();
-    trackedText(c, lesson.def.title.toUpperCase(), cx, y + padY + labelH / 2,
+    trackedText(c, String((pg && pg.title) || lesson.def.title).toUpperCase(), cx, y + padY + labelH / 2,
                 16 * S, `rgb(${MINT})`, 1.6 * S, a);
     c.globalAlpha = a;
     let ty = y + padY + labelH + 12 * S;
@@ -840,7 +884,7 @@ function statSteps() {
         label: "Spend the rest",
         hint: () => global.mobile
             ? "Now pour the remaining points wherever suits your build."
-            : "Now pour the remaining points wherever suits your build — {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the bars.",
+            : "Now pour the remaining points wherever suits your build - {{KEY_UPGRADE_ATK}}–{{KEY_UPGRADE_SHI}} or click the bars.",
         ui: "skills",
         settle: 700,
         progress: () => {
@@ -941,7 +985,7 @@ function update() {
     if (state.phase === "active") {
         // Success is checked BEFORE re-targeting: for the rock objective the
         // target's death *is* the win condition, and revalidate treats a dead
-        // rock as "lost" — re-acquiring first would swap in a fresh live rock
+        // rock as "lost" - re-acquiring first would swap in a fresh live rock
         // every time you broke one, so the step could never complete.
         const isDone = s.done(state.target);
         if (state.review && isDone && state.enteredDone) {
@@ -949,7 +993,7 @@ function update() {
         } else if (isDone) {
             // Some conditions are "absence of something" (no upgrades left to
             // pick, no points left to spend) and flicker while the server
-            // sends the next batch — hold them steady before accepting.
+            // sends the next batch - hold them steady before accepting.
             if (!s.settle) completeStep();
             else if (!state.settleAt) state.settleAt = T();
             else if (T() - state.settleAt > s.settle) completeStep();
@@ -1428,7 +1472,7 @@ function drawObjective(c) {
         c.fill();
     }
 
-    // label — struck through and ticked once satisfied
+    // label - struck through and ticked once satisfied
     const ly = y + padY + labelH / 2;
     const done = cleared;
     const lblTxt = (typeof s.label === "function" ? s.label() : s.label) || "";
@@ -1484,16 +1528,31 @@ function ensureSkip() {
         const b = document.createElement("button");
         b.className = "dwTutSkipBtn " + cls;
         b.textContent = text;
-        b.addEventListener("click", e => { e.stopPropagation(); fn(); });
+        b.tabIndex = -1;                       // never in the tab order
+        b.addEventListener("mousedown", e => e.preventDefault());  // keep focus put
+        b.addEventListener("click", e => {
+            e.stopPropagation();
+            fn();
+            handBackFocus();
+        });
         skipBar.appendChild(b);
         return b;
     };
     backEl    = mk("dwTutBack", "‹ Back", goBack);
     nextEl    = mk("dwTutNext", "Next ›", goNext);
-    skipAllEl = mk("dwTutSkipAll", "Skip tutorial", finish);
+    skipAllEl = mk("dwTutSkipAll", "Skip tutorial", skipToEnd);
     gotItEl   = mk("dwTutGotIt", "Got it", dismissLesson);
     ignoreEl  = mk("dwTutIgnore", "Ignore tips", () => { muteLessons(); dismissLesson(); });
     document.body.appendChild(skipBar);
+}
+// Give the keyboard straight back to the game: the tank must keep driving.
+function handBackFocus() {
+    try {
+        const b = document.activeElement;
+        if (b && b.blur) b.blur();
+        const cv = document.getElementById("gameCanvas");
+        if (cv && global.gameStart) cv.focus();
+    } catch (e) { }
 }
 // glue the bar just under (or above) the canvas-drawn card: logical -> CSS px
 function layoutSkip(atY) {
@@ -1509,9 +1568,10 @@ function showGotIt(on) {
     if (!skipBar) return;
     if (on) skipBar.classList.add("show");
     skipBar.classList.toggle("lesson", !!on);
+    if (gotItEl) gotItEl.textContent = lessonPagesLeft() ? "Next \u203a" : "Got it";
 }
 // Back is meaningless on the very first objective, so it is not offered there.
-// "First" means the first real objective, not index 0 — the title card sits in
+// "First" means the first real objective, not index 0 - the title card sits in
 // front of it and there is nothing to go back to.
 function prevStepIndex() {
     for (let i = state.step - 1; i >= 0; i--) if (!STEPS[i].card) return i;
@@ -1522,6 +1582,14 @@ function refreshNav() {
     backEl.classList.toggle("show", state.running && prevStepIndex() >= 0);
 }
 
+// Skipping still earns the send-off - ending on a blank screen feels like the
+// tutorial broke rather than finished.
+function skipToEnd() {
+    if (!state.running) return finish();
+    const i = STEPS.findIndex(s2 => s2.final);
+    if (i < 0) return finish();
+    enterStep(i);
+}
 function goNext() {
     if (!state.running || state.phase !== "active") return;
     state.phase = "clearing";
@@ -1548,7 +1616,7 @@ function onKeyDown(e) {
     if (k === global.KEY_AUTO_ALT) state.pingSeen = true;
 }
 // Mobile has no key events, so catch the taps that land on the action buttons
-// using the game's own hit regions (index 3 = Autofire, 7 = Override — see
+// using the game's own hit regions (index 3 = Autofire, 7 = Override - see
 // canvas.js touchStart). Auto-spin needs no such hook: it sets global.autoSpin.
 function onTouchStart(e) {
     if (!state.running || !global.mobile || !global.clickables) return;
@@ -1604,7 +1672,7 @@ export function replayTutorial() { open(); }
 
 ensureSkip();
 let startedOnce = false;
-// Called every frame from app.js right after drawGUI() — screen-space pass.
+// Called every frame from app.js right after drawGUI() - screen-space pass.
 export function hook() {
     if (!startedOnce && global.gameStart && !global.died && !isComplete() && terr()) {
         startedOnce = true;
@@ -1615,7 +1683,7 @@ export function hook() {
     // Lessons keep working for the life of the session, long after the main
     // tutorial is done - that is the whole point of them.
     if (global.gameStart && !global.showTree) pollLessons();
-    if (lesson && !lesson.gone && T() - lesson.at > 11000) dismissLesson();
+    if (lesson && !lesson.gone && !lesson.pages && T() - lesson.at > 11000) dismissLesson();
 
     const c = ctxGui();
     if (!c) return;
@@ -1631,9 +1699,10 @@ export function hook() {
         if (!gone) return;
     } else {
         showGotIt(false);
+        if (!state.running) { showSkip(false); return; }
     }
 
-    if (!state.running) return;
+    if (!state.running) { showSkip(false); return; }
     if (T() - tutFlagAt > 3000) { tutFlagAt = T(); sendTutorialFlag(true); }
 
     update();

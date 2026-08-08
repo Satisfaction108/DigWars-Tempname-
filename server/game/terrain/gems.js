@@ -214,11 +214,20 @@ function tickGem(gem, tg, players) {
     for (const player of players) {
         const body = player.body;
         if (!body || body.isDead() || body.isGhost) continue;
-        // reserved drops ignore everyone but their owner, however they are
-        // pushed around - trapping one does not transfer it
-        if (gem.gemOwnerId !== undefined && body.id !== gem.gemOwnerId) continue;
         const dx = body.x - gem.x, dy = body.y - gem.y;
         const d = Math.hypot(dx, dy) || 1;
+        // A drop reserved for a tutorial player behaves toward everyone else
+        // exactly like loot does around a full satchel: shoved away, never
+        // collected. Trapping it or body-blocking it changes nothing.
+        if (gem.gemOwnerId !== undefined && body.id !== gem.gemOwnerId) {
+            const repR = body.realSize * 1.8 + MAGNET_BONUS * 0.5;
+            if (d < repR) {
+                const push = (1 - d / repR) * 1.5;
+                gem.velocity.x -= (dx / d) * push;
+                gem.velocity.y -= (dy / d) * push;
+            }
+            continue;
+        }
         if (bias) {
             
             

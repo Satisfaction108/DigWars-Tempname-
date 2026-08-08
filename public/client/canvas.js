@@ -318,6 +318,15 @@ class Canvas {
                     global.KEY_UPGRADE_RLD, global.KEY_UPGRADE_MOB, global.KEY_UPGRADE_RGN,
                     global.KEY_UPGRADE_SHI
                 ].indexOf(event.keyCode);
+                // Numpad 1-9/0 as a second path to the same stats. Keyboards
+                // block certain simultaneous key combinations in their wiring,
+                // so a particular stat can be unreachable while you are holding
+                // movement keys even though the neighbouring digits work. The
+                // numpad sits on different matrix lines and gets through.
+                if (skill < 0 && event.location === 3) {
+                    if (event.keyCode >= 97 && event.keyCode <= 105) skill = event.keyCode - 97;
+                    else if (event.keyCode === 96) skill = 9;
+                }
                 if (skill >= 0) this.socket.talk('x', skill, 1 * global.statMaxing);
             }
             if (global.canUpgrade) {
