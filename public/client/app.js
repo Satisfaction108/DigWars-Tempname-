@@ -6186,6 +6186,14 @@ import * as tutorial from './tutorial.js';
     // summary on the right. The old layout drew the tank and its name at
     // roughly the same x as the stat column, so a wide tank sat on top of the
     // text - everything now lives in reserved columns that cannot collide.
+    // "1h 04m", "2m 06s", "48s" - the spelled-out form ran past the tile
+    const compactTime = (secs) => {
+        secs = Math.max(0, Math.round(secs));
+        const h = (secs / 3600) | 0, m = ((secs % 3600) / 60) | 0, sc = secs % 60;
+        if (h) return h + "h " + String(m).padStart(2, "0") + "m";
+        if (m) return m + "m " + String(sc).padStart(2, "0") + "s";
+        return sc + "s";
+    };
     const deathStat = (label, value, iconKind, bx, by, bw, alpha) => {
         const c = ctx[2];
         c.save();
@@ -6198,8 +6206,8 @@ import * as tutorial from './tutorial.js';
         c.stroke();
         c.restore();
         if (iconKind) drawDeathIcon(iconKind, bx + 20, by + 20, 17, alpha);
-        drawText(label, bx + 40, by + 13, 11, color.grey, "left");
-        drawText(value, bx + 40, by + 29, 16, color.guiwhite, "left");
+        drawText(label, bx + 40, by + 12, 11, color.grey, "left");
+        drawText(value, bx + 40, by + 31, 16, color.guiwhite, "left");
     };
     const roundRectPath = (c, x, y, w, h, r) => {
         r = Math.min(r, w / 2, h / 2);
@@ -6221,7 +6229,7 @@ import * as tutorial from './tutorial.js';
         const c = ctx[2];
         const cx = global.screenWidth / 2;
         const PW = Math.min(620, global.screenWidth - 40);
-        const PH = 362;
+        const PH = 374;
         const px = cx - PW / 2;
         const py = Math.max(12, global.screenHeight / 2 - PH / 2 - 10)
                  - 700 * (1 - global.lerp(0, 1, glide));
@@ -6245,7 +6253,7 @@ import * as tutorial from './tutorial.js';
         const COLW = 176;
         const lx = px + 22, ly = py + 62;
         c.save();
-        roundRectPath(c, lx, ly, COLW, 168, 12);
+        roundRectPath(c, lx, ly, COLW, 210, 12);
         c.fillStyle = "rgba(255,255,255,0.04)";
         c.fill();
         c.lineWidth = 2;
@@ -6261,11 +6269,13 @@ import * as tutorial from './tutorial.js';
             const pcy = ly + 84 + scale * position.middle.y * Math.SQRT1_2;
             drawEntity(picture.color, (pcx + 0.5) | 0, (pcy + 0.5) | 0, picture,
                        1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
-            drawText(picture.name, lx + COLW / 2, ly + 150, 17, color.guiwhite, "center");
+            drawText("TANK", lx + COLW / 2, ly + 136, 10, color.grey, "center");
+            drawText(picture.name, lx + COLW / 2, ly + 153, 17, color.guiwhite, "center");
         } catch (e) { }
 
         const name = global.player.name.substring(7, global.player.name.length + 1);
-        drawText(name === "" ? "You" : name, lx + COLW / 2, ly + 186, 15, color.grey, "center");
+        drawText("PILOT", lx + COLW / 2, ly + 180, 10, color.grey, "center");
+        drawText(name === "" ? "You" : name, lx + COLW / 2, ly + 197, 15, color.guiwhite, "center");
 
         // ── right column: the run in numbers ──────────────────────────────
         const rx = lx + COLW + 18;
@@ -6282,9 +6292,9 @@ import * as tutorial from './tutorial.js';
         c.strokeStyle = "rgba(255,215,94,0.35)";
         c.stroke();
         c.restore();
-        drawText("SCORE", rx + 14, ry + 18, 11, color.grey, "left");
+        drawText("SCORE", rx + 14, ry + 15, 11, color.grey, "left");
         drawText(util.formatLargeNumber(Math.round(global.finalScore.get())),
-                 rx + 14, ry + 39, 26, color.gold, "left");
+                 rx + 14, ry + 41, 24, color.gold, "left");
         ry += 68;
 
         // Score is carried plus banked, so both are shown in their own right -
@@ -6294,7 +6304,7 @@ import * as tutorial from './tutorial.js';
             ["CARRIED AT DEATH", String(global.finalCarried | 0), "gem"],
             ["BANKED", String(global.finalBanked | 0), "gem"],
             ["ROCKS MINED", String(global.finalRocks | 0), "pickaxe"],
-            ["SURVIVED", util.timeForHumans(Math.round(global.finalLifetime.get())), "clock"],
+            ["SURVIVED", compactTime(global.finalLifetime.get()), "clock"],
             ["KILLS", String(Math.round(global.finalKills[0].get())), "combat"],
             ["ASSISTS", String(Math.round(global.finalKills[1].get())), "combat"],
         ];

@@ -1611,7 +1611,9 @@ function hideDomStep() {
     domCard.classList.remove("show");
     if (skipBar) { skipBar.classList.remove("above"); skipBar.style.left = "50%"; }
 }
-// returns true when it handled the step
+// "dom"  = spotlight AND card are DOM (settings panel is covering the canvas)
+// "spot" = spotlight only, the normal centred card is fine
+// false  = nothing to point at
 function drawDomStep(step) {
     ensureDom();
     const sel = step.ui.slice(4);
@@ -1627,6 +1629,17 @@ function drawDomStep(step) {
     spotEl.style.height = (r.height + pad * 2) + "px";
     spotEl.classList.add("show");
 
+    const panelOpen = (() => {
+        const el = document.getElementById("homeSettingsPanel");
+        return !!(el && el.classList.contains("open"));
+    })();
+    if (!panelOpen) {
+        // spotlight only: the normal card is perfectly visible right now, and
+        // a DOM card up here would sit on top of the class picker
+        domCard.classList.remove("show");
+        if (skipBar) { skipBar.classList.remove("above"); skipBar.style.left = "50%"; }
+        return "spot";
+    }
     domCardT.textContent = (typeof step.label === "function" ? step.label() : step.label) || "";
     domCardB.textContent = String(typeof step.hint === "function" ? step.hint() : step.hint || "")
         .replace(/\{\{KEY_([A-Z0-9_]+)\}\}/g, (m, id) => lbl("KEY_" + id));
@@ -1657,7 +1670,7 @@ function drawDomStep(step) {
         skipBar.style.left = Math.round(cx + cw / 2) + "px";
         skipBar.style.top = Math.round(cy + ch + 8) + "px";
     }
-    return true;
+    return "dom";
 }
 
 // Give the keyboard straight back to the game: the tank must keep driving.
@@ -1771,6 +1784,7 @@ function open() {
     enterStep(0);
 }
 function finish() {
+    hideDomStep();
     sendTutorialFlag(false);
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch (e) { }
     state.running = false;
@@ -1821,7 +1835,7 @@ export function hook() {
         if (!gone) return;
     } else {
         showGotIt(false);
-        if (!state.running) { showSkip(false); return; }
+        if (!state.running) { showSkip(false); hideDomStep(); return; }
     }
 
     if (!state.running) { showSkip(false); return; }
@@ -1833,22 +1847,27 @@ export function hook() {
     c.save();
     c.textBaseline = "middle";
     if (s && s.card) {
+        hideDomStep();
         drawTitleCard(c, s);
         // park the skip control under the title card; no skipping the outro
         layoutSkip(SH() * 0.46);
         showSkip(!s.final);
         refreshNav();
-    } else if (s && s.ui && s.ui.indexOf("dom:") === 0 && drawDomStep(s)) {
-        // a DOM target: outline and card are DOM too, above the settings panel
-        showSkip(true);
-        refreshNav();
     } else {
-        hideDomStep();
-        // highlight first so the objective card always reads on top of it
-        if (s && s.ui) drawUiHighlight(c, s.ui);
-        drawObjective(c);   // positions the skip control under its card
-        showSkip(true);
-        refreshNav();
+        const domMode = (s && s.ui && s.ui.indexOf("dom:") === 0) ? drawDomStep(s) : false;
+        if (domMode === "dom") {
+            // the settings panel is covering the canvas, so card and outline
+            // are both DOM and stacked above it
+            showSkip(true);
+            refreshNav();
+        } else {
+            if (!domMode) hideDomStep();
+            // highlight first so the objective card always reads on top of it
+            if (s && s.ui && !domMode) drawUiHighlight(c, s.ui);
+            drawObjective(c);   // positions the skip control under its card
+            showSkip(true);
+            refreshNav();
+        }
     }
     c.restore();
 }

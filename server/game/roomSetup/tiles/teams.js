@@ -13,6 +13,10 @@ teamCheck = (tile, team) => {
         // gems used to die the same tick they spawned)
         if (entity.isGemPickup) continue;
         if (entity.team !== team && !entity.ac && !entity.master.master.ac && !entity.isArenaCloser && !entity.master.master.isArenaCloser) {
+            // Straight kill() by the tile: no damage, no bullet, nobody in the
+            // killers list. Tag it first so the death screen can say what
+            // happened instead of "nobody finished you off".
+            entity.deathCause = "base";
             entity.kill()
         };
     }
