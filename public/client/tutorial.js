@@ -246,9 +246,9 @@ function settingsOpen() {
 const STAT_INFO = [
     { i: 0, why: "How hard you hurt anything you drive into — and every tank grinds rock by ramming it, so this is your mining speed on contact no matter what you pilot." },
     { i: 1, why: "How much punishment you can take before you pop." },
-    { i: 2, why: "How fast your shots travel, so they land before the target moves." },
-    { i: 3, why: "How much your shots survive — they chew through rock faster too." },
-    { i: 4, why: "How many things a shot punches through, rock included." },
+    { i: 2, why: "How fast what you fire travels, so it lands before the target moves." },
+    { i: 3, why: "How much what you fire can survive — it chews through rock faster too." },
+    { i: 4, why: "How many things one shot punches through, rock included." },
     { i: 5, why: "How hard your shots hit, and how quickly they break rock." },
     { i: 6, why: "How fast you fire." },
     { i: 7, why: "How fast you drive." },
@@ -257,8 +257,22 @@ const STAT_INFO = [
 ];
 function statName(i) {
     const m = myMockup();
-    try { return gui.getStatNames(m && m.statnames)[i] || "Stat"; }
-    catch (e) { return "Stat"; }
+    if (!m) return "";                 // mockup not in yet - name is unknown
+    try { return gui.getStatNames(m.statnames)[i] || ""; }
+    catch (e) { return ""; }
+}
+// Slot 6 is renamed per archetype and means something completely different
+// each time - a smasher's "Engine Acceleration" is not reload - so the blurb
+// keys off the displayed name rather than the slot.
+function statWhy(i) {
+    const base = (STAT_INFO.find(x => x.i === i) || {}).why || "";
+    if (i !== 6) return base;
+    const n = statName(i);
+    if (/engine/i.test(n)) return "How hard you accelerate — how quickly you build up ramming speed and close on a target.";
+    if (/max drone/i.test(n)) return "How many drones you can keep in the air at once.";
+    if (/respawn/i.test(n)) return "How quickly drones you lose are replaced.";
+    if (/density/i.test(n)) return "How heavy what you throw is.";
+    return base;
 }
 function statSkill(i) { return (gui.skills || [])[9 - i] || null; }
 function statUsable(i) {
@@ -525,6 +539,36 @@ const ALL_STEPS = [
 // chain: teaching drone control to a Twin pilot is noise, and a rammer needs
 // to hear something a gun tank never does. Each fires once per browser, ever,
 // whether or not the main tutorial is still running.
+// Stats are remembered by DISPLAYED NAME, not index. A smasher renames slot 6
+// to "Engine Acceleration" while a gun tank calls it "Reload" - same slot,
+// different thing to learn - so tracking names is what makes "you already know
+// Reload, here is Engine Acceleration" come out right.
+const STAT_TAUGHT = "digwarsStatsTaught";
+function statsTaught() {
+    try { return JSON.parse(localStorage.getItem(STAT_TAUGHT) || "[]") || []; }
+    catch (e) { return []; }
+}
+function markStatsTaught(names) {
+    try {
+        const t = statsTaught();
+        let add = false;
+        for (const n of names) if (n && !t.includes(n)) { t.push(n); add = true; }
+        if (add) localStorage.setItem(STAT_TAUGHT, JSON.stringify(t));
+    } catch (e) { }
+}
+// stats this tank can use that the player has never had explained
+function unseenStats() {
+    const t = statsTaught();
+    const out = [];
+    for (const si of STAT_INFO) {
+        if (!statUsable(si.i)) continue;
+        const n = statName(si.i);
+        if (!n) return [];             // names unknown: say nothing rather than guess
+        if (!t.includes(n)) out.push({ i: si.i, name: n, why: statWhy(si.i) });
+    }
+    return out;
+}
+
 const LESSON_KEY = "digwarsLessons";
 const LESSON_MUTE = "digwarsLessonsOff";
 function lessonsMuted() {
@@ -565,6 +609,23 @@ const LESSONS = [
         bodyMobile: () => "The turret on your hull picks its own targets and fires by itself. Hold the right side of the screen or switch on Autofire to make it shoot where you aim, and tap Override to aim it yourself.",
     },
     {
+        id: "newstats",
+        repeat: true,          // fires again whenever an evolution unlocks more
+        when: () => unseenStats().length > 0,
+        title: "New stats",
+        // Snapshot the list when the card fires: onShow marks them learned, so
+        // recomputing at draw time would render an empty list.
+        capture: () => unseenStats(),
+        onShow: (cap) => markStatsTaught((cap || []).map(x => x.name)),
+        body: (cap) => {
+            const n = cap || [];
+            const head = n.length === 1
+                ? "This tank brings a stat you have not used before."
+                : "This tank brings stats you have not used before.";
+            return head + "  " + n.map(x => `${x.name} — ${x.why}`).join("   ");
+        },
+    },
+    {
         id: "outpost",
         afterTutorial: true,
         when: () => seesTakeableOutpost(),
@@ -593,20 +654,27 @@ const LESSONS = [
 ];
 
 let lesson = null;            // {def, at, gone}
+let tankSince = 0, tankWas = null;
 function pollLessons() {
-    const a = archetype(myMockup());
+    const m = myMockup();
+    const a = archetype(m);
     state.tank = a;           // debug aid, mirrors window.dwTut
     state.myColor = gui.color;
     if (lesson || !a || lessonsMuted()) return;
+    const key = String(gui.type) + "|" + a.name;
+    if (key !== tankWas) { tankWas = key; tankSince = T(); return; }
+    if (T() - tankSince < 700) return;
     const seen = lessonsSeen();
     for (const L of LESSONS) {
         if (seen.includes(L.id)) continue;
         // Site lessons never interrupt the tutorial - if they walk past an
         // outpost mid-chain it simply fires the next time they see one.
-        if (L.afterTutorial && state.running) continue;
+        if ((L.afterTutorial || L.repeat) && state.running) continue;
         if (!L.when(a)) continue;
-        lesson = { def: L, at: T(), gone: 0 };
-        markLesson(L.id);
+        lesson = { def: L, at: T(), gone: 0, cap: L.capture ? L.capture() : null };
+        state.lessonId = L.id;        // debug aid, mirrors window.dwTut
+        if (L.onShow) L.onShow(lesson.cap);
+        if (!L.repeat) markLesson(L.id);
         sfxObjective();
         return;
     }
@@ -622,10 +690,11 @@ function drawLesson(c) {
     const S = US();
     const t = T() - lesson.at;
     const a = smooth(t / 420) * (lesson.gone ? 1 - smooth((T() - lesson.gone) / 600) : 1);
-    if (lesson.gone && T() - lesson.gone > 700) { lesson = null; return true; }
+    if (lesson.gone && T() - lesson.gone > 700) { lesson = null; state.lessonId = null; return true; }
     if (a <= 0) return false;
 
-    const raw = (global.mobile && lesson.def.bodyMobile) ? lesson.def.bodyMobile() : lesson.def.body();
+    const raw = (global.mobile && lesson.def.bodyMobile)
+        ? lesson.def.bodyMobile(lesson.cap) : lesson.def.body(lesson.cap);
     const maxW = Math.min(SW() * (global.mobile ? 0.94 : 0.86), 470 * S);
     const lines = layout(c, tokenize(raw), maxW - 36 * S, S);
     const lineH = 21 * S, padX = 18 * S, padY = 14 * S, labelH = 26 * S;
@@ -745,7 +814,7 @@ function statSteps() {
             groupPos: n + 1,
             groupLen: usable.length + 1,
             label: () => statName(si.i),
-            hint: () => si.why + "  Put a point into it.",
+            hint: () => statWhy(si.i) + "  Put a point into it.",
             ui: "stat:" + si.i,
             statIndex: si.i,
             progress: () => {
@@ -759,6 +828,7 @@ function statSteps() {
                 if (sk.amount >= sk.cap) return true;          // nothing to spend here
                 return sk.amount > (state.base.statAmt || 0);
             },
+            onDone: () => markStatsTaught([statName(si.i)]),
         });
     });
     // whatever is left over is theirs to place however they like
@@ -1494,6 +1564,14 @@ function onMouseDown(e) {
     if (e.button === 0) state.fireSeen = true;
 }
 
+// Tell the server we are mid-tutorial so gems from rocks we break are held for
+// us. Re-sent periodically because respawning gives the player a fresh body,
+// which would otherwise silently lose the flag.
+let tutFlagAt = 0;
+function sendTutorialFlag(on) {
+    try { global.canvas.socket.talk("TUT", on ? 1 : 0); } catch (e) { }
+}
+
 // ── lifecycle ──────────────────────────────────────────────────────────
 function open() {
     ensureSkip();
@@ -1505,9 +1583,12 @@ function open() {
     state.evolveCount = 0;
     state.lastType = gui.type;
     showSkip(true);
+    sendTutorialFlag(true);
+    tutFlagAt = T();
     enterStep(0);
 }
 function finish() {
+    sendTutorialFlag(false);
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch (e) { }
     state.running = false;
     state.phase = "finished";
@@ -1553,6 +1634,7 @@ export function hook() {
     }
 
     if (!state.running) return;
+    if (T() - tutFlagAt > 3000) { tutFlagAt = T(); sendTutorialFlag(true); }
 
     update();
 

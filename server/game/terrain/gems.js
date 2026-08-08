@@ -78,8 +78,16 @@ function spawnOreBurst(rock, breaker) {
         const ang   = breaker && breaker.x !== undefined
             ? Math.atan2(breaker.y - d.wy, breaker.x - d.wx)
             : (Math.atan2(d.wy - rock.wy, d.wx - rock.wx) || Math.random() * Math.PI * 2);
-        spawnGem(d.wx, d.wy, value, d.big ? bigCls : cls, size,
-                 Math.cos(ang) * 1.5, Math.sin(ang) * 1.5);
+        const gem = spawnGem(d.wx, d.wy, value, d.big ? bigCls : cls, size,
+                             Math.cos(ang) * 1.5, Math.sin(ang) * 1.5);
+        // Reserve the drop for a player still working through the tutorial:
+        // being sniped by a passing veteran mid-lesson is a miserable first
+        // five minutes, and the tutorial explicitly asks them to collect THIS.
+        if (gem && breaker) {
+            let root = breaker, guard = 0;
+            while (root.master && root.master !== root && guard++ < 8) root = root.master;
+            if (root.inTutorial && root.id !== undefined) gem.gemOwnerId = root.id;
+        }
     }
 }
 
@@ -206,6 +214,9 @@ function tickGem(gem, tg, players) {
     for (const player of players) {
         const body = player.body;
         if (!body || body.isDead() || body.isGhost) continue;
+        // reserved drops ignore everyone but their owner, however they are
+        // pushed around - trapping one does not transfer it
+        if (gem.gemOwnerId !== undefined && body.id !== gem.gemOwnerId) continue;
         const dx = body.x - gem.x, dy = body.y - gem.y;
         const d = Math.hypot(dx, dy) || 1;
         if (bias) {

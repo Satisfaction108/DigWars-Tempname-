@@ -585,7 +585,35 @@ class io_nearestDifferentMaster extends IO {
                 main: true
             };
         }
+        // Nothing hostile in reach. Auto turrets only ever considered
+        // targetableEntities, and rock is terrain rather than an entity, so a
+        // player whose only weapon is an auto turret could never mine at all.
+        // Fall back to chewing the nearest rock, which keeps enemies strictly
+        // higher priority because we only get here with no target lock.
+        const rock = this.rockTarget(range);
+        if (rock) return { target: rock, fire: true, main: true };
         return {};
+    }
+    // Throttled: nearestRock scans a grid neighbourhood, so re-query rarely and
+    // reuse the answer in between. Player-owned turrets only - bosses and
+    // sentries have no business grinding the terrain down.
+    rockTarget(range) {
+        const b = this.body;
+        if (!b || b.master.autoOverride) return null;
+        let root = b, guard = 0;
+        while (root.master && root.master !== root && guard++ < 8) root = root.master;
+        if (!root.isPlayer) return null;
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        if (!tg || !tg.nearestRock) return null;
+        const now = Date.now();
+        if (this._rockAt && now - this._rockAt < 400 && this._rock) {
+            if (this._rock.alive) return { x: this._rock.wx - b.x, y: this._rock.wy - b.y };
+            this._rock = null;
+        }
+        this._rockAt = now;
+        this._rock = tg.nearestRock(b.x, b.y, Math.min(range || 500, 620));
+        if (!this._rock || !this._rock.alive) { this._rock = null; return null; }
+        return { x: this._rock.wx - b.x, y: this._rock.wy - b.y };
     }
 }
 class io_healTeamMasters extends IO {

@@ -557,6 +557,15 @@ class socketManager {
                     }
                 }
             } break;
+            case "TUT": {
+                // The tutorial lives entirely on the client, so it has to tell
+                // us when a player is in it: gems from a rock they broke are
+                // reserved for them so nobody can vulture the one pickup the
+                // tutorial is asking them to collect.
+                if (m.length !== 1 || typeof m[0] !== "number") return;
+                if (player.body == null) return;
+                player.body.inTutorial = !!m[0];
+            } break;
             case "EP": {
                 
                 

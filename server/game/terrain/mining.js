@@ -67,10 +67,16 @@ function skillFactor(owner) {
 
 // ── Body grinding: how ram tanks (and ram builds) mine ───────────────────
 
+// raw[6] is body damage (see skcnv in entities/skills.js - the internal skill
+// order is NOT the order the skill bar displays).
 function grindSecondsFor(owner) {
     const raw = owner && owner.skill && owner.skill.raw;
     const b = raw ? raw[6] : 0;
-    if (!(b >= 1)) return null;
+    // A gunless tank - the whole smasher branch - has no projectiles and so no
+    // other way to mine at all. It always grinds; body damage only sets how
+    // fast. Everything else still needs a point in body damage first.
+    const gunless = !!(owner && owner.guns && owner.guns.size === 0);
+    if (!(b >= 1)) return gunless ? 18.5 / 0.75 : null;
     return 18.5 / b;
 }
 
