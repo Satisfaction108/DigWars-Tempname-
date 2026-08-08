@@ -1325,6 +1325,8 @@ class socketManager {
                 // reads it at m[9 + killerCount]
                 player.body.rocksMined | 0,
                 (socket && socket.gemBanked | 0) || 0,
+                player.body.carriedGems | 0,
+                player.body.deathCause || "",
             ];
         }
 

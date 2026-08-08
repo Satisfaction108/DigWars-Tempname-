@@ -1166,6 +1166,52 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 .dwTutSkipBtn:hover { background: rgba(18,20,26,.9); color: #f2ead6; }
 .dwTutSkipBtn:active { transform: scale(.96); }
 
+/* Steps that point at DOM controls need DOM chrome: the settings panel sits at
+   z-index 300 with a dimming overlay, so a canvas-drawn box is both underneath
+   the button it is meant to outline and behind the veil. */
+#dwTutSpot {
+    position: fixed;
+    z-index: 320;
+    border-radius: 10px;
+    border: 2.5px solid #ffd75e;
+    box-shadow: 0 0 0 3px rgba(255,215,94,.18), 0 0 22px rgba(255,215,94,.35);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .18s ease, left .12s ease, top .12s ease, width .12s ease, height .12s ease;
+    animation: dwSpotPulse 1.5s ease-in-out infinite;
+}
+#dwTutSpot.show { opacity: 1; }
+@keyframes dwSpotPulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(255,215,94,.16), 0 0 18px rgba(255,215,94,.28); }
+    50%      { box-shadow: 0 0 0 5px rgba(255,215,94,.26), 0 0 28px rgba(255,215,94,.45); }
+}
+
+#dwTutDomCard {
+    position: fixed;
+    z-index: 320;
+    width: min(320px, calc(100vw - 24px));
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: rgba(10,11,15,.94);
+    border: 1.5px solid rgba(255,215,94,.3);
+    box-shadow: 0 10px 34px rgba(0,0,0,.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+}
+#dwTutDomCard.show { opacity: 1; }
+.dwTutDomTitle {
+    font: 800 14px Rubik, Ubuntu, sans-serif;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #ffd75e;
+    margin-bottom: 6px;
+}
+.dwTutDomBody { font: 500 13px/1.45 Rubik, Ubuntu, sans-serif; color: #f2ead6; }
+
+/* the controls have to clear the settings panel too */
+#dwTutSkipBar.above { z-index: 321; }
+
 /* Tutorial mode shows Back / Next / Skip; a lesson swaps in its own pair, so
    the two sets never appear together. */
 .dwTutBack, .dwTutGotIt, .dwTutIgnore { display: none; }

@@ -277,6 +277,24 @@ function statName(i) {
 // Slot 6 is renamed per archetype and means something completely different
 // each time - a smasher's "Engine Acceleration" is not reload - so the blurb
 // keys off the displayed name rather than the slot.
+function tankKind(a) {
+    if (!a) return "tank";
+    if (a.rammer) return "rammer";
+    if (a.drone) return "drone tank";
+    if (a.swarm) return "swarm tank";
+    if (a.trap) return "trap tank";
+    if (a.auto) return "auto tank";
+    return "bullet tank";
+}
+function tankKindBlurb(a) {
+    if (!a) return "";
+    if (a.rammer) return "It has no guns at all, so you fight and mine by driving into things.";
+    if (a.drone) return "It fights with drones that fly out and chase whatever you point at.";
+    if (a.swarm) return "It fights with swarms that home in and keep hunting after you let go.";
+    if (a.trap) return "It lays traps that sit where you drop them rather than firing at range.";
+    if (a.auto) return "Its turret picks targets and fires on its own.";
+    return "It fires bullets straight from its barrels.";
+}
 function statWhy(i) {
     const base = (STAT_INFO.find(x => x.i === i) || {}).why || "";
     if (i !== 6) return base;
@@ -645,10 +663,19 @@ const LESSONS = [
         onShow: (cap) => markStatsTaught((cap || []).map(x => x.name)),
         // One card per stat so each gets read properly, walked with Next.
         // Ignore tips still bails out of the whole run.
-        pages: (cap) => (cap || []).map((x, i, all) => ({
-            title: all.length > 1 ? `New stat ${i + 1}/${all.length}` : "New stat",
-            body: `${x.name}. ${x.why}`,
-        })),
+        pages: (cap) => {
+            const a = archetype(myMockup());
+            const list = cap || [];
+            const intro = {
+                title: "This is a " + tankKind(a),
+                body: tankKindBlurb(a) + " Here are the stats that come with it that you have not seen before.",
+            };
+            return [intro].concat(list.map((x, i) => ({
+                title: list.length > 1 ? `New stat ${i + 1}/${list.length}` : "New stat",
+                body: `${x.name}. ${x.why}`,
+                ui: "stat:" + x.i,          // square the bar being described
+            })));
+        },
         body: (cap) => {
             const n = cap || [];
             return n.length ? `${n[0].name}. ${n[0].why}` : "";
@@ -736,6 +763,7 @@ function drawLesson(c) {
     if (a <= 0) return false;
 
     const pg = lesson.pages && lesson.pages[lesson.page];
+    if (pg && pg.ui) drawUiHighlight(c, pg.ui);
     const raw = pg ? pg.body
         : ((global.mobile && lesson.def.bodyMobile)
             ? lesson.def.bodyMobile(lesson.cap) : lesson.def.body(lesson.cap));
@@ -1243,42 +1271,51 @@ function drawChevrons(c, sp, px, py, ratio, fade) {
     c.restore();
 }
 
-// off-screen target: arrow pinned to the screen edge, with distance
-function drawEdgeArrow(c, sp, tg, fade) {
+// Off-screen target: matches the game's own leader indicator so the two read
+// as the same language - projected onto the screen RECTANGLE (not an ellipse,
+// which floats the arrow away from the corners), the same sleek dart, and a
+// distance readout under it.
+function drawEdgeArrow(c_unused, sp, tg, fade) {
+    const c = ctxGui();
+    if (!c) return;
+    const S = US();
     const cx = SW() / 2, cy = SH() / 2;
     const ang = Math.atan2(sp.y - cy, sp.x - cx);
-    const m = 74 * US();
-    const rx = Math.max(40, cx - m), ry = Math.max(40, cy - m);
-    // project onto the screen-edge ellipse so it reads on any aspect ratio
-    const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
-    const dist = Math.hypot(tg.x - global.player.renderx, tg.y - global.player.rendery);
+    const inset = 30 * S;
+    const t = Math.min((cx - inset) / (Math.abs(Math.cos(ang)) || 1e-9),
+                       (cy - inset) / (Math.abs(Math.sin(ang)) || 1e-9));
+    const ax = cx + Math.cos(ang) * t, ay = cy + Math.sin(ang) * t;
     const now = T();
-    const pulse = 0.5 + 0.5 * Math.sin(now / 300);
-    const S = US();
+    const pulse = 1 + 0.06 * Math.sin(now / 280);
+    const dist = Math.hypot(tg.x - global.player.renderx, tg.y - global.player.rendery);
 
     c.save();
-    c.globalAlpha = fade;
-    c.translate(x, y);
+    c.globalAlpha = fade * 0.95;
+    c.translate(ax, ay);
     c.save();
     c.rotate(ang);
-    c.fillStyle = `rgb(${GOLD})`;
-    c.strokeStyle = "rgba(0,0,0,.6)";
-    c.lineWidth = 2.5;
+    c.scale(pulse * S, pulse * S);
     c.beginPath();
-    c.moveTo(17 * S, 0); c.lineTo(-9 * S, -12 * S); c.lineTo(-3 * S, 0); c.lineTo(-9 * S, 12 * S);
+    c.moveTo(16, 0);
+    c.lineTo(-10, -11);
+    c.lineTo(-4.5, 0);
+    c.lineTo(-10, 11);
     c.closePath();
-    c.globalAlpha = (0.75 + 0.25 * pulse) * fade;
-    c.fill(); c.stroke();
+    c.lineWidth = 3.5;
+    c.strokeStyle = "#000";
+    c.stroke();
+    c.fillStyle = `rgb(${GOLD})`;
+    c.fill();
     c.restore();
 
-    const txt = `${Math.round(dist / 10)}m`;
-    c.font = `700 ${12 * S}px ${FONT}`;
+    // distance sits back along the arrow, inside the screen
+    const tx = -Math.cos(ang) * 30 * S, ty = -Math.sin(ang) * 30 * S;
+    const txt = Math.round(dist / 10) + "m";
+    c.font = `800 ${12 * S}px ${FONT}`;
     c.textAlign = "center";
     c.textBaseline = "middle";
-    const ty = Math.sin(ang) * 24 * S, tx = Math.cos(ang) * 24 * S;
-    c.globalAlpha = 0.9 * fade;
-    c.lineWidth = 3;
-    c.strokeStyle = "rgba(0,0,0,.75)";
+    c.lineWidth = 3.5;
+    c.strokeStyle = "rgba(0,0,0,.8)";
     c.strokeText(txt, tx, ty);
     c.fillStyle = `rgb(${PALE})`;
     c.fillText(txt, tx, ty);
@@ -1545,6 +1582,84 @@ function ensureSkip() {
     ignoreEl  = mk("dwTutIgnore", "Ignore tips", () => { muteLessons(); dismissLesson(); });
     document.body.appendChild(skipBar);
 }
+// ── DOM spotlight + card ──────────────────────────────────────────────
+// The game canvas sits underneath the DOM, so a canvas-drawn box can never
+// outline a DOM button, and the settings panel (z-index 300) with its dimming
+// overlay hides the canvas card entirely. Steps that point at DOM elements get
+// a real DOM outline and a real DOM card, stacked above the panel and parked
+// clear of it so it stays readable.
+let spotEl = null, domCard = null, domCardT = null, domCardB = null;
+function ensureDom() {
+    if (spotEl) return;
+    spotEl = document.createElement("div");
+    spotEl.id = "dwTutSpot";
+    document.body.appendChild(spotEl);
+
+    domCard = document.createElement("div");
+    domCard.id = "dwTutDomCard";
+    domCardT = document.createElement("div");
+    domCardT.className = "dwTutDomTitle";
+    domCardB = document.createElement("div");
+    domCardB.className = "dwTutDomBody";
+    domCard.appendChild(domCardT);
+    domCard.appendChild(domCardB);
+    document.body.appendChild(domCard);
+}
+function hideDomStep() {
+    if (!spotEl) return;
+    spotEl.classList.remove("show");
+    domCard.classList.remove("show");
+    if (skipBar) { skipBar.classList.remove("above"); skipBar.style.left = "50%"; }
+}
+// returns true when it handled the step
+function drawDomStep(step) {
+    ensureDom();
+    const sel = step.ui.slice(4);
+    const el = document.querySelector(sel);
+    if (!el) { hideDomStep(); return false; }
+    const r = el.getBoundingClientRect();
+    if (!r.width) { hideDomStep(); return false; }
+
+    const pad = 6;
+    spotEl.style.left = (r.left - pad) + "px";
+    spotEl.style.top = (r.top - pad) + "px";
+    spotEl.style.width = (r.width + pad * 2) + "px";
+    spotEl.style.height = (r.height + pad * 2) + "px";
+    spotEl.classList.add("show");
+
+    domCardT.textContent = (typeof step.label === "function" ? step.label() : step.label) || "";
+    domCardB.textContent = String(typeof step.hint === "function" ? step.hint() : step.hint || "")
+        .replace(/\{\{KEY_([A-Z0-9_]+)\}\}/g, (m, id) => lbl("KEY_" + id));
+    domCard.classList.add("show");
+
+    // Park the card beside the settings panel rather than on top of it.
+    const panel = document.getElementById("homeSettingsPanel");
+    const pr = panel && panel.classList.contains("open") ? panel.getBoundingClientRect() : null;
+    const cw = domCard.offsetWidth || 300, ch = domCard.offsetHeight || 90;
+    let cx, cy;
+    if (pr) {
+        const roomL = pr.left, roomR = window.innerWidth - pr.right;
+        cx = roomL >= cw + 24 ? pr.left - cw - 16
+           : roomR >= cw + 24 ? pr.right + 16
+           : Math.max(8, (window.innerWidth - cw) / 2);
+        cy = Math.max(8, Math.min(pr.top + 8, window.innerHeight - ch - 8));
+    } else {
+        cx = Math.min(Math.max(8, r.left + r.width / 2 - cw / 2), window.innerWidth - cw - 8);
+        cy = Math.min(r.bottom + 14, window.innerHeight - ch - 8);
+    }
+    domCard.style.left = Math.round(cx) + "px";
+    domCard.style.top = Math.round(cy) + "px";
+
+    if (skipBar) {
+        // follow the card rather than staying screen-centred, or the buttons
+        // land in the middle of the settings panel and cover the binds
+        skipBar.classList.add("above");
+        skipBar.style.left = Math.round(cx + cw / 2) + "px";
+        skipBar.style.top = Math.round(cy + ch + 8) + "px";
+    }
+    return true;
+}
+
 // Give the keyboard straight back to the game: the tank must keep driving.
 function handBackFocus() {
     try {
@@ -1682,6 +1797,7 @@ export function hook() {
         // the death panel owns the screen; nothing of ours floats over it
         showGotIt(false);
         showSkip(false);
+        hideDomStep();
         return;
     }
 
@@ -1694,6 +1810,7 @@ export function hook() {
     if (!c) return;
 
     if (lesson) {
+        hideDomStep();
         c.save();
         c.textBaseline = "middle";
         const gone = drawLesson(c);
@@ -1721,7 +1838,12 @@ export function hook() {
         layoutSkip(SH() * 0.46);
         showSkip(!s.final);
         refreshNav();
+    } else if (s && s.ui && s.ui.indexOf("dom:") === 0 && drawDomStep(s)) {
+        // a DOM target: outline and card are DOM too, above the settings panel
+        showSkip(true);
+        refreshNav();
     } else {
+        hideDomStep();
         // highlight first so the objective card always reads on top of it
         if (s && s.ui) drawUiHighlight(c, s.ui);
         drawObjective(c);   // positions the skip control under its card

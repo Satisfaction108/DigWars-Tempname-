@@ -1070,6 +1070,14 @@ class Entity extends EventEmitter {
                 }
                 killTools.push(instance); // Keep track of what actually killed me
             }
+            // A base protector has ACCEPTS_SCORE false so it never enters the
+            // killers list, and a crushing wall is not an entity at all. Record
+            // the cause separately so the death screen can name it.
+            for (const t of killTools) {
+                const m = (t && t.master) || t;
+                const lab = m && (m.label || (m.settings && m.settings.label));
+                if (lab === "Base") { this.deathCause = "base"; break; }
+            }
             // Remove duplicates
             killers = killers.filter((elem, index, self) => index == self.indexOf(elem));
             // remembered for the death-cam: whoever killed me is who my

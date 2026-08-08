@@ -76,7 +76,12 @@ function grindSecondsFor(owner) {
     // other way to mine at all. It always grinds; body damage only sets how
     // fast. Everything else still needs a point in body damage first.
     const gunless = !!(owner && owner.guns && owner.guns.size === 0);
-    if (!(b >= 1)) return gunless ? 18.5 / 0.75 : null;
+    // A gunless tank mines ONLY by grinding, so it must never be unable to.
+    // The old floor of 0.75 was technically non-zero but so slow it read as
+    // broken, so treat an uninvested rammer as if it had 3 points. Investing
+    // still speeds it up threefold on the way to the cap.
+    if (gunless) return 18.5 / Math.max(b, 3);
+    if (!(b >= 1)) return null;
     return 18.5 / b;
 }
 

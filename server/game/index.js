@@ -700,6 +700,7 @@ class gameHandler {
             instance.health.amount -= dmg;
             if (instance.health.amount <= 0 && !instance._crushedNoted) {
                 instance._crushedNoted = true;
+                instance.deathCause = "rock";
                 instance.dontSendDeathMessage = true;
                 if (instance.sendMessage) instance.sendMessage("You were crushed by the living wall.");
             }

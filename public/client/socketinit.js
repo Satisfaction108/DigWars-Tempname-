@@ -1212,6 +1212,8 @@ let incoming = async function(message, socket) {
             // appended after the killer list by records()
             global.finalRocks = m[9 + m[8]] | 0;
             global.finalBanked = m[10 + m[8]] | 0;
+            global.finalCarried = m[11 + m[8]] | 0;
+            global.finalCause = m[12 + m[8]] || "";
             global.canvas.reverseDirection = false;
             global.died = true;
             global.autoSpin = false;

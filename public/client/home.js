@@ -188,17 +188,35 @@
             if (window.global) renderRegionCounts(window.global.servers);
         }, 600);
 
-        // keep the counts fresh while on the menu
-        setInterval(function () {
+        // Keep the counts fresh while on the menu. This used to poll only every
+        // 15s and never on returning from a game, so the number looked frozen.
+        function refreshCounts() {
             var gaw = document.getElementById('gameAreaWrapper');
             if (gaw && gaw.style.display !== 'none') return;
-            fetch('/getServers.json').then(function (r) { return r.json(); })
+            fetch('/getServers.json', { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
                 .then(function (data) {
+                    if (window.global) window.global.servers = data;
                     renderRegionCounts(data);
                     if (window.global && window.global.refreshServerCounts) window.global.refreshServerCounts(data);
                 })
                 .catch(function () {});
-        }, 15000);
+        }
+        refreshCounts();
+        setInterval(refreshCounts, 5000);
+        // and the moment the menu comes back, rather than up to 5s later
+        var gawEl = document.getElementById('gameAreaWrapper');
+        if (gawEl && window.MutationObserver) {
+            var wasHidden = gawEl.style.display === 'none';
+            new MutationObserver(function () {
+                var hidden = gawEl.style.display === 'none';
+                if (hidden && !wasHidden) refreshCounts();
+                wasHidden = hidden;
+            }).observe(gawEl, { attributes: true, attributeFilter: ['style'] });
+        }
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) refreshCounts();
+        });
 
         var clTabs = document.querySelectorAll('.cl-tab');
         var patchNotes = document.getElementById('patchNotes');

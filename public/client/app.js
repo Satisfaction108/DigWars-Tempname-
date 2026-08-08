@@ -6135,6 +6135,21 @@ import * as tutorial from './tutorial.js';
                 c.fill();
                 break;
             }
+            case "pickaxe": {
+                // rocks mined: a pick struck through a chip of stone
+                const r = s * 0.5;
+                c.strokeStyle = color.guiwhite;
+                c.lineWidth = 2;
+                c.beginPath();
+                c.moveTo(x - r * 0.85, y + r * 0.85);
+                c.lineTo(x + r * 0.6, y - r * 0.6);
+                c.stroke();
+                c.beginPath();
+                c.moveTo(x + r * 0.05, y - r * 0.95);
+                c.quadraticCurveTo(x + r * 0.75, y - r * 0.5, x + r * 0.95, y + r * 0.1);
+                c.stroke();
+                break;
+            }
             case "gem": { 
                 const r = s * 0.5;
                 c.fillStyle = color.gold;
@@ -6267,20 +6282,21 @@ import * as tutorial from './tutorial.js';
         c.strokeStyle = "rgba(255,215,94,0.35)";
         c.stroke();
         c.restore();
-        drawText(global.gameStart && window.terrainRenderer ? "GEMS BANKED" : "SCORE",
-                 rx + 14, ry + 18, 11, color.grey, "left");
+        drawText("SCORE", rx + 14, ry + 18, 11, color.grey, "left");
         drawText(util.formatLargeNumber(Math.round(global.finalScore.get())),
                  rx + 14, ry + 39, 26, color.gold, "left");
         ry += 68;
 
+        // Score is carried plus banked, so both are shown in their own right -
+        // the old screen labelled the combined figure "banked", which was wrong.
         const half = (rw - 8) / 2;
         const rows = [
+            ["CARRIED AT DEATH", String(global.finalCarried | 0), "gem"],
+            ["BANKED", String(global.finalBanked | 0), "gem"],
+            ["ROCKS MINED", String(global.finalRocks | 0), "pickaxe"],
             ["SURVIVED", util.timeForHumans(Math.round(global.finalLifetime.get())), "clock"],
-            ["ROCKS MINED", String(global.finalRocks | 0), "gem"],
             ["KILLS", String(Math.round(global.finalKills[0].get())), "combat"],
             ["ASSISTS", String(Math.round(global.finalKills[1].get())), "combat"],
-            ["STRUCTURES", String(Math.round(global.finalKills[3].get())), "skull"],
-            ["SERVER HEALTH", (100 * gui.fps).toFixed(0) + "%", "pulse"],
         ];
         for (let i = 0; i < rows.length; i++) {
             const col = i % 2, row = (i / 2) | 0;
@@ -6291,9 +6307,12 @@ import * as tutorial from './tutorial.js';
         ry += 3 * 46 + 4;
 
         // who got you
-        const killedBy = global.finalKillers.length
-            ? "Taken down by " + global.finalKillers.join(" and ")
-            : "Nobody finished you off";
+        const cause = global.finalCause || "";
+        const killedBy = cause === "rock" ? "Crushed by the living rock"
+            : cause === "base" ? "Shot down by the enemy base"
+            : global.finalKillers.length
+                ? "Taken down by " + global.finalKillers.join(" and ")
+                : "Nobody finished you off";
         c.save();
         c.globalAlpha = global.lerp(2.4, 2.7, glide);
         drawText(killedBy, cx, ry + 12, 13, color.grey, "center");
