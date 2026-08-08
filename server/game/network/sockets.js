@@ -1324,8 +1324,12 @@ class socketManager {
                 // appended after the variable-length killer list, so the client
                 // reads it at m[9 + killerCount]
                 player.body.rocksMined | 0,
-                (socket && socket.gemBanked | 0) || 0,
-                player.body.carriedGems | 0,
+                (socket && socket.gemDeathBanked !== undefined
+                    ? socket.gemDeathBanked
+                    : ((socket && socket.gemBanked) | 0)) | 0,
+                (socket && socket.gemDeathCarried !== undefined
+                    ? socket.gemDeathCarried
+                    : (player.body.carriedGems | 0)) | 0,
                 player.body.deathCause || "",
             ];
         }

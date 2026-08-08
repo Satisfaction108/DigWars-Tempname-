@@ -146,7 +146,15 @@ function dropGemsOnDeath(body) {
     // The death screen shows the wealth you had at the moment you died -
     // carried + banked BEFORE the drop. Snapshot it here because this runs
     // (on 'dead') before the death packet's records() is built.
-    if (body.socket) body.socket.gemDeathScore = carried + banked;
+    if (body.socket) {
+        body.socket.gemDeathScore = carried + banked;
+        // Snapshot the split too. records() reads body.carriedGems, which this
+        // function zeroes a few lines down, so the death screen was always
+        // reporting 0 carried. Banked is captured pre-loss so that the three
+        // figures still add up: score = carried + banked.
+        body.socket.gemDeathCarried = carried;
+        body.socket.gemDeathBanked = banked;
+    }
     if (carried <= 0 && bankLoss <= 0) return;
     body.carriedGems = 0;
     if (bankLoss > 0 && body.socket) {

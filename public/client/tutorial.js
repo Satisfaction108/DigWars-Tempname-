@@ -613,6 +613,17 @@ function unseenStats() {
     return out;
 }
 
+// The archetype the player was last flying. Seeded when the tutorial ends,
+// because a Basic IS a bullet tank - finishing (or skipping) the tutorial
+// means they have already been shown bullet stats and do not need the card.
+const KIND_KEY = "digwarsKind";
+function storedKind() {
+    try { return localStorage.getItem(KIND_KEY); } catch (e) { return null; }
+}
+function setStoredKind(k) {
+    try { localStorage.setItem(KIND_KEY, k); } catch (e) { }
+}
+
 const LESSON_KEY = "digwarsLessons";
 const LESSON_MUTE = "digwarsLessonsOff";
 function lessonsMuted() {
@@ -653,6 +664,25 @@ const LESSONS = [
         bodyMobile: () => "The turret on your hull picks its own targets and fires by itself. Hold the right side of the screen or switch on Autofire to make it shoot where you aim, and tap Override to aim it yourself.",
     },
     {
+        id: "kindchange",
+        repeat: true,
+        // Only when the archetype genuinely changes, and only if the richer
+        // one-off card for that archetype has already been seen (or never
+        // existed, as with plain bullet tanks) - otherwise it just repeats it.
+        when: (a) => {
+            const k = tankKind(a);
+            const prev = storedKind();
+            if (!prev || prev === k) return false;
+            return !detailPending(a);
+        },
+        title: "New tank type",
+        capture: () => tankKind(archetype(myMockup())),
+        body: (k) => {
+            const a = archetype(myMockup());
+            return "This is a " + (k || tankKind(a)) + ". " + tankKindBlurb(a);
+        },
+    },
+    {
         id: "newstats",
         repeat: true,          // fires again whenever an evolution unlocks more
         when: () => unseenStats().length > 0,
@@ -664,13 +694,8 @@ const LESSONS = [
         // One card per stat so each gets read properly, walked with Next.
         // Ignore tips still bails out of the whole run.
         pages: (cap) => {
-            const a = archetype(myMockup());
             const list = cap || [];
-            const intro = {
-                title: "This is a " + tankKind(a),
-                body: tankKindBlurb(a) + " Here are the stats that come with it that you have not seen before.",
-            };
-            return [intro].concat(list.map((x, i) => ({
+            return (list.map((x, i) => ({
                 title: list.length > 1 ? `New stat ${i + 1}/${list.length}` : "New stat",
                 body: `${x.name}. ${x.why}`,
                 ui: "stat:" + x.i,          // square the bar being described
@@ -709,6 +734,17 @@ const LESSONS = [
     },
 ];
 
+const DETAIL_IDS = ["rammer", "drone", "auto", "swarm", "trap"];
+function detailPending(a) {
+    const seen = lessonsSeen();
+    for (const L of LESSONS) {
+        if (DETAIL_IDS.indexOf(L.id) < 0) continue;
+        if (seen.includes(L.id)) continue;
+        try { if (L.when(a)) return true; } catch (e) { }
+    }
+    return false;
+}
+
 let lesson = null;            // {def, at, gone}
 let tankSince = 0, tankWas = null;
 function pollLessons() {
@@ -720,6 +756,8 @@ function pollLessons() {
     const key = String(gui.type) + "|" + a.name;
     if (key !== tankWas) { tankWas = key; tankSince = T(); return; }
     if (T() - tankSince < 700) return;
+    // first tank we have ever seen: record it without announcing anything
+    if (!storedKind()) { setStoredKind(tankKind(a)); return; }
     const seen = lessonsSeen();
     for (const L of LESSONS) {
         if (seen.includes(L.id)) continue;
@@ -732,6 +770,7 @@ function pollLessons() {
                    pages: L.pages ? L.pages(cap) : null };
         state.lessonId = L.id;        // debug aid, mirrors window.dwTut
         if (L.onShow) L.onShow(lesson.cap);
+        setStoredKind(tankKind(a));   // this archetype has now been introduced
         if (!L.repeat) markLesson(L.id);
         sfxObjective();
         return;
@@ -1633,11 +1672,23 @@ function drawDomStep(step) {
     const r = el.getBoundingClientRect();
     if (!r.width) { hideDomStep(); return false; }
 
+    // Round to whole pixels so the outline lands on the pixel grid rather than
+    // straddling it, and inherit the target's own corner radius so it hugs the
+    // shape instead of squaring a rounded button.
     const pad = 6;
-    spotEl.style.left = (r.left - pad) + "px";
-    spotEl.style.top = (r.top - pad) + "px";
-    spotEl.style.width = (r.width + pad * 2) + "px";
-    spotEl.style.height = (r.height + pad * 2) + "px";
+    const L = Math.round(r.left) - pad, T2 = Math.round(r.top) - pad;
+    const W = Math.round(r.width) + pad * 2, H = Math.round(r.height) + pad * 2;
+    let rad = 10;
+    try {
+        const cs = getComputedStyle(el);
+        const got = parseFloat(cs.borderTopLeftRadius);
+        if (isFinite(got)) rad = Math.min(H / 2, got > 0 ? got + pad : 8);
+    } catch (e) { }
+    spotEl.style.left = L + "px";
+    spotEl.style.top = T2 + "px";
+    spotEl.style.width = W + "px";
+    spotEl.style.height = H + "px";
+    spotEl.style.borderRadius = rad + "px";
     spotEl.classList.add("show");
 
     const panelOpen = (() => {
@@ -1731,6 +1782,8 @@ function skipToEnd() {
 }
 function goNext() {
     if (!state.running || state.phase !== "active") return;
+    const sd = stepDef();
+    if (sd && sd.statIndex !== undefined) markStatsTaught([statName(sd.statIndex)]);
     state.phase = "clearing";
     state.completedAt = T();
     sfxAdvance();
@@ -1796,6 +1849,15 @@ function open() {
 }
 function finish() {
     hideDomStep();
+    // Whether they worked through the stat objectives, pressed Next past them
+    // or skipped outright, the tutorial has shown them this tank's stats. Not
+    // recording that meant a Basic run was followed by a redundant "this is a
+    // bullet tank" card explaining stats they had just been walked through.
+    try {
+        markStatsTaught(STAT_INFO.filter(si => statUsable(si.i)).map(si => statName(si.i)).filter(Boolean));
+        const a0 = archetype(myMockup());
+        if (a0) setStoredKind(tankKind(a0));
+    } catch (e) { }
     sendTutorialFlag(false);
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch (e) { }
     state.running = false;

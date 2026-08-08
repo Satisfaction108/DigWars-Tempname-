@@ -6194,6 +6194,19 @@ import * as tutorial from './tutorial.js';
         if (m) return m + "m " + String(sc).padStart(2, "0") + "s";
         return sc + "s";
     };
+    // Centre text at the largest size that still fits maxW, down to a floor.
+    const fitText = (txt, cx, cy, size, maxW, col) => {
+        const c = ctx[2];
+        let s2 = size;
+        c.font = "bold " + s2 + "px Rubik, Ubuntu";
+        let w = c.measureText(txt).width;
+        while (w > maxW && s2 > 8) {
+            s2 -= 0.5;
+            c.font = "bold " + s2 + "px Rubik, Ubuntu";
+            w = c.measureText(txt).width;
+        }
+        drawText(txt, cx, cy, s2, col, "center");
+    };
     const deathStat = (label, value, iconKind, bx, by, bw, alpha) => {
         const c = ctx[2];
         c.save();
@@ -6284,12 +6297,14 @@ import * as tutorial from './tutorial.js';
             drawEntity(picture.color, (pcx + 0.5) | 0, (pcy + 0.5) | 0, picture,
                        1.5, 1, (0.5 * scale) / picture.realSize, 1, -Math.PI / 4, true, ctx[2]);
             drawText("TANK", lx + COLW / 2, ly + 136, 10, color.grey, "center");
-            drawText(picture.name, lx + COLW / 2, ly + 153, 17, color.guiwhite, "center");
+            fitText(picture.name, lx + COLW / 2, ly + 153, 17, COLW - 16, color.guiwhite);
         } catch (e) { }
 
         const name = global.player.name.substring(7, global.player.name.length + 1);
-        drawText("PILOT", lx + COLW / 2, ly + 180, 10, color.grey, "center");
-        drawText(name === "" ? "You" : name, lx + COLW / 2, ly + 197, 15, color.guiwhite, "center");
+        drawText("MINER", lx + COLW / 2, ly + 180, 10, color.grey, "center");
+        // Names run to 24 characters, which overflows the column at full size,
+        // so shrink to fit rather than spilling out of the panel.
+        fitText(name === "" ? "You" : name, lx + COLW / 2, ly + 198, 16, COLW - 16, color.guiwhite);
 
         // ── right column: the run in numbers ──────────────────────────────
         const rx = lx + COLW + 18;

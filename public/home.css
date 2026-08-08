@@ -1172,6 +1172,9 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 #dwTutSpot {
     position: fixed;
     z-index: 320;
+    /* border-box, or the border is added outside the width and the outline
+       sits 5px further right and lower than the element it is squaring */
+    box-sizing: border-box;
     border-radius: 10px;
     border: 2.5px solid #ffd75e;
     box-shadow: 0 0 0 3px rgba(255,215,94,.18), 0 0 22px rgba(255,215,94,.35);
