@@ -1414,7 +1414,8 @@ class socketManager {
             if (data.type & 0x04) {
                 output.push(
                      data.name,
-                     data.score
+                     data.score,
+                     data.digWarsGoal || ""
                 );
             }
         };
@@ -1824,7 +1825,7 @@ class socketManager {
         
         let isGemMode = () => !!global.gameManager.terrainGrid;
         let lbValue = (ent) => isGemMode()
-            ? (ent.carriedGems | 0) + (((ent.socket && ent.socket.gemBanked) || 0) | 0)
+            ? (ent.carriedGems | 0) + (((ent.socket ? ent.socket.gemBanked : ent.botBanked) || 0) | 0)
             : ent.skill.score;
         let makeLeaderboardList = (list, args) => {
             let topTen = [];
@@ -1998,6 +1999,7 @@ class socketManager {
                 if (instance.settings.leaderboardable &&
                     instance.settings.drawShape &&
                     !instance.incognito &&
+                    (Config.bots_count_on_scoreboard || !instance.isBot) &&
                     (instance.type === "tank" ||
                      instance.killCount.solo ||
                      instance.killCount.assists
@@ -2012,6 +2014,7 @@ class socketManager {
                 if (instance.settings.leaderboardable &&
                     instance.settings.drawShape &&
                     !instance.incognito &&
+                    (Config.bots_count_on_scoreboard || !instance.isBot) &&
                     instance.type !== "food" &&
                     (instance.type === "tank" ||
                      instance.killCount.solo ||

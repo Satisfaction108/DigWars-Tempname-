@@ -1,4 +1,5 @@
 node_modules/
+.bot-soak-*.json
 package-lock.json
 *.lnk
 .DS_Store

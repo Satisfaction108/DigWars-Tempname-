@@ -533,6 +533,7 @@ const process = (z = {}) => {
         if (type & 0x04) {
             z.name = get.next();
             z.score = get.next();
+            z.digWarsGoal = get.next();
         }
         z.nameplate = type & 0x04;
 

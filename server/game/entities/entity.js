@@ -744,8 +744,9 @@ class Entity extends EventEmitter {
         // Dig Wars: the score other players see over your head is your
         // wealth (carried + banked) — the same number the leaderboard and
         // death screen use, never the vestigial level score.
-        if (this.isPlayer && global.gameManager && global.gameManager.terrainGrid) {
-            score = (this.carriedGems | 0) + (((this.socket && this.socket.gemBanked) || 0) | 0);
+        if ((this.isPlayer || (this.isBot && Config.bots_count_on_scoreboard)) && global.gameManager && global.gameManager.terrainGrid) {
+            const banked = this.socket ? this.socket.gemBanked : this.botBanked;
+            score = (this.carriedGems | 0) + ((banked || 0) | 0);
         }
         // Create camera info object
         const cameraInfo = {
@@ -773,6 +774,7 @@ class Entity extends EventEmitter {
             drawFill: this.drawFill,
             name: (this.nameColor || "#ffffff") + this.name,
             score: this.settings.scoreLabel || score,
+            digWarsGoal: this.isBot ? (this._digWarsGoal || "wander") : "",
             guns: Array.from(this.guns.values()).map(gun => gun.getPhotoInfo()),
             turrets: turretsAndProps.map(turret => turret.camera()),
         };

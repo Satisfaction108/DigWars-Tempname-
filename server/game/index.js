@@ -1,3 +1,4 @@
+const fs = require('fs');
 const gems = require('./terrain/gems.js');
 const mining = require('./terrain/mining.js');
 const vault = require('./terrain/vault.js');
@@ -66,8 +67,26 @@ class gameHandler {
         this.naturallySpawnedBosses = [];
         this.bossTimer = 0;
         this.active = false;
+        this.botStats = new Map();
+        this.botTelemetryAt = Date.now();
+        this.soakMspt = [];
+        this.soakStartedAt = Date.now();
     }
-    checkUsers = () => global.gameManager.clients.length >= 1;
+    checkUsers = () => global.gameManager.clients.length >= 1 || !!Config.bot_soak_mode;
+
+    // Gem and vault systems consume body-like actors. Keep socket players in
+    // their existing wrapper shape and append bot bodies, which have no socket.
+    gemActors = () => {
+        const actors = [];
+        for (const player of global.gameManager.socketManager.players) {
+            const body = player && player.body;
+            if (body && !body.isDead() && !body.isGhost) actors.push(player);
+        }
+        for (const bot of this.bots) {
+            if (bot && !bot.isDead() && !bot.isGhost) actors.push(bot);
+        }
+        return actors;
+    };
     
     collide = (instance, other) => {
 
@@ -575,9 +594,12 @@ class gameHandler {
         let botName = Config.bot_name_prefix + ran.chooseBotName();
         let o = new Entity(loc);
         o.define(Config.spawn_class);
-        o.define({ CONTROLLERS: ["nearestDifferentMaster"] }, false, false, false);
+        o.define({ CONTROLLERS: ["unstick", "digWarsGoals", "minesRocks", "nearestDifferentMaster"] }, false, false, false);
         o.refreshBodyAttributes();
         o.isBot = true;
+        // This value changes decisions, not damage or movement stats. A broad
+        // spread keeps a lobby from feeling like eight copies of one machine.
+        o.botSkill = util.clamp(ran.gauss(0.55, 0.25), 0.1, 0.95);
         o.name = botName;
         o.invuln = true;
         o.leftoverUpgrades = ran.chooseChance(...Config.bot_class_upgrade_chances);
@@ -594,7 +616,25 @@ class gameHandler {
         }, 100)
         o.refreshBodyAttributes();
         if (team) o.team = team;
+        if (Config.dig_wars) gems.initSatchel(o);
         this.bots.push(o);
+        this.botStats.set(o.id, {
+            id: o.id,
+            name: o.name,
+            skill: o.botSkill,
+            spawnedAt: Date.now(),
+            deaths: 0,
+            gemsMined: 0,
+            gemsBanked: 0,
+            stuckEvents: 0,
+            kills: 0,
+            goalSeconds: {},
+            stationarySeconds: 0,
+            stationaryOver3s: 0,
+            stationaryReported: false,
+            lastX: o.x,
+            lastY: o.y,
+        });
         if (Config.tag) Config.tag_data.addBot(o), global.nextTagBotTeam = null;
         setTimeout(() => {
             
@@ -631,6 +671,9 @@ class gameHandler {
             })
         }, 3000 + Math.floor(Math.random() * 7000));
         o.on('dead', () => {
+            const stats = this.botStats.get(o.id);
+            if (stats) stats.deaths++;
+            ran.releaseBotName(botName);
             setTimeout(() => {
                 if (global.nextTagBotTeam) {
                     let loc = getSpawnableArea(global.nextTagBotTeam, global.gameManager);
@@ -641,13 +684,111 @@ class gameHandler {
         });
     };
 
+    sampleBotTelemetry() {
+        const now = Date.now();
+        const dt = Math.min(1, Math.max(0, now - this.botTelemetryAt) / 1000);
+        this.botTelemetryAt = now;
+        for (const bot of this.bots) {
+            let stats = this.botStats.get(bot.id);
+            if (!stats) {
+                stats = {
+                    id: bot.id,
+                    name: bot.name,
+                    skill: bot.botSkill,
+                    spawnedAt: now,
+                    deaths: 0,
+                    gemsMined: 0,
+                    gemsBanked: 0,
+                    stuckEvents: 0,
+                    kills: 0,
+                    goalSeconds: {},
+                    stationarySeconds: 0,
+                    stationaryOver3s: 0,
+                    stationaryReported: false,
+                    lastX: bot.x,
+                    lastY: bot.y,
+                };
+                this.botStats.set(bot.id, stats);
+            }
+            const goal = bot._digWarsGoal || 'wander';
+            stats.goalSeconds[goal] = (stats.goalSeconds[goal] || 0) + dt;
+            stats.gemsMined = bot.gemsMined || 0;
+            stats.gemsBanked = bot.botGemsBanked || 0;
+            stats.stuckEvents = bot._unstickCount || 0;
+            stats.kills = bot.killCount ? bot.killCount.solo | 0 : 0;
+            const moved = Math.hypot(bot.x - stats.lastX, bot.y - stats.lastY);
+            const intentionallyMining = goal === 'mine' && bot.grindTouchUntil > now;
+            if (!intentionallyMining && moved < Math.max(0.5, (bot.size || 1) * 0.05)) {
+                stats.stationarySeconds += dt;
+                if (stats.stationarySeconds > 3 && !stats.stationaryReported) {
+                    stats.stationaryOver3s++;
+                    stats.stationaryReported = true;
+                }
+            } else {
+                stats.stationarySeconds = 0;
+                stats.stationaryReported = false;
+            }
+            stats.lastX = bot.x;
+            stats.lastY = bot.y;
+        }
+    }
+
+    writeBotSoakReport() {
+        if (!Config.bot_soak_report_path) return;
+        this.sampleBotTelemetry();
+        const bots = Array.from(this.botStats.values()).map(stats => ({
+            ...stats,
+            alive: this.bots.some(bot => bot.id === stats.id),
+            stationaryReported: undefined,
+            lastX: undefined,
+            lastY: undefined,
+        }));
+        const elapsedSeconds = Math.max(1, (Date.now() - this.soakStartedAt) / 1000);
+        const totalGoalSeconds = bots.reduce((sum, bot) =>
+            sum + Object.values(bot.goalSeconds).reduce((a, b) => a + b, 0), 0);
+        const wanderSeconds = bots.reduce((sum, bot) => sum + (bot.goalSeconds.wander || 0), 0);
+        const report = {
+            elapsedSeconds,
+            botCap: Config.bot_cap,
+            msptAverage: this.soakMspt.length
+                ? this.soakMspt.reduce((a, b) => a + b, 0) / this.soakMspt.length
+                : 0,
+            bots,
+            summary: {
+                botInstances: bots.length,
+                botsBankedAtLeastOnce: bots.filter(bot => bot.gemsBanked > 0).length,
+                wanderPercent: totalGoalSeconds ? wanderSeconds / totalGoalSeconds * 100 : 0,
+                stationaryBotsOver3s: bots.filter(bot => bot.stationaryOver3s > 0).length,
+                stuckEventsPerBotPerMinute: bots.length
+                    ? bots.reduce((sum, bot) => sum + bot.stuckEvents, 0) / bots.length / (elapsedSeconds / 60)
+                    : 0,
+            },
+        };
+        try {
+            fs.writeFileSync(Config.bot_soak_report_path, JSON.stringify(report, null, 2));
+        } catch (error) {
+            console.error(`[BOT SOAK] Could not write report: ${error.message}`);
+        }
+    }
+
     run() {
         this.active = true;
+        if (Config.bot_soak_mode && Config.bot_soak_duration_ms > 0) {
+            this.soakTimer = setTimeout(() => {
+                this.writeBotSoakReport();
+                this.stop();
+            }, Config.bot_soak_duration_ms);
+        }
         let gameLoop = setInterval(() => {
             if (!this.active) return clearInterval(gameLoop);
             if (this.checkUsers()) {
                 try {
+                    const cycleStarted = performance.now();
                     this.gameloop();
+                    if (Config.bot_soak_mode) {
+                        this.soakMspt.push(performance.now() - cycleStarted);
+                        if (this.soakMspt.length > 3000) this.soakMspt.shift();
+                    }
                     syncedDelaysLoop();
                     if (Config.enable_food) this.foodloop();
                     global.gameManager.roomLoop();
@@ -667,6 +808,7 @@ class gameHandler {
         let otherloop = setInterval(() => {
             if (!this.active) return clearInterval(otherloop);
             this.quickMaintainLoop();
+            this.sampleBotTelemetry();
             global.gameManager.socketManager.chatLoop();
         }, 200)
         let healingLoop = setInterval(() => {
@@ -718,6 +860,7 @@ class gameHandler {
             lastTerrainTick = tickNow;
             _tg.regrowTick(tickNow);
             const growingNow = _tg.growingRocks().length > 0;
+            const gemActors = this.gemActors();
             for (const instance of global.entities.values()) {
                 if (!instance || instance.isDead?.()) continue;
                 if (instance.noclip || instance.godmode || instance.isArenaCloser) continue;
@@ -735,7 +878,7 @@ class gameHandler {
                         coreChambers.tickContainedGem(instance);
                     } else {
                         
-                        gems.tickGem(instance, _tg, global.gameManager.socketManager.players);
+                        gems.tickGem(instance, _tg, gemActors);
                         
                         
                         if (growingNow) _tg.pushCircleFromGrowing(instance, instance.realSize, tickNow);
@@ -826,6 +969,7 @@ class gameHandler {
                                         
                                         if (destroyed) instance.rocksMined = (instance.rocksMined || 0) + 1;
                                         if (destroyed && rock.ore && !wasGrowing) {
+                                            instance.gemsMined = (instance.gemsMined || 0) + 1;
                                             gems.spawnOreBurst(rock, instance);
                                             if (rock.ore === 4) announceEmerald(instance);
                                         }
@@ -874,6 +1018,7 @@ class gameHandler {
                             
                             if (destroyed) owner.rocksMined = (owner.rocksMined || 0) + 1;
                             if (destroyed && rock.ore && !wasGrowing) {
+                                owner.gemsMined = (owner.gemsMined || 0) + 1;
                                 gems.spawnOreBurst(rock, owner);
                                 if (rock.ore === 4) announceEmerald(owner);
                             }
@@ -889,7 +1034,7 @@ class gameHandler {
 
             
             const vNow = Date.now();
-            vault.tick(global.gameManager.socketManager.players,
+            vault.tick(gemActors,
                        Math.min(50, vNow - (this._lastVaultTick || vNow)) || 8);
             
             outposts.tick(global.gameManager.socketManager.players,
@@ -914,6 +1059,10 @@ class gameHandler {
     }
     stop() {
         this.active = false;
+        if (this.soakTimer) {
+            clearTimeout(this.soakTimer);
+            this.soakTimer = null;
+        }
     }
 }
 

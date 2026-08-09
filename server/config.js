@@ -38,7 +38,7 @@ module.exports = {
 
             properties: {
                 teams: 2,
-                bot_cap: 0
+                bot_cap: process.env.BOT_CAP === undefined ? 8 : Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0)
             }
         },
     ],
@@ -97,12 +97,22 @@ module.exports = {
     tier_cap: 100,
     tier_multiplier: 15,
 
-    bot_cap: 0,
+    bot_cap: process.env.BOT_CAP === undefined ? 0 : Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0),
     bot_xp_gain: 60,
     bot_start_level: 100,
     bot_skill_upgrade_chances: [1, 1, 3, 4, 4, 4, 4, 2, 1, 1],
     bot_class_upgrade_chances: [1, 5, 20, 37, 37],
-    bot_name_prefix: "[AI] ",
+    // Bots use procedurally generated names that are indistinguishable from
+    // real players. Leave the prefix empty so the leaderboard stays clean.
+    // The soak harness and debug overlay provide bot identification instead.
+    bot_name_prefix: "",
+    // Bots count on the live global/default leaderboard. The players-only
+    // board remains explicitly human-only; no bot records are persisted.
+    bots_count_on_scoreboard: true,
+
+    bot_soak_mode: process.env.BOT_SOAK_MODE === "true",
+    bot_soak_report_path: process.env.BOT_SOAK_REPORT || "",
+    bot_soak_duration_ms: Math.max(0, (parseInt(process.env.BOT_SOAK_SECONDS, 10) || 0) * 1000),
 
     spawn_class: 'basic',
 

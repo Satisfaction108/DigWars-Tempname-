@@ -98,6 +98,22 @@ function talkGems(body, delta) {
     }
 }
 
+function actorBody(actor) {
+    return actor && actor.body ? actor.body : actor;
+}
+
+function bankedFor(body) {
+    return body.socket ? (body.socket.gemBanked || 0) | 0 : (body.botBanked || 0) | 0;
+}
+
+function setBanked(body, amount) {
+    amount = Math.max(0, Math.round(amount));
+    if (body.socket) body.socket.gemBanked = amount;
+    else body.botBanked = amount;
+    body.bankedGems = amount;
+    return amount;
+}
+
 function updateSatchel(body) {
     const p = body.gemHoardProp, f = body.gemHoardFacetProp;
     if (p) {
@@ -116,7 +132,9 @@ function initSatchel(body) {
     body.gemCap = SATCHEL_CAP;
     
     
+    body.botBanked ??= 0;
     if (body.socket) body.bankedGems = body.socket.gemBanked = body.socket.gemBanked || 0;
+    else body.bankedGems = body.botBanked;
     if (!body.gemHoardProp) {
         
         
@@ -141,7 +159,7 @@ function initSatchel(body) {
 function dropGemsOnDeath(body) {
     const carried = body.carriedGems | 0;
     
-    const banked  = body.socket ? (body.socket.gemBanked | 0) : 0;
+    const banked  = bankedFor(body);
     const bankLoss = Math.floor(banked * BANK_DEATH_LOSS);
     // The death screen shows the wealth you had at the moment you died -
     // carried + banked BEFORE the drop. Snapshot it here because this runs
@@ -157,10 +175,7 @@ function dropGemsOnDeath(body) {
     }
     if (carried <= 0 && bankLoss <= 0) return;
     body.carriedGems = 0;
-    if (bankLoss > 0 && body.socket) {
-        body.socket.gemBanked = banked - bankLoss;
-        body.bankedGems = body.socket.gemBanked;
-    }
+    if (bankLoss > 0) setBanked(body, banked - bankLoss);
     updateSatchel(body);
     talkGems(body, -carried);
     const drop = Math.floor(carried * DEATH_DROP) + bankLoss;
@@ -219,8 +234,8 @@ function tickGem(gem, tg, players) {
 
     let best = null, bestD = Infinity;
     const bias = gem.chamberBias;   
-    for (const player of players) {
-        const body = player.body;
+    for (const actor of players) {
+        const body = actorBody(actor);
         if (!body || body.isDead() || body.isGhost) continue;
         const dx = body.x - gem.x, dy = body.y - gem.y;
         const d = Math.hypot(dx, dy) || 1;

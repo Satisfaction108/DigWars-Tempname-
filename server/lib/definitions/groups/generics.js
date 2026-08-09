@@ -592,9 +592,11 @@ for (let i = 0; i < 2; i++) {
 Class.bot = {
     FACING_TYPE: 'looseToTarget',
     CONTROLLERS: [
+        "unstick",
+        "digWarsGoals",
+        "minesRocks",
         "nearestDifferentMaster",
         "mapAltToFire",
-        "minion",
         "fleeAtLowHealth",
         ["mapFireToAlt", {onlyIfHasAltFireGun: true}],
         ["wanderAroundMap", {replicatePlayerMovement: true, lookAtGoal: true}]

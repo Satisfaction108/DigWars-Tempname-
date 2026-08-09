@@ -98,6 +98,121 @@ exports.nameLists = {
     legion: ["Vesta", "Juno", "Orcus", "Janus", "Minerva", "Ceres"]
 }
 
-exports.chooseBotName = () => exports.choose(exports.nameLists.bots)
+exports.chooseBotName = (() => {
+    const issued = new Set();
+
+    // ── word pools ──
+    const dig = [
+        'mole','dig','rock','stone','gem','dust','ore','pick','mine',
+        'shaft','vein','earth','clay','sand','pit','drill','bore','shard',
+        'flint','slate','gravel','rubble','granite','basalt','crystal',
+        'geode','pebble','boulder','cobble','dirt','mud','soot','rust',
+        'ash','coal','iron','steel','copper','bronze','gold','silver',
+        'zinc','lead','tin','quartz','jade','onyx','opal','ruby',
+        'emerald','pearl','amber','topaz','agate','lode','fissure','crust',
+        'stratum','bedrock','cinder','char','ember','spark','flame',
+        'blaze','torch','lantern','cave','grotto','tunnel',
+        'vault','hoard','cache','stash','loot','haul','yield','seam',
+        'gouge','scrape','chip','wedge','maul','sledge','trowel',
+    ];
+    const general = [
+        'frost','zephyr','viper','hawk','wolf','fox','bear','lynx','crow',
+        'owl','kite','raven','wren','moth','newt','toad','crab','eel',
+        'pike','bass','carp','seal','gull','tern','wisp','mist','haze',
+        'fog','spark','bolt','surge','pulse','wave','tide','flow','rift',
+        'void','echo','shade','ghost','phantom','reaper','blade','edge',
+        'spike','thorn','fang','claw','talon','shank','razor','shear',
+        'drift','wander','roam','scout','sentry','ward','guard','watch',
+        'relic','rune','sigil','totem','idol','fetish','tusk','horn',
+        'root','thorn','briar','vine','ivy','fern','moss','lichen',
+        'warp','bend','twist','coil','loop','swerve','skew',
+        'rust','oxide','patina','verdigris','tarnish','decay','erode',
+        'silt','dregs','leech','slug','snail','grub','larva','mite',
+    ];
+    const words = [...dig, ...general];
+
+    const clanTags = ['TNT','KOR','XD','GG','OP','FF','AFK','GGG','WP',
+                      'LAG','EZ','MVP','ACE'];
+
+    const leetMap = { a:'4', e:'3', i:'1', o:'0', s:'5', t:'7', g:'9', l:'1' };
+    const uniSuffixes = ['','★','☆','✦','✧','•','◦']; // last 5% chance for non-empty
+
+    // ── helpers ──
+    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+    const chance = p => Math.random() < p;
+
+    function toLeet(w) {
+        if (w.length < 4) return w;
+        let out = '';
+        for (const c of w) {
+            const r = leetMap[c];
+            out += r && chance(0.4) ? r : c;
+        }
+        return out;
+    }
+
+    function maybeDigits(w) {
+        return chance(0.3) ? w + Math.floor(Math.random() * 99) : w;
+    }
+
+    function join(sep) {
+        const a = pick(words);
+        let b = pick(words);
+        while (b === a && words.length > 1) b = pick(words);
+        return a + (sep || '') + b;
+    }
+
+    function generate() {
+        const r = Math.random();
+        // 40% simple word
+        if (r < 0.40) return maybeDigits(pick(words));
+        // 20% two words joined
+        if (r < 0.60) return maybeDigits(join(chance(0.25) ? '_' : ''));
+        // 15% leet
+        if (r < 0.75) return toLeet(pick(words));
+        // 10% decorated
+        if (r < 0.85) {
+            const style = Math.random();
+            const w = pick(words);
+            if (style < 0.35) return 'xX_' + w + '_Xx';
+            if (style < 0.70) return '_' + w + '_';
+            return 'ii' + w.charAt(0).toUpperCase() + w.slice(1) + 'ii';
+        }
+        // 10% clan tagged
+        if (r < 0.95) {
+            const tag = pick(clanTags);
+            const fmt = Math.random();
+            const w = pick(words);
+            if (fmt < 0.5) return '[' + tag + '] ' + w;
+            return tag + ' | ' + w;
+        }
+        // 5% rare — word with unicode suffix
+        return pick(words) + pick(uniSuffixes);
+    }
+
+    function chooseBotName() {
+        for (let tries = 0; tries < 200; tries++) {
+            let name = generate();
+            // Cap length at 24
+            if (name.length > 24) name = name.slice(0, 24);
+            // Enforce lowercase bias: force fully lowercase for simple-word shapes
+            // (clan-tagged and decorated keep their intentional casing)
+            if (!issued.has(name)) {
+                issued.add(name);
+                return name;
+            }
+        }
+        // Fallback: just use a numbered suffix
+        let n = pick(words), suffix = 0;
+        while (issued.has(n + suffix) && suffix < 9999) suffix++;
+        const name = n + suffix;
+        issued.add(name);
+        return name;
+    }
+    chooseBotName.release = name => { issued.delete(name); };
+    return chooseBotName;
+})();
+
+exports.releaseBotName = name => { exports.chooseBotName.release(name); };
 
 exports.chooseBossName = (code, amount) => code in exports.nameLists ? exports.chooseN(exports.nameLists[code], amount) : []

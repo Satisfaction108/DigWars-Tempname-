@@ -442,6 +442,12 @@ class io_nearestDifferentMaster extends IO {
         this.lockThroughWalls = opts.lockThroughWalls;
         this.mapGoal = opts.mapGoal;
         this.validTargets = [];
+        this.botAimAngle = null;
+        this.botAimNoise = 0;
+        this.botAimNoiseAt = 0;
+        this.pendingTargetId = null;
+        this.pendingTargetUntil = 0;
+        this.targetLockStarted = 0;
     }
     validate(e, m, mm, sqrRange, sqrRangeMaster) {
         const myMaster = this.body.master.master;
@@ -538,7 +544,14 @@ class io_nearestDifferentMaster extends IO {
             this.wouldHitWall(this.body, this.targetLock) // Very expensive
         )) {
             this.targetLock = undefined;
+            this.pendingTargetId = null;
             this.tick = 100;
+        }
+        if (this.targetLock && this.body.isBot && this.targetLockStarted &&
+            Date.now() - this.targetLockStarted > 2200 + (1 - util.clamp(this.body.botSkill ?? 0.5, 0, 1)) * 2800 &&
+            this.tick % 30 === 0) {
+            this.targetLock = undefined;
+            this.targetLockStarted = 0;
         }
         // OK, now let's try reprocessing the targets!
         this.tick++;
@@ -549,10 +562,22 @@ class io_nearestDifferentMaster extends IO {
                 this.targetLock = undefined;
             }
             if (this.targetLock == null && this.validTargets.length) {
-                this.targetLock = (this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
+                const candidate = (this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
                     x: this.body.x,
                     y: this.body.y
                 });
+                if (this.body.isBot) {
+                    const delay = 90 + (1 - util.clamp(this.body.botSkill ?? 0.5, 0, 1)) * 310;
+                    if (this.pendingTargetId !== candidate.id) {
+                        this.pendingTargetId = candidate.id;
+                        this.pendingTargetUntil = Date.now() + delay;
+                        return {};
+                    }
+                    if (Date.now() < this.pendingTargetUntil) return {};
+                    this.pendingTargetId = null;
+                }
+                this.targetLock = candidate;
+                this.targetLockStarted = Date.now();
                 this.tick = -5;
             }
         }
@@ -572,11 +597,28 @@ class io_nearestDifferentMaster extends IO {
             if (!Number.isFinite(this.lead)) {
                 this.lead = 0;
             }
+            let target = {
+                x: diff.x + this.lead * radial.x,
+                y: diff.y + this.lead * radial.y,
+            };
+            if (this.body.isBot) {
+                const skill = util.clamp(this.body.botSkill ?? 0.5, 0, 1);
+                const desired = Math.atan2(target.y, target.x);
+                if (this.botAimAngle == null) this.botAimAngle = desired;
+                let turn = desired - this.botAimAngle;
+                while (turn > Math.PI) turn -= Math.PI * 2;
+                while (turn < -Math.PI) turn += Math.PI * 2;
+                this.botAimAngle += turn * (0.12 + skill * 0.28);
+                if (Date.now() >= this.botAimNoiseAt) {
+                    this.botAimNoiseAt = Date.now() + 140;
+                    this.botAimNoise = ran.gauss(0, (1 - skill) * 0.16);
+                }
+                const c = Math.cos(this.botAimAngle + this.botAimNoise), s = Math.sin(this.botAimAngle + this.botAimNoise);
+                const length = Math.hypot(target.x, target.y);
+                target = { x: length * c, y: length * s };
+            }
             return {
-                target: {
-                    x: diff.x + this.lead * radial.x,
-                    y: diff.y + this.lead * radial.y,
-                },
+                target,
                 goal: this.mapGoal ? {
                     x: this.targetLock.x,
                     y: this.targetLock.y,
@@ -623,6 +665,9 @@ class io_healTeamMasters extends IO {
         this.tick = ran.irandom(30);
         this.lead = 0;
         this.validTargets = [];
+        this.pendingTargetId = null;
+        this.pendingTargetUntil = 0;
+        this.targetLockStarted = 0;
     }
     validate(e) {
         const myMaster = this.body.master.master;
@@ -710,7 +755,14 @@ class io_healTeamMasters extends IO {
             this.wouldHitWall(this.body, this.targetLock) // Very expensive
         )) {
             this.targetLock = undefined;
+            this.pendingTargetId = null;
             this.tick = 100;
+        }
+        if (this.targetLock && this.body.isBot && this.targetLockStarted &&
+            Date.now() - this.targetLockStarted > 2200 + (1 - util.clamp(this.body.botSkill ?? 0.5, 0, 1)) * 2800 &&
+            this.tick % 30 === 0) {
+            this.targetLock = undefined;
+            this.targetLockStarted = 0;
         }
         // OK, now let's try reprocessing the targets!
         this.tick++;
@@ -721,10 +773,22 @@ class io_healTeamMasters extends IO {
                 this.targetLock = undefined;
             }
             if (this.targetLock == null && this.validTargets.length) {
-                this.targetLock = (this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
+                const candidate = (this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
                     x: this.body.x,
                     y: this.body.y
                 });
+                if (this.body.isBot) {
+                    const delay = 90 + (1 - util.clamp(this.body.botSkill ?? 0.5, 0, 1)) * 310;
+                    if (this.pendingTargetId !== candidate.id) {
+                        this.pendingTargetId = candidate.id;
+                        this.pendingTargetUntil = Date.now() + delay;
+                        return {};
+                    }
+                    if (Date.now() < this.pendingTargetUntil) return {};
+                    this.pendingTargetId = null;
+                }
+                this.targetLock = candidate;
+                this.targetLockStarted = Date.now();
                 this.tick = -5;
             }
         }
@@ -798,6 +862,7 @@ class io_minion extends IO {
         this.opts = opts;
     }
     think(input) {
+        if (input.goal != null && (this.body._digWarsGoalLocked || this.body._digWarsGoal === 'mine')) return {};
         if (this.body.aiSettings.reverseDirection && ran.chance(0.005)) {
             this.turnwise = -1 * this.turnwise;
         }
@@ -950,6 +1015,7 @@ class io_fleeAtLowHealth extends IO {
         b.fear = this.fear;
     }
     think(input) {
+        if (input.goal != null && this.body._digWarsGoalLocked) return {};
         if (input.fire && input.target != null && this.body.health.amount < this.body.health.max * this.fear) {
             return {
                 goal: {
@@ -1245,6 +1311,499 @@ class io_scaleWithMaster extends IO {
     }
 }
 
+// Dig Wars: every bot controller chain starts with this. When the body has
+// a movement goal but hasn't actually moved anywhere in about a second it
+// jams against rock, so we pick an escape heading perpendicular to the
+// blocked direction and override movement for 600-1000ms. Repeated jams at
+// the same spot escalate: try the other side, then reverse out entirely.
+// acceptsFromTop = false while escaping so nothing above can hijack the
+// escape, and controllers below (notably wanderAroundMap) already check
+// input.goal == null so they defer automatically.
+class io_unstick extends IO {
+    constructor(body) {
+        super(body);
+        this.history = [];
+        this.escapeUntil = 0;
+        this.lastJam = null;
+        this.lastEscapeDir = 0;
+        this.escalation = 0;
+    }
+    think(input) {
+        const now = Date.now(), b = this.body;
+
+        // Record position
+        this.history.push({ x: b.x, y: b.y, t: now });
+        while (this.history.length > 1 && now - this.history[0].t > 1200)
+            this.history.shift();
+
+        // Already escaping — hold the line until the timer expires
+        if (now < this.escapeUntil) {
+            this.acceptsFromTop = false;
+            return {};
+        }
+        this.acceptsFromTop = true;
+        this.escapeUntil = 0;
+
+        // Grinding into a rock is deliberate progress, not a locomotion jam.
+        // Leaving this state would make every miner alternate between one hit
+        // and an escape instead of actually breaking the wall.
+        if (b._digWarsGoal === 'mine' && b.grindTouchUntil > now) {
+            this.history.length = 0;
+            return {};
+        }
+
+        // Nothing wanted movement last tick — reset and stay quiet
+        const hadGoal = b.control && b.control.goal &&
+            (b.control.goal.x !== b.x || b.control.goal.y !== b.y);
+        if (!hadGoal) { this.history.length = 0; this.escalation = 0; return {}; }
+
+        if (this.history.length < 2) return {};
+
+        const first = this.history[0], last = this.history[this.history.length - 1];
+        const dist = Math.hypot(last.x - first.x, last.y - first.y);
+        if (dist >= b.size * 0.5) {
+            // Moving freely — cool down escalation after a few seconds
+            if (this.lastJam && now - this.lastJam.t > 3000) {
+                this.escalation = 0; this.lastJam = null;
+            }
+            return {};
+        }
+
+        // ── stuck ──
+        b._unstickCount = (b._unstickCount || 0) + 1;
+
+        if (this.lastJam) {
+            const jd = Math.hypot(b.x - this.lastJam.x, b.y - this.lastJam.y);
+            if (jd < b.size * 2 && now - this.lastJam.t < 4000)
+                this.escalation = Math.min(2, this.escalation + 1);
+            else this.escalation = 0;
+        }
+        this.lastJam = { x: b.x, y: b.y, t: now };
+
+        // Blocked direction = toward last tick's goal
+        const gx = b.control.goal.x - b.x, gy = b.control.goal.y - b.y;
+        const gl = Math.hypot(gx, gy) || 1;
+        const bdx = gx / gl, bdy = gy / gl;
+
+        let angle;
+        if (this.escalation >= 2) {
+            angle = Math.atan2(-bdy, -bdx);                 // reverse
+        } else if (this.escalation >= 1) {
+            angle = this.lastEscapeDir + Math.PI;            // other side
+        } else {
+            // Probe both perpendiculars, pick the more open side
+            const tg = global.gameManager && global.gameManager.terrainGrid;
+            let s1 = 0, s2 = 0;
+            if (tg && tg.rockHitByCircle) {
+                for (let d = b.size; d <= b.size * 5; d += b.size) {
+                    if (!tg.rockHitByCircle(b.x - bdy * d, b.y + bdx * d, b.size)) s1++;
+                    if (!tg.rockHitByCircle(b.x + bdy * d, b.y - bdx * d, b.size)) s2++;
+                }
+            } else { s1 = s2 = 1; }
+            const px = s1 >= s2 ? -bdy : bdy;
+            const py = s1 >= s2 ? bdx  : -bdx;
+            angle = Math.atan2(py, px);
+        }
+        this.lastEscapeDir = angle;
+
+        this.escapeUntil = now + 600 + Math.random() * 400;
+        this.history.length = 0;
+        this.acceptsFromTop = false;
+        return {
+            goal: { x: b.x + Math.cos(angle) * b.size * 8,
+                    y: b.y + Math.sin(angle) * b.size * 8 },
+            power: 1,
+        };
+    }
+}
+
+// The goal controller owns the bot's job while the controllers below it own
+// the weapons. Holding the job here prevents the chain from making a bot
+// retarget or abandon a vault every frame.
+const digWarsVault = require('../game/terrain/vault.js');
+const digWarsOutposts = require('../game/terrain/outposts.js');
+const digWarsChambers = require('../game/terrain/coreChambers.js');
+
+class io_digWarsGoals extends IO {
+    constructor(body) {
+        super(body);
+        this.current = null;
+        this.goalUntil = 0;
+        this.bankThreshold = null;
+        this.orbitSign = ran.chance(0.5) ? 1 : -1;
+        this.overrideUntil = 0;
+        this.pendingReactionKey = null;
+        this.pendingReactionUntil = 0;
+        this.aimError = 0;
+        this.aimErrorAt = 0;
+        this.movementPlan = null;
+        this.thrustUntil = 0;
+        this.nextThrustAt = 0;
+        this.senseAt = 0;
+        this.cachedRobber = null;
+        this.cachedObjective = null;
+    }
+
+    skillLevel() {
+        return util.clamp(this.body.botSkill ?? 0.5, 0, 1);
+    }
+
+    advancedChance() {
+        return 0.15 + this.skillLevel() * 0.8;
+    }
+
+    reactionDelay() {
+        return 400 - this.skillLevel() * 310;
+    }
+
+    canReactTo(key, now) {
+        if (this.pendingReactionKey !== key) {
+            this.pendingReactionKey = key;
+            this.pendingReactionUntil = now + this.reactionDelay();
+            return false;
+        }
+        if (now < this.pendingReactionUntil) return false;
+        this.pendingReactionKey = null;
+        return true;
+    }
+
+    aimVector(x, y, now) {
+        if (now - this.aimErrorAt > 140) {
+            this.aimErrorAt = now;
+            this.aimError = ran.gauss(0, (1 - this.skillLevel()) * 0.16);
+        }
+        const c = Math.cos(this.aimError), s = Math.sin(this.aimError);
+        return { x: x * c - y * s, y: x * s + y * c };
+    }
+
+    isRammer() {
+        return !this.body.guns || this.body.guns.size === 0;
+    }
+
+    rootOf(entity) {
+        let root = entity, hops = 0;
+        while (root && root.master && root.master !== root && hops++ < 8) root = root.master;
+        return root || entity;
+    }
+
+    distanceTo(point) {
+        return Math.hypot(point.x - this.body.x, point.y - this.body.y);
+    }
+
+    ownVault() {
+        return digWarsVault.getVaults().find(v => v.team === this.body.team) || null;
+    }
+
+    enemy(entity) {
+        const root = this.rootOf(entity);
+        return root && root !== this.body && root.team !== this.body.team &&
+            root.team !== TEAM_ROOM && !root.godmode && !root.passive &&
+            !(root.isDead && root.isDead());
+    }
+
+    visibleEnemy(entity, range) {
+        if (!this.enemy(entity)) return false;
+        if (!entity.health || entity.health.amount <= 0) return false;
+        if (entity.invuln || this.rootOf(entity).invuln) return false;
+        if (entity.alpha != null && entity.alpha <= 0.5 && !this.body.aiSettings?.seeInvisible) return false;
+        const dx = entity.x - this.body.x, dy = entity.y - this.body.y;
+        return dx * dx + dy * dy <= range * range;
+    }
+
+    findEnemy(predicate, range = this.body.fov || 1200) {
+        const candidates = [];
+        const entities = global.targetableEntities;
+        if (!entities) return null;
+        for (const entity of entities.values()) {
+            if (!['tank', 'miniboss', 'crasher'].includes(entity.type)) continue;
+            if (!this.visibleEnemy(entity, range) || !predicate(entity, this.rootOf(entity))) continue;
+            candidates.push(entity);
+        }
+        return candidates.length ? candidates.sort((a, b) => {
+            const ar = this.rootOf(a), br = this.rootOf(b);
+            const av = predicate(a, ar) === true ? (ar.carriedGems || 0) : 0;
+            const bv = predicate(b, br) === true ? (br.carriedGems || 0) : 0;
+            return (this.distanceTo(a) - av * 0.08) - (this.distanceTo(b) - bv * 0.08);
+        })[0] : null;
+    }
+
+    findRobTarget() {
+        const cap = this.body.gemCap || 4000;
+        const minimum = Math.max(30, cap * 0.05);
+        return this.findEnemy((entity, root) => (root.carriedGems || 0) >= minimum);
+    }
+
+    findObjective() {
+        if (this.isRammer()) return null;
+        const range = Math.max(1200, this.body.fov || 0);
+        const options = [];
+        const outpostList = digWarsOutposts.getOutposts();
+        const outpostStates = new Map(digWarsOutposts.stateSnapshot().map(s => [s.id, s]));
+        for (const site of outpostList) {
+            const state = outpostStates.get(site.id);
+            const enemyHeld = site.team !== 0 && site.team !== this.body.team;
+            const unclaimed = site.team === 0;
+            if (!unclaimed && !(enemyHeld && state && state.h <= 0.75)) continue;
+            const distance = this.distanceTo(site);
+            if (distance <= range) options.push({
+                kind: 'outpost', point: site, health: state ? state.h : 1,
+                score: distance + (unclaimed ? 0 : (state ? state.h : 1) * 250),
+            });
+        }
+
+        const chamberList = digWarsChambers.getChambers();
+        const chamberStates = new Map(digWarsChambers.stateSnapshot().map(s => [s.id, s]));
+        for (const chamber of chamberList) {
+            const state = chamberStates.get(chamber.id);
+            if (chamber.team === this.body.team || !state || state.st !== 0 || state.h > 0.8) continue;
+            const distance = this.distanceTo(chamber);
+            if (distance <= range) options.push({
+                kind: 'chamber', point: chamber, health: state.h,
+                score: distance + state.h * 250,
+            });
+        }
+        return options.sort((a, b) => a.score - b.score)[0] || null;
+    }
+
+    sense(now) {
+        if (now < this.senseAt) return;
+        this.cachedRobber = this.findRobTarget();
+        this.cachedObjective = this.findObjective();
+        this.senseAt = now + 100 + (1 - this.skillLevel()) * 100;
+    }
+
+    nearestRock() {
+        const terrain = global.gameManager && global.gameManager.terrainGrid;
+        return terrain && terrain.nearestRock
+            ? terrain.nearestRock(this.body.x, this.body.y, 450)
+            : null;
+    }
+
+    engagePoint(target, desiredRange) {
+        const dx = target.x - this.body.x, dy = target.y - this.body.y;
+        const distance = Math.hypot(dx, dy) || 1;
+        const ux = dx / distance, uy = dy / distance;
+        const tangent = { x: -uy * this.orbitSign, y: ux * this.orbitSign };
+        const side = Math.min(100, Math.max(35, desiredRange * 0.45));
+        return {
+            x: target.x - ux * desiredRange + tangent.x * side,
+            y: target.y - uy * desiredRange + tangent.y * side,
+        };
+    }
+
+    desiredCombatRange() {
+        if (this.isRammer()) return Math.max(this.body.size * 2.5, 45);
+        const defs = (this.body.defs || []).join(' ').toLowerCase();
+        if (/sniper|assassin|ranger|marksman|stalker|rifle|predator/.test(defs)) return 280;
+        if (/destroyer|artillery|mortar|launcher|ordnance/.test(defs)) return 230;
+        return 135;
+    }
+
+    hasRecoilDrive() {
+        const defs = (this.body.defs || []).join(' ').toLowerCase();
+        return /penta|triplet|triple|spread|machinegun|minigun|sprayer|booster|fighter|falcon|annihilator/.test(defs);
+    }
+
+    steerGoal(target, now, key, combat = false, finalDistance = 80) {
+        const b = this.body;
+        const dx = target.x - b.x, dy = target.y - b.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance <= finalDistance) return { x: target.x, y: target.y };
+
+        const base = Math.atan2(dy, dx);
+        if (!this.movementPlan || this.movementPlan.key !== key || now >= this.movementPlan.until) {
+            const skill = this.skillLevel();
+            const side = (ran.chance(0.5) ? 1 : -1);
+            let angle = base;
+            if (combat) {
+                const desired = this.desiredCombatRange();
+                const correction = util.clamp((distance - desired) / Math.max(desired, 1), -1, 1) * 0.35;
+                angle = base + side * (distance > desired + 70 ? 0.18 : Math.PI / 2) - correction * side;
+            } else {
+                // Human keyboard movement comes in short directional bursts,
+                // not a continuously bending orbit. Re-pick a small lateral
+                // bias at each burst so paths are segmented and imperfect.
+                angle = base + side * (0.08 + (1 - skill) * 0.16);
+            }
+            this.movementPlan = {
+                key,
+                until: now + (combat ? 300 : 450) + ran.random(650 + skill * 350),
+                angle,
+            };
+        }
+        const reach = Math.min(distance, combat ? 190 : 240);
+        return {
+            x: b.x + Math.cos(this.movementPlan.angle) * reach,
+            y: b.y + Math.sin(this.movementPlan.angle) * reach,
+        };
+    }
+
+    recoilAim(now, movementGoal) {
+        if (!this.hasRecoilDrive() || this.isRammer()) return null;
+        const dx = movementGoal.x - this.body.x, dy = movementGoal.y - this.body.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < 100) return null;
+        if (!this.thrustUntil && now < this.nextThrustAt) return null;
+        if (!this.thrustUntil) {
+            this.nextThrustAt = now + 900 + ran.random(1800);
+            if (!ran.chance(0.18 + this.advancedChance() * 0.45)) return null;
+            this.thrustUntil = now + 260 + ran.random(420);
+        }
+        if (now >= this.thrustUntil) {
+            this.thrustUntil = 0;
+            return null;
+        }
+        // Aim behind the hull while firing. Recoil then supplies a forward
+        // burst, the same small cursor correction a human uses on recoil tanks.
+        return this.aimVector(-dx / distance * 140, -dy / distance * 140, now);
+    }
+
+    choose(kind, data, now, locked = false) {
+        this.current = { kind, ...data };
+        const hold = 1500 + (1 - this.skillLevel()) * 1500;
+        this.goalUntil = now + hold;
+        this.body._digWarsGoalLocked = locked;
+        this.body._digWarsGoal = kind;
+    }
+
+    validCurrent() {
+        if (!this.current) return false;
+        if (this.current.kind === 'bank') {
+            return !!this.body.vaultDeposit || (this.body.carriedGems || 0) >= 15;
+        }
+        if (this.current.kind === 'rob') {
+            return this.current.target && this.visibleEnemy(this.current.target, (this.body.fov || 1200) * 1.35);
+        }
+        if (this.current.kind === 'mine') return !!this.current.rock && this.current.rock.alive;
+        if (this.current.kind === 'objective') return !!this.current.point;
+        return true;
+    }
+
+    maybeOverride(now) {
+        if (this.overrideUntil && now >= this.overrideUntil) {
+            this.body.autoOverride = false;
+            this.overrideUntil = 0;
+        }
+        if (this.current?.kind !== 'objective' || this.overrideUntil || this.body.autoOverride) return;
+        const defs = (this.body.defs || []).join(' ').toLowerCase();
+        if ((this.body.turrets?.size || 0) > 0 && /overseer|director|overlord|manager|factory|spawner|carrier|cruiser/.test(defs) && ran.chance(0.05 + this.skillLevel() * 0.35)) {
+            this.overrideUntil = now + 700;
+            this.body.autoOverride = true;
+        }
+    }
+
+    output(now) {
+        const goal = this.current;
+        if (!goal) {
+            this.body._digWarsGoal = 'wander';
+            this.body._digWarsGoalLocked = false;
+            return {};
+        }
+        this.body._digWarsGoal = goal.kind;
+        this.maybeOverride(now);
+
+        if (goal.kind === 'bank') {
+            const vault = this.ownVault();
+            if (!vault) return {};
+            if (this.body.vaultOnPad) {
+                if (!this.body.vaultDeposit && (this.body.carriedGems || 0) >= 15)
+                    digWarsVault.depositFor(this.body, this.body.carriedGems);
+                return { goal: { x: this.body.x, y: this.body.y } };
+            }
+            const movementGoal = this.steerGoal(vault, now, 'bank');
+            const recoil = this.recoilAim(now, movementGoal);
+            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
+        }
+        if (goal.kind === 'survive') {
+            const vault = this.ownVault();
+            return { goal: vault ? this.steerGoal(vault, now, 'survive') : goal.point };
+        }
+        if (goal.kind === 'objective') {
+            const movementGoal = this.steerGoal(goal.point, now, `objective:${goal.point.id}`, true);
+            const recoil = this.recoilAim(now, movementGoal);
+            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : {
+                goal: movementGoal,
+                target: this.aimVector(goal.point.x - this.body.x, goal.point.y - this.body.y, now),
+                fire: true,
+                main: true,
+            };
+        }
+        if (goal.kind === 'rob') {
+            const movementGoal = this.steerGoal(goal.target, now, `rob:${this.rootOf(goal.target).id ?? goal.target.id}`, true);
+            const recoil = this.recoilAim(now, movementGoal);
+            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
+        }
+        if (goal.kind === 'mine') {
+            const movementGoal = this.steerGoal({ x: goal.rock.wx, y: goal.rock.wy }, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25);
+            const recoil = this.recoilAim(now, movementGoal);
+            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
+        }
+        return {};
+    }
+
+    think(input) {
+        const b = this.body, now = Date.now();
+        if (!b.isBot || b.type !== 'tank') return {};
+        // An earlier unstick escape is deliberately preserved for this tick.
+        if (input.goal != null) return {};
+
+        const healthRatio = b.health.max ? b.health.amount / b.health.max : 1;
+        // Better bots recognize danger sooner, while weak bots still retreat
+        // before the tank is one hit from death.
+        if (healthRatio < 0.2 + this.skillLevel() * 0.1) {
+            if (!this.current || this.current.kind !== 'survive') {
+                const threat = this.findEnemy(() => true, b.fov || 1200);
+                const vault = this.ownVault();
+                this.choose('survive', { point: vault || {
+                    x: b.x - ((threat ? threat.x : b.x + 1) - b.x),
+                    y: b.y - ((threat ? threat.y : b.y + 1) - b.y),
+                } }, now, true);
+            }
+            return this.output(now);
+        }
+
+        const cap = b.gemCap || 4000;
+        this.bankThreshold ??= cap * (0.55 + Math.random() * 0.35);
+        const carryingPressure = healthRatio < 0.45;
+        const bankUnderPressure = !carryingPressure || ran.chance(this.advancedChance());
+        if ((b.carriedGems || 0) >= this.bankThreshold && this.current?.kind !== 'bank' && bankUnderPressure)
+            this.choose('bank', {}, now, true);
+
+        if (this.current && !this.validCurrent()) this.current = null;
+        if (this.current?.kind === 'bank' && (b.carriedGems || 0) < 15 && !b.vaultDeposit) this.current = null;
+
+        // Robbery is allowed to interrupt mining, but a committed robbery is
+        // not retargeted every frame. Objectives similarly outrank mining,
+        // while every selected goal still gets its short human-like hold time.
+        this.sense(now);
+        const robber = this.current?.kind === 'rob'
+            ? (this.validCurrent() ? this.current.target : null)
+            : this.cachedRobber;
+        if (robber) {
+            const targetKey = `rob:${this.rootOf(robber).id ?? robber.id}`;
+            const ready = this.current?.kind === 'rob' || this.canReactTo(targetKey, now);
+            if (ready && (this.current?.kind !== 'rob' || now >= this.goalUntil))
+                this.choose('rob', { target: robber }, now);
+            else if (ready) return this.output(now);
+        } else {
+            const objectiveHeld = ['rob', 'bank'].includes(this.current?.kind) ||
+                (this.current?.kind === 'objective' && now < this.goalUntil);
+            const objective = objectiveHeld ? null : this.cachedObjective;
+            const objectiveKey = objective && `${objective.kind}:${objective.point.id}`;
+            if (objective && (this.current?.kind === 'objective' || this.canReactTo(objectiveKey, now)))
+                this.choose('objective', { point: objective.point, structureKind: objective.kind }, now, true);
+            else if (this.current && now < this.goalUntil && this.validCurrent()) {
+                return this.output(now);
+            } else {
+                const rock = this.nearestRock();
+                if (rock) this.choose('mine', { rock }, now);
+                else this.current = null;
+            }
+        }
+        return this.output(now);
+    }
+}
+
 // Dig Wars: the rockline is an enemy too. When a drone has no player
 // command (override/autofire off) and no living target, it chews on the
 // nearest rock face instead of just orbiting its master. No-ops in
@@ -1259,6 +1818,7 @@ class io_minesRocks extends IO {
     }
     think(input) {
         if (input.main || input.alt || input.target != null) return {};
+        if (this.body._digWarsGoal && this.body._digWarsGoal !== 'mine') return {};
         if (this.body.master.autoOverride) return {};
         const tg = global.gameManager && global.gameManager.terrainGrid;
         if (!tg || !tg._voronoiMap) return {};
@@ -1298,6 +1858,8 @@ let ioTypes = {
     spin2: io_spin2,
 
     //movement related
+    unstick: io_unstick,
+    digWarsGoals: io_digWarsGoals,
     canRepel: io_canRepel,
     mapTargetToGoal: io_mapTargetToGoal,
     siegeAI: io_siegeAI,

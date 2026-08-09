@@ -39,12 +39,23 @@ function cancelDeposit(body, notify = true) {
 
 const MIN_DEPOSIT = 15;  
 
-function requestDeposit(socket, amount) {
-    const body = socket.player && socket.player.body;
-    if (!body || body.isDead() || !body.vaultOnPad) return;
+function actorBody(actor) {
+    return actor && actor.body ? actor.body : actor;
+}
+
+function setBanked(body, amount) {
+    amount = Math.max(0, amount);
+    if (body.socket) body.socket.gemBanked = amount;
+    else body.botBanked = amount;
+    body.bankedGems = amount;
+    return amount;
+}
+
+function depositFor(body, amount) {
+    if (!body || body.isDead() || !body.vaultOnPad) return false;
     amount = Math.floor(amount);
     const carried = body.carriedGems | 0;
-    if (!(amount > 0) || carried < MIN_DEPOSIT) return;
+    if (!(amount > 0) || carried < MIN_DEPOSIT) return false;
     const total = Math.min(amount, carried);
     body.vaultDeposit = {
         remaining: total,
@@ -53,6 +64,11 @@ function requestDeposit(socket, amount) {
         lastTalk: 0,
     };
     talkProgress(body);
+    return true;
+}
+
+function requestDeposit(socket, amount) {
+    return depositFor(socket && socket.player && socket.player.body, amount);
 }
 
 function requestCancel(socket) {
@@ -60,12 +76,12 @@ function requestCancel(socket) {
     if (body) cancelDeposit(body);
 }
 
-function tick(players, dtMs) {
+function tick(actors, dtMs) {
     const list = getVaults();
     if (!list.length) return;
     const now = Date.now();
-    for (const player of players) {
-        const body = player.body;
+    for (const actor of actors) {
+        const body = actorBody(actor);
         if (!body || body.isGhost) continue;
         if (body.isDead()) {
             if (body.vaultOnPad) { body.vaultOnPad = false; }
@@ -108,20 +124,16 @@ function tick(players, dtMs) {
         if (chunk <= 0) { cancelDeposit(body); continue; }
         d.remaining -= chunk;
         body.carriedGems = Math.max(0, (body.carriedGems || 0) - chunk);
-        const socket = body.socket;
-        if (socket) {
-            socket.gemBanked = (socket.gemBanked || 0) + chunk;
-            body.bankedGems = socket.gemBanked;
-        }
+        const banked = body.socket ? (body.socket.gemBanked || 0) : (body.botBanked || 0);
+        if (body.isBot) body.botGemsBanked = (body.botGemsBanked || 0) + chunk;
+        setBanked(body, banked + chunk);
 
         const done = d.remaining < 0.5;
         if (done) {
             body.vaultDeposit = null;
             body.carriedGems = Math.round(body.carriedGems);
-            if (socket) {
-                socket.gemBanked = Math.round(socket.gemBanked);
-                body.bankedGems = socket.gemBanked;
-            }
+            const banked = body.socket ? (body.socket.gemBanked || 0) : (body.botBanked || 0);
+            setBanked(body, Math.round(banked));
         }
         if (done || now - d.lastTalk >= PROGRESS_MS) {
             if (!done) d.lastTalk = now;
@@ -132,4 +144,4 @@ function tick(players, dtMs) {
     }
 }
 
-module.exports = { tick, snapshot, requestDeposit, requestCancel, getVaults };
+module.exports = { tick, snapshot, requestDeposit, requestCancel, depositFor, getVaults };
