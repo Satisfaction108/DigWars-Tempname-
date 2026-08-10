@@ -6082,7 +6082,10 @@ import * as tutorial from './tutorial.js';
         if (global.finalKillers.length) {
             txt = "Succumbed to";
             for (let e of global.finalKillers) {
-                txt += " " + util.addArticle(util.getEntityImageFromMockup(e).name) + " and";
+                const killerName = /^\d+(?:-\d+)*$/.test(String(e))
+                    ? util.getEntityImageFromMockup(String(e)).name
+                    : String(e);
+                txt += " " + util.addArticle(killerName) + " and";
             }
             txt = txt.slice(0, -4);
         } else {

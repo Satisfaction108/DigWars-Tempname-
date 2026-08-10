@@ -1472,7 +1472,10 @@ class io_digWarsGoals extends IO {
         this.senseAt = 0;
         this.cachedRobber = null;
         this.cachedCombat = null;
+        this.cachedPlayer = null;
+        this.cachedKing = null;
         this.cachedDefense = null;
+        this.nextRockAt = 0;
         this.cachedObjective = null;
     }
 
@@ -1565,8 +1568,19 @@ class io_digWarsGoals extends IO {
         return this.findEnemy((entity, root) => (root.carriedGems || 0) >= minimum);
     }
 
+    findKingTarget() {
+        const kingId = global.gameManager?.room?.topPlayerID;
+        const king = kingId != null ? global.entities.get(kingId) : null;
+        return king && king.type === 'tank' && this.visibleEnemy(king, this.body.fov || 1200)
+            ? king : null;
+    }
+
     findCombatTarget() {
-        return this.findEnemy(() => true);
+        // Real players outrank every polygon and bot. The top player is the
+        // server's king, so a visible king gets priority after humans nearby.
+        return this.findEnemy((entity, root) => !!root.isPlayer) ||
+            this.findKingTarget() ||
+            this.findEnemy(() => true);
     }
 
     findEnemyNear(point, range) {
@@ -1606,7 +1620,8 @@ class io_digWarsGoals extends IO {
 
     findObjective() {
         if (this.isRammer()) return null;
-        const range = Math.max(1200, this.body.fov || 0);
+        const room = global.gameManager && global.gameManager.room;
+        const range = room ? Math.hypot(room.width, room.height) : Math.max(1200, this.body.fov || 0);
         const options = [];
         const outpostList = digWarsOutposts.getOutposts();
         const outpostStates = new Map(digWarsOutposts.stateSnapshot().map(s => [s.id, s]));
@@ -1639,13 +1654,16 @@ class io_digWarsGoals extends IO {
     sense(now) {
         if (now < this.senseAt) return;
         this.cachedRobber = this.findRobTarget();
-        this.cachedCombat = this.findCombatTarget();
+        this.cachedPlayer = this.findEnemy((entity, root) => !!root.isPlayer);
+        this.cachedKing = this.findKingTarget();
+        this.cachedCombat = this.cachedPlayer || this.cachedKing || this.findEnemy(() => true);
         this.cachedDefense = this.findDefenseTarget();
         this.cachedObjective = this.findObjective();
         this.senseAt = now + 100 + (1 - this.skillLevel()) * 100;
     }
 
     nearestRock() {
+        if (Date.now() < this.nextRockAt) return null;
         const terrain = global.gameManager && global.gameManager.terrainGrid;
         if (!terrain) return null;
         const ignored = this.body._digWarsIgnoredRockUntil > Date.now()
@@ -1696,31 +1714,34 @@ class io_digWarsGoals extends IO {
         if (distance <= finalDistance) return { x: target.x, y: target.y };
 
         const base = Math.atan2(dy, dx);
-        if (!this.movementPlan || this.movementPlan.key !== key || now >= this.movementPlan.until) {
+        const planDistance = this.movementPlan
+            ? Math.hypot(this.movementPlan.x - b.x, this.movementPlan.y - b.y)
+            : Infinity;
+        if (!this.movementPlan || this.movementPlan.key !== key || now >= this.movementPlan.until || planDistance < Math.max(28, b.size * 2)) {
             const skill = this.skillLevel();
-            const side = (ran.chance(0.5) ? 1 : -1);
+            const side = ran.chance(0.5) ? 1 : -1;
             let angle = base;
             if (combat) {
                 const desired = this.desiredCombatRange();
                 const correction = util.clamp((distance - desired) / Math.max(desired, 1), -1, 1) * 0.35;
-                angle = base + side * (distance > desired + 70 ? 0.18 : Math.PI / 2) - correction * side;
+                const weave = distance > desired + 70 ? ran.randomRange(0.12, 0.32) : Math.PI / 2 + ran.gauss(0, 0.12);
+                angle = base + side * weave - correction * side;
             } else {
-                // Human keyboard movement comes in short directional bursts,
-                // not a continuously bending orbit. Re-pick a small lateral
-                // bias at each burst so paths are segmented and imperfect.
-                angle = base + side * (0.08 + (1 - skill) * 0.16);
+                // Commit to short waypoints instead of recomputing a point
+                // directly in front of the hull every tick. That produces the
+                // small imperfect course corrections real players make.
+                angle = base + side * ran.randomRange(0.08, 0.24 + (1 - skill) * 0.16);
             }
+            const reach = Math.min(distance, combat ? 260 : 330);
             this.movementPlan = {
                 key,
-                until: now + (combat ? 300 : 450) + ran.random(650 + skill * 350),
+                until: now + (combat ? 650 : 850) + ran.random(1000 + skill * 1200),
                 angle,
+                x: b.x + Math.cos(angle) * reach,
+                y: b.y + Math.sin(angle) * reach,
             };
         }
-        const reach = Math.min(distance, combat ? 190 : 240);
-        return {
-            x: b.x + Math.cos(this.movementPlan.angle) * reach,
-            y: b.y + Math.sin(this.movementPlan.angle) * reach,
-        };
+        return { x: this.movementPlan.x, y: this.movementPlan.y };
     }
 
     recoilAim(now, movementGoal) {
@@ -1838,15 +1859,19 @@ class io_digWarsGoals extends IO {
         if (goal.kind === 'rob' || goal.kind === 'combat') {
             this.body._digWarsCombatTarget = goal.target;
             const movementGoal = this.steerGoal(goal.target, now, `${goal.kind}:${this.rootOf(goal.target).id ?? goal.target.id}`, true);
-            const recoil = this.recoilAim(now, movementGoal);
-            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
+            const target = this.aimVector(goal.target.x - this.body.x, goal.target.y - this.body.y, now);
+            return { goal: movementGoal, target, fire: true, main: true };
         }
         if (goal.kind === 'mine') {
             this.body._digWarsCombatTarget = null;
             this.body._digWarsMineRock = goal.rock;
-            const movementGoal = this.steerGoal({ x: goal.rock.wx, y: goal.rock.wy }, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25);
-            const recoil = this.recoilAim(now, movementGoal);
-            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
+            // Only true rammers should physically enter the rock line. Gun and
+            // drone tanks stay put and mine from range, even with body damage.
+            const movementGoal = this.isRammer()
+                ? this.steerGoal({ x: goal.rock.wx, y: goal.rock.wy }, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25)
+                : { x: this.body.x, y: this.body.y };
+            const target = this.aimVector(goal.rock.wx - this.body.x, goal.rock.wy - this.body.y, now);
+            return { goal: movementGoal, target, fire: true, main: true };
         }
         return {};
     }
@@ -1879,13 +1904,32 @@ class io_digWarsGoals extends IO {
         if ((b.carriedGems || 0) >= this.bankThreshold && this.current?.kind !== 'bank' && bankUnderPressure)
             this.choose('bank', {}, now, true);
 
-        if (this.current && !this.validCurrent()) this.current = null;
+        if (this.current && !this.validCurrent()) {
+            if (this.current.kind === 'mine' && this.current.rock && !this.current.rock.alive)
+                this.nextRockAt = now + 900 + Math.random() * 900;
+            this.current = null;
+        }
         if (this.current?.kind === 'bank' && (b.carriedGems || 0) < 15 && !b.vaultDeposit) this.current = null;
+
+        // Once a bot has committed to a visible player, keep that fight as the
+        // whole job until the target dies, escapes, or the bot must survive.
+        // This prevents defense/mining logic from stealing the fight mid-shot.
+        if (this.current?.kind === 'combat' && this.validCurrent()) return this.output(now);
 
         // Robbery is allowed to interrupt mining, but a committed robbery is
         // not retargeted every frame. Objectives similarly outrank mining,
         // while every selected goal still gets its short human-like hold time.
         this.sense(now);
+        if (this.cachedPlayer && this.current?.kind !== 'bank') {
+            const playerKey = `player:${this.rootOf(this.cachedPlayer).id}`;
+            const ready = this.current?.kind === 'combat' || this.canReactTo(playerKey, now);
+            if (ready) {
+                if (this.current?.kind !== 'combat' || this.current.target.id !== this.cachedPlayer.id)
+                    this.choose('combat', { target: this.cachedPlayer }, now);
+                return this.output(now);
+            }
+            if (this.current?.kind === 'combat') return this.output(now);
+        }
         const defense = this.current?.kind === 'defend'
             ? (this.validCurrent() ? this.current : null)
             : this.cachedDefense;
@@ -1939,25 +1983,33 @@ class io_digWarsGoals extends IO {
     }
 }
 
-// Dig Wars: the rockline is an enemy too. When a drone has no player
-// command (override/autofire off) and no living target, it chews on the
-// nearest rock face instead of just orbiting its master. No-ops in
-// gamemodes without terrain. acceptsFromTop = false so a real target or a
-// player order always wins.
+// Dig Wars: gunless tanks can press into the rockline when they have no
+// player command or living target. Armed tanks aim from where they are, so
+// even body-damage builds do not drive into walls. No-ops without terrain.
+// acceptsFromTop = false so a real target or a player order always wins.
 class io_minesRocks extends IO {
     constructor(body) {
         super(body);
         this.acceptsFromTop = false;
         this.tick = ran.irandom(8);
         this.rock = null;
+        this.nextRockAt = 0;
     }
     think(input) {
+        if (this.body.type !== 'tank') return {};
         if (input.main || input.alt || input.target != null) return {};
         if (this.body._digWarsGoal && this.body._digWarsGoal !== 'mine') return {};
         if (this.body.master.autoOverride) return {};
         const tg = global.gameManager && global.gameManager.terrainGrid;
         if (!tg || !tg._voronoiMap) return {};
-        if (++this.tick >= 8 || (this.rock && !this.rock.alive)) {
+        const now = Date.now();
+        if (now < this.nextRockAt) return {};
+        if (this.rock && !this.rock.alive) {
+            this.rock = null;
+            this.nextRockAt = now + 900 + Math.random() * 900;
+            return {};
+        }
+        if (++this.tick >= 8 || !this.rock) {
             this.tick = 0;
             this.rock = tg.nearestRock(this.body.x, this.body.y, 420);
         }

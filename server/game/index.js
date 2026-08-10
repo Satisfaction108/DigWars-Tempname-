@@ -74,6 +74,8 @@ class gameHandler {
         this.soakStartedAt = Date.now();
         this.pendingBotRespawns = 0;
         this.botChatAt = 0;
+        this.botChatAiAvailable = null;
+        this.botChatAiRetryAt = 0;
         Events.on('chatMessage', payload => this.handleBotChat(payload));
     }
     checkUsers = () => global.gameManager.clients.length >= 1 || !!Config.bot_soak_mode;
@@ -703,15 +705,16 @@ class gameHandler {
                         nameKey: o.botNameKey,
                         respawnsRemaining: respawnsRemaining - 1,
                     });
-                }, 350 + Math.floor(Math.random() * 650));
+                }, 6500 + Math.floor(Math.random() * 4500));
             } else {
                 ran.releaseBotName(o.botNameKey);
+                this.pendingBotRespawns++;
                 setTimeout(() => {
-                    if (global.nextTagBotTeam) {
-                        const loc = getSpawnableArea(global.nextTagBotTeam, global.gameManager);
-                        this.spawnBots(loc, global.nextTagBotTeam);
-                    }
-                }, 10);
+                    this.pendingBotRespawns = Math.max(0, this.pendingBotRespawns - 1);
+                    if (global.gameManager.arenaClosed || global.cannotRespawn) return;
+                    const team = global.nextTagBotTeam || o.team;
+                    this.spawnBots(getSpawnableArea(team, global.gameManager), team);
+                }, 6500 + Math.floor(Math.random() * 4500));
             }
         });
     };
@@ -735,6 +738,62 @@ class gameHandler {
         return ran.choose(['fr', 'lol yeah', 'true', 'same tbh', 'no way lol', 'yeah i feel that', 'lmao']);
     }
 
+    sanitizeBotReply(reply) {
+        return String(reply || '')
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/^['"`]+|['"`]+$/g, '')
+            .trim()
+            .toLowerCase()
+            .slice(0, 96);
+    }
+
+    async aiBotChatReply(bot, rawMessage) {
+        const fallback = this.botChatReply(bot, rawMessage);
+        const now = Date.now();
+        if (!Config.bot_chat_ai_enabled || typeof fetch !== 'function' || now < this.botChatAiRetryAt)
+            return fallback;
+
+        bot._chatHistory ??= [];
+        const history = bot._chatHistory.slice(-8);
+        const system = "you are a casual player in a fast multiplayer tank game. reply like a real teen in one short sentence, mostly lowercase, with normal slang. do not sound like an assistant, do not write paragraphs, do not claim you actually added someone or performed an action outside the game, and do not mention being a bot or an ai.";
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), Config.bot_chat_timeout_ms);
+        try {
+            const headers = { 'content-type': 'application/json' };
+            if (Config.bot_chat_api_key) headers.authorization = `Bearer ${Config.bot_chat_api_key}`;
+            const response = await fetch(Config.bot_chat_api_url, {
+                method: 'POST',
+                headers,
+                signal: controller.signal,
+                body: JSON.stringify({
+                    model: Config.bot_chat_model,
+                    stream: false,
+                    messages: [
+                        { role: 'system', content: system },
+                        ...history,
+                        { role: 'user', content: String(rawMessage).slice(0, 160) },
+                    ],
+                    options: { temperature: 0.9, num_predict: 32 },
+                }),
+            });
+            if (!response.ok) throw new Error(`chat api ${response.status}`);
+            const data = await response.json();
+            const reply = this.sanitizeBotReply(data?.message?.content || data?.choices?.[0]?.message?.content);
+            if (!reply) throw new Error('empty chat reply');
+            this.botChatAiAvailable = true;
+            bot._chatHistory.push({ role: 'user', content: String(rawMessage).slice(0, 160) });
+            bot._chatHistory.push({ role: 'assistant', content: reply });
+            bot._chatHistory = bot._chatHistory.slice(-8);
+            return reply;
+        } catch {
+            this.botChatAiAvailable = false;
+            this.botChatAiRetryAt = now + 60_000;
+            return fallback;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     handleBotChat({ message, socket }) {
         if (!Config.dig_wars || !socket?.player?.body || typeof message !== 'string') return;
         const player = socket.player.body;
@@ -748,17 +807,22 @@ class gameHandler {
         if (!nearby.length) return;
 
         const greeting = /^(hi|hey|hello|yo|sup|heyy|hiya)\b/i.test(text);
-        const selected = nearby.find(({ bot }) => Date.now() >= (bot._nextChatAt || 0) &&
-            (greeting ? Math.random() < 0.85 : Math.random() < 0.28));
+        const selected = nearby.find(({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0) &&
+            (greeting ? Math.random() < 0.8 : Math.random() < 0.22));
         if (!selected) return;
 
         const bot = selected.bot;
-        bot._nextChatAt = Date.now() + 3500 + Math.random() * 4500;
-        const reply = this.botChatReply(bot, text);
-        setTimeout(() => {
-            if (!bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900)
-                bot.say(reply);
-        }, 350 + Math.random() * 850);
+        bot._chatPending = true;
+        bot._nextChatAt = Date.now() + 9000 + Math.random() * 7000;
+        setTimeout(async () => {
+            try {
+                const reply = await this.aiBotChatReply(bot, text);
+                if (!bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900)
+                    bot.say(reply);
+            } finally {
+                bot._chatPending = false;
+            }
+        }, 1100 + Math.random() * 1500);
     }
 
     botAmbientChat() {
@@ -779,7 +843,7 @@ class gameHandler {
         setTimeout(() => {
             if (!b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650)
                 b.say(ran.choose(['yeah lol', 'yep', 'on my way', 'bet', 'same here']));
-        }, 500 + Math.random() * 700);
+        }, 1200 + Math.random() * 1600);
     }
 
     sampleBotTelemetry() {

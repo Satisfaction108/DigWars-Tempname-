@@ -113,6 +113,14 @@ module.exports = {
     bot_soak_mode: process.env.BOT_SOAK_MODE === "true",
     bot_soak_report_path: process.env.BOT_SOAK_REPORT || "",
     bot_soak_duration_ms: Math.max(0, (parseInt(process.env.BOT_SOAK_SECONDS, 10) || 0) * 1000),
+    // Ollama is local by default. Set BOT_CHAT_API_URL and BOT_CHAT_MODEL to
+    // use another OpenAI-compatible chat endpoint; the offline fallback keeps
+    // bots conversational when no model is running.
+    bot_chat_ai_enabled: process.env.BOT_CHAT_AI !== "false",
+    bot_chat_api_url: process.env.BOT_CHAT_API_URL || "http://127.0.0.1:11434/api/chat",
+    bot_chat_model: process.env.BOT_CHAT_MODEL || "llama3.2:3b",
+    bot_chat_api_key: process.env.BOT_CHAT_API_KEY || "",
+    bot_chat_timeout_ms: Math.max(500, parseInt(process.env.BOT_CHAT_TIMEOUT_MS, 10) || 1800),
 
     spawn_class: 'basic',
 

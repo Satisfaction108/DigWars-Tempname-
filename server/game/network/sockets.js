@@ -1320,7 +1320,9 @@ class socketManager {
                 player.body.killCount.structures || 0,
                 player.body.killCount.polygons,
                 player.body.killCount.killers.length,
-                ...player.body.killCount.killers,
+                ...(player.body.finalKillers || []).map(killer =>
+                    killer && (killer.name || killer.label) ? (killer.name || killer.label) : "unknown"
+                ),
                 // appended after the variable-length killer list, so the client
                 // reads it at m[9 + killerCount]
                 player.body.rocksMined | 0,
