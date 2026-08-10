@@ -1348,6 +1348,24 @@ class io_unstick extends IO {
     think(input) {
         const now = Date.now(), b = this.body;
 
+        // A replying bot briefly stops its hull and guns so chat feels like a
+        // real interruption instead of text appearing while it keeps farming.
+        if (b._chatPending || (b._chatPauseUntil || 0) > now) {
+            this.history.length = 0;
+            this.escapeUntil = 0;
+            this.nextJamAt = now + 500;
+            this.acceptsFromTop = false;
+            return {
+                goal: { x: b.x, y: b.y },
+                target: { x: 0, y: 0 },
+                fire: false,
+                main: false,
+                alt: false,
+                power: 0,
+            };
+        }
+        this.acceptsFromTop = true;
+
         // Record position
         this.history.push({ x: b.x, y: b.y, t: now });
         while (this.history.length > 1 && now - this.history[0].t > 1200)
@@ -2074,20 +2092,18 @@ class io_digWarsGoals extends IO {
             const destination = this.isRammer()
                 ? pushTarget
                 : (this.body._botPushTarget ? this.pushFormationPoint(pushTarget, desiredRange) : this.engagePoint(pushTarget, desiredRange));
-            const distanceToSite = this.distanceTo(pushTarget);
             // Armed tanks hold a firing lane around the structure instead of
             // nose-diving into its banner just because the objective is close.
-            const movementGoal = !this.isRammer() && distanceToSite <= desiredRange + 45
-                ? { x: this.body.x, y: this.body.y }
-                : this.rockSafeGoal(
-                    this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, true), now), destination
-                );
-            const recoil = this.recoilAim(now, movementGoal);
+            const movementGoal = this.rockSafeGoal(
+                this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, true), now), destination
+            );
+            const showingOff = this.showoffUntil > now && this.body.botStyle !== 'normal';
+            const recoil = showingOff ? null : this.recoilAim(now, movementGoal);
             return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : {
                 goal: movementGoal,
                 target: this.playfulAim(this.aimVector(pushTarget.x - this.body.x, pushTarget.y - this.body.y, now), now),
-                fire: true,
-                main: true,
+                fire: !showingOff,
+                main: !showingOff,
             };
         }
         if (goal.kind === 'marker') {
@@ -2135,7 +2151,12 @@ class io_digWarsGoals extends IO {
                 // intentionally stricter than merely checking body damage:
                 // guns and drones must never use the rock as a bumper.
                 : { x: this.body.x, y: this.body.y };
-            const target = this.playfulAim(this.aimVector(goal.rock.wx - this.body.x, goal.rock.wy - this.body.y, now), now);
+            if (this.isRammer()) {
+                // A rammer breaks terrain through contact, never through an
+                // imaginary ranged attack while it is still approaching.
+                return { goal: movementGoal, fire: false, main: false, alt: false };
+            }
+            const target = this.aimVector(goal.rock.wx - this.body.x, goal.rock.wy - this.body.y, now);
             return { goal: movementGoal, target, fire: true, main: true };
         }
         return {};

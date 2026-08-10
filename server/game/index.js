@@ -662,6 +662,15 @@ class gameHandler {
         }
     }
 
+    botUpgradeIndex(bot) {
+        if (!bot.upgrades?.length) return null;
+        let options = bot.upgrades.map((upgrade, index) => ({ upgrade, index }));
+        if (!bot.botRammerAllowed) {
+            options = options.filter(({ upgrade }) => !/(smasher|spike|landmine|bonker|mace|flail)/i.test(JSON.stringify(upgrade.class || upgrade)));
+        }
+        return options.length ? ran.choose(options).index : null;
+    }
+
     quickMaintainLoop = () => {
         this.coordinateBotPushes();
         for (let i = 0; i < this.bots.length; i++) {
@@ -671,7 +680,8 @@ class gameHandler {
                 o.skillUp([ "atk", "hlt", "spd", "str", "pen", "dam", "rld", "mob", "rgn", "shi" ][ran.chooseChance(...Config.bot_skill_upgrade_chances)]);
                 o.refreshSkills();
             }
-            if (o.leftoverUpgrades && o.upgrade(ran.irandomRange(0, o.upgrades.length))) {
+            const upgradeIndex = o.botStatsFixed ? this.botUpgradeIndex(o) : ran.irandomRange(0, o.upgrades.length);
+            if (o.leftoverUpgrades && upgradeIndex !== null && o.upgrade(upgradeIndex)) {
                 o.leftoverUpgrades--;
             }
         }
@@ -708,6 +718,7 @@ class gameHandler {
         // showoff moments are brief and never interrupt an actual player fight.
         o.botStyle = ran.choose(['normal', 'normal', 'normal', 'dancer', 'spinner']);
         o.botTemperament = ran.choose(['aggressive', 'aggressive', 'balanced', 'balanced', 'passive']);
+        o.botRammerAllowed = ran.chance(0.12);
         o.name = botName;
         o.invuln = true;
         o.leftoverUpgrades = ran.chooseChance(...Config.bot_class_upgrade_chances);
@@ -845,16 +856,22 @@ class gameHandler {
 
     botChatReply(bot, rawMessage) {
         const message = String(rawMessage || '').trim().toLowerCase();
+        const addressed = this.botNameMentioned(message, bot);
         const saysNo = /^(nah|no|nope|dont|don't|i dont|i don't|not really|maybe not)/.test(message);
         if (bot._askedDiscordAt && Date.now() - bot._askedDiscordAt < 25_000) {
             bot._askedDiscordAt = 0;
             return saysNo ? ran.choose(['all good lol', 'fair enough', 'no worries']) : ran.choose(['alr ill add u lol', 'bet, ill add u', 'sounds good']);
         }
-        if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup)\b/.test(message)) {
-            return ran.choose(['yo', 'hey', 'yo lol', 'sup', 'heyy']);
-        }
         if (/\b(kill|shoot|die|destroy)\b/.test(message)) {
             return ran.choose(['yo im chill', 'really bruh', 'why me lol', 'nah im good']);
+        }
+        // Short messages containing this bot's name must get an actual
+        // addressed response; never fall through to a random "lol yeah".
+        if (addressed && message.split(/\s+/).length <= 4 && !/discord|dc\b/.test(message)) {
+            return ran.choose(['yo whats up', 'sup', 'yeah?', 'what u need lol', 'im here']);
+        }
+        if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup)\b/.test(message)) {
+            return ran.choose(['yo', 'hey', 'yo lol', 'sup', 'heyy']);
         }
         if (/discord|dc\b/.test(message)) {
             bot._askedDiscordAt = Date.now();
@@ -897,12 +914,16 @@ class gameHandler {
     async aiBotChatReply(bot, rawMessage) {
         const fallback = this.botChatReply(bot, rawMessage);
         const now = Date.now();
-        if (!Config.bot_chat_ai_enabled || typeof fetch !== 'function' || now < this.botChatAiRetryAt)
+        const directAddress = this.botNameMentioned(String(rawMessage), bot) &&
+            String(rawMessage).trim().split(/\s+/).length <= 4;
+        // Tiny name calls are handled locally so they cannot waste an API
+        // request or produce a contextless generic answer.
+        if (directAddress || !Config.bot_chat_ai_enabled || typeof fetch !== 'function' || now < this.botChatAiRetryAt)
             return fallback;
 
         bot._chatHistory ??= [];
         const history = bot._chatHistory.slice(-8);
-        const system = `you are a casual player in a fast multiplayer tank game. your name is ${bot.name}. right now you are ${this.botChatActivity(bot)}. reply like a real teen in one short sentence, mostly lowercase, with normal slang. if someone says your name, answer as yourself. do not sound like an assistant, do not write paragraphs, do not claim you actually added someone or performed an action outside the game, and do not mention being a bot or an ai.`;
+        const system = `you are a casual player in a fast multiplayer tank game. your name is ${bot.name}. right now you are ${this.botChatActivity(bot)}. reply like a real teen in one short sentence, mostly lowercase, with normal slang. if someone says your name, answer them directly and do not ignore the name. do not reply with a generic reaction that fails to address the player. do not sound like an assistant, do not write paragraphs, do not claim you actually added someone or performed an action outside the game, and do not mention being a bot or an ai.`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), Config.bot_chat_timeout_ms);
         try {
@@ -970,12 +991,15 @@ class gameHandler {
 
         const bot = selected.bot;
         bot._chatPending = true;
+        bot._chatPauseUntil = Date.now() + 5000;
         bot._nextChatAt = Date.now() + 9000 + Math.random() * 7000;
         setTimeout(async () => {
             try {
                 const reply = await this.aiBotChatReply(bot, text);
-                if (this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900)
+                if (this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900) {
                     bot.say(reply);
+                    bot._chatPauseUntil = Date.now() + 700 + Math.random() * 900;
+                }
             } finally {
                 bot._chatPending = false;
             }
@@ -1009,10 +1033,13 @@ class gameHandler {
         }
         if (!pairs.length || Math.random() > 0.01) return;
         const [a, b] = ran.choose(pairs);
+        a._chatPauseUntil = Date.now() + 1400;
         a.say(ran.choose(['u heading mid?', 'u mining here too?', 'hold up lol', 'we got this']));
         setTimeout(() => {
-            if (this.hasRealPlayers() && !b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650)
+            if (this.hasRealPlayers() && !b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650) {
+                b._chatPauseUntil = Date.now() + 1400;
                 b.say(ran.choose(['yeah lol', 'yep', 'on my way', 'bet', 'same here']));
+            }
         }, 1200 + Math.random() * 1600);
     }
 
