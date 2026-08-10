@@ -7,6 +7,7 @@ package-lock.json
 .clinerules
 
 # secrets - never commit real values
+deepseekapikey.txt
 server/.env
 .env
 .env.local

@@ -73,6 +73,8 @@ class gameHandler {
         this.soakMspt = [];
         this.soakStartedAt = Date.now();
         this.pendingBotRespawns = 0;
+        this.nextBotSpawnAt = 0;
+        this.enemyMarkers = [];
         this.botChatAt = 0;
         this.botChatAiAvailable = null;
         this.botChatAiRetryAt = 0;
@@ -572,21 +574,112 @@ class gameHandler {
         }
     };
 
+    botSpawnTeam() {
+        if (Config.mode !== 'tdm' && Config.mode !== 'tag') return undefined;
+        const totals = { [TEAM_BLUE]: 0, [TEAM_RED]: 0 };
+        for (const player of global.gameManager.socketManager.players) {
+            const body = player && player.body;
+            if (body && body.team in totals) totals[body.team] += (body.bankedGems || 0) + (body.carriedGems || 0);
+        }
+        for (const bot of this.bots) {
+            if (bot && !bot.isDead() && bot.team in totals)
+                totals[bot.team] += (bot.botBanked || 0) + (bot.carriedGems || 0);
+        }
+        if (Math.abs(totals[TEAM_BLUE] - totals[TEAM_RED]) >= 100)
+            return totals[TEAM_BLUE] < totals[TEAM_RED] ? TEAM_BLUE : TEAM_RED;
+        return getWeakestTeam(global.gameManager);
+    }
+
+    addEnemyMarker(team, x, y, by) {
+        const now = Date.now();
+        this.enemyMarkers = this.enemyMarkers.filter(marker =>
+            marker.expiresAt > now && !(marker.team === team && marker.by === by)
+        );
+        this.enemyMarkers.push({ team, x, y, by, expiresAt: now + 20_000 });
+        if (this.enemyMarkers.length > 16) this.enemyMarkers.splice(0, this.enemyMarkers.length - 16);
+    }
+
+    activeEnemyMarkers(team) {
+        const now = Date.now();
+        this.enemyMarkers = this.enemyMarkers.filter(marker => marker.expiresAt > now);
+        return this.enemyMarkers.filter(marker => marker.team === team);
+    }
+
+    configureBotStats(bot) {
+        const rammer = !bot.guns || bot.guns.size === 0;
+        // Exactly 42 invested points. Armed tanks prioritize the stats that
+        // make their bullets feel deliberate; rammers spend that budget on
+        // body damage, health, mobility, and a little regen instead.
+        const raw = rammer
+            ? [0, 0, 0, 0, 0, 9, 9, 9, 6, 9]
+            : [7, 8, 2, 8, 5, 0, 0, 5, 0, 7];
+        bot.skill.set(raw);
+        bot.skill.points = 0;
+        bot.skill.update();
+        bot.botStatTotal = raw.reduce((sum, value) => sum + value, 0);
+        bot.botIsRammer = rammer;
+        bot.refreshBodyAttributes();
+        bot.syncSkillsToGuns();
+    }
+
+    coordinateBotPushes() {
+        const now = Date.now();
+        const byTeam = new Map();
+        for (const bot of this.bots) {
+            if (!bot || bot.isDead() || bot.isGhost || bot.team == null) continue;
+            if (!byTeam.has(bot.team)) byTeam.set(bot.team, []);
+            byTeam.get(bot.team).push(bot);
+        }
+        for (const members of byTeam.values()) {
+            members.sort((a, b) => a.id - b.id);
+            for (let start = 0; start < members.length; start += 3) {
+                const squad = members.slice(start, start + 3);
+                const candidate = squad.find(bot =>
+                    bot._digWarsGoal === 'objective' &&
+                    bot._digWarsObjectiveKind === 'outpost' &&
+                    bot._digWarsObjectivePoint
+                );
+                const existing = squad.find(bot =>
+                    bot._botPushTarget && (bot._botPushTargetUntil || 0) > now &&
+                    (bot._botPushTarget.team === 0 || bot._botPushTarget.team !== bot.team)
+                );
+                const target = candidate?._digWarsObjectivePoint || existing?._botPushTarget || null;
+                const markers = this.activeEnemyMarkers(squad[0].team);
+                const marker = markers.sort((a, b) => {
+                    const da = Math.min(...squad.map(bot => Math.hypot(bot.x - a.x, bot.y - a.y)));
+                    const db = Math.min(...squad.map(bot => Math.hypot(bot.x - b.x, bot.y - b.y)));
+                    return da - db;
+                })[0] || null;
+                for (let slot = 0; slot < squad.length; slot++) {
+                    const bot = squad[slot];
+                    bot._botPushSlot = slot;
+                    bot._botPushSize = squad.length;
+                    bot._botPushTarget = target;
+                    bot._botPushTargetUntil = target ? now + 3000 : 0;
+                    bot._botHelpMarker = marker;
+                }
+            }
+        }
+    }
+
     quickMaintainLoop = () => {
-        
+        this.coordinateBotPushes();
         for (let i = 0; i < this.bots.length; i++) {
             let o = this.bots[i];
-            o.skill.maintain();
-            o.skillUp([ "atk", "hlt", "spd", "str", "pen", "dam", "rld", "mob", "rgn", "shi" ][ran.chooseChance(...Config.bot_skill_upgrade_chances)]);
-            o.refreshSkills();
+            if (!o.botStatsFixed) {
+                o.skill.maintain();
+                o.skillUp([ "atk", "hlt", "spd", "str", "pen", "dam", "rld", "mob", "rgn", "shi" ][ran.chooseChance(...Config.bot_skill_upgrade_chances)]);
+                o.refreshSkills();
+            }
             if (o.leftoverUpgrades && o.upgrade(ran.irandomRange(0, o.upgrades.length))) {
                 o.leftoverUpgrades--;
             }
         }
         
         if (!global.gameManager.arenaClosed && !global.cannotRespawn &&
-            this.bots.length + this.pendingBotRespawns < Config.bot_cap) {
-            let team = Config.mode === "tdm" || Config.mode === "tag" ? getWeakestTeam(global.gameManager) : undefined,
+            this.bots.length + this.pendingBotRespawns < Config.bot_cap && Date.now() >= this.nextBotSpawnAt) {
+            this.nextBotSpawnAt = Date.now() + 900 + Math.random() * 700;
+            let team = this.botSpawnTeam(),
             limit = 20, 
             loc;
             do {
@@ -611,6 +704,10 @@ class gameHandler {
         // This value changes decisions, not damage or movement stats. A broad
         // spread keeps a lobby from feeling like eight copies of one machine.
         o.botSkill = util.clamp(ran.gauss(0.55, 0.25), 0.1, 0.95);
+        // A few bots are playful instead of perfectly task-focused. Their
+        // showoff moments are brief and never interrupt an actual player fight.
+        o.botStyle = ran.choose(['normal', 'normal', 'normal', 'dancer', 'spinner']);
+        o.botTemperament = ran.choose(['aggressive', 'aggressive', 'balanced', 'balanced', 'passive']);
         o.name = botName;
         o.invuln = true;
         o.leftoverUpgrades = ran.chooseChance(...Config.bot_class_upgrade_chances);
@@ -619,20 +716,45 @@ class gameHandler {
         o.leaderboardColor = color;
         o.minimapColor = color;
         o.skill.reset();
-        let leveling = setInterval(() => {
-            if (o.skill.level < Config.bot_start_level) {
-                o.skill.score += o.skill.levelScore;
-                o.skill.maintain();
-            } else clearInterval(leveling);
-        }, 100)
-        o.refreshBodyAttributes();
+        while (o.skill.level < Config.bot_start_level) {
+            o.skill.score += o.skill.levelScore;
+            o.skill.maintain();
+        }
+        this.configureBotStats(o);
+        o.botStatsFixed = true;
         if (team) o.team = team;
         if (Config.dig_wars) gems.initSatchel(o);
+        // Remember the last enemy that actually damaged this tank. The goal
+        // controller uses this for a short, common-sense "fight back or run"
+        // reaction instead of continuing to mine through incoming fire.
+        o.on('damage', ({ damageInflictor = [] }) => {
+            const attacker = damageInflictor
+                .map(source => {
+                    let root = source, hops = 0;
+                    while (root?.master && root.master !== root && hops++ < 8) root = root.master;
+                    return root;
+                })
+                .find(root => root && root.team !== o.team && (root.isBot || root.isPlayer));
+            if (attacker) {
+                o._lastDamageSource = attacker;
+                o._lastDamageAt = Date.now();
+            }
+        });
+        o.on('kill', ({ entity } = {}) => {
+            let victim = entity, hops = 0;
+            while (victim?.master && victim.master !== victim && hops++ < 8) victim = victim.master;
+            if (victim && (victim.isBot || victim.isPlayer)) {
+                o._lastKillAt = Date.now();
+                o._collectLootUntil = o._lastKillAt + 5000;
+            }
+        });
         this.bots.push(o);
         this.botStats.set(o.id, {
             id: o.id,
             name: o.name,
             skill: o.botSkill,
+            statPoints: o.botStatTotal,
+            statLayout: o.skill.raw.slice(),
             spawnedAt: Date.now(),
             deaths: 0,
             gemsMined: 0,
@@ -666,6 +788,7 @@ class gameHandler {
                 }, false, true, false);
             }
             o.name = botName;
+            this.configureBotStats(o);
             o.refreshBodyAttributes();
             o.invuln = false;
             o.on("define", () => {
@@ -678,7 +801,8 @@ class gameHandler {
                         AI: Class.bot.AI,
                     }, false, true, false);
                 }
-                o.define({ FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE, AI: Class.bot.AI, }, false, true, false) 
+                o.define({ FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE, AI: Class.bot.AI, }, false, true, false);
+                this.configureBotStats(o);
             })
         }, 3000 + Math.floor(Math.random() * 7000));
         o.on('dead', () => {
@@ -726,8 +850,11 @@ class gameHandler {
             bot._askedDiscordAt = 0;
             return saysNo ? ran.choose(['all good lol', 'fair enough', 'no worries']) : ran.choose(['alr ill add u lol', 'bet, ill add u', 'sounds good']);
         }
-        if (/^(hi|hey|hello|yo|sup|heyy|hiya)\b/.test(message)) {
+        if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup)\b/.test(message)) {
             return ran.choose(['yo', 'hey', 'yo lol', 'sup', 'heyy']);
+        }
+        if (/\b(kill|shoot|die|destroy)\b/.test(message)) {
+            return ran.choose(['yo im chill', 'really bruh', 'why me lol', 'nah im good']);
         }
         if (/discord|dc\b/.test(message)) {
             bot._askedDiscordAt = Date.now();
@@ -747,6 +874,26 @@ class gameHandler {
             .slice(0, 96);
     }
 
+    botChatActivity(bot) {
+        switch (bot._digWarsGoal) {
+            case 'objective': return 'pushing or attacking an outpost';
+            case 'defend': return 'defending a friendly outpost';
+            case 'combat':
+            case 'rob': return 'fighting another player';
+            case 'mine': return 'shooting a rock for gems';
+            case 'bank': return 'taking gems back to the vault';
+            case 'survive': return 'trying to stay alive';
+            case 'marker': return 'heading to a teammate danger marker';
+            default: return 'roaming around the map';
+        }
+    }
+
+    botNameMentioned(message, bot) {
+        const messageWords = message.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+        const nameWords = bot.name.toLowerCase().split(/[^a-z0-9]+/).filter(word => word.length >= 3);
+        return nameWords.some(word => messageWords.includes(word));
+    }
+
     async aiBotChatReply(bot, rawMessage) {
         const fallback = this.botChatReply(bot, rawMessage);
         const now = Date.now();
@@ -755,7 +902,7 @@ class gameHandler {
 
         bot._chatHistory ??= [];
         const history = bot._chatHistory.slice(-8);
-        const system = "you are a casual player in a fast multiplayer tank game. reply like a real teen in one short sentence, mostly lowercase, with normal slang. do not sound like an assistant, do not write paragraphs, do not claim you actually added someone or performed an action outside the game, and do not mention being a bot or an ai.";
+        const system = `you are a casual player in a fast multiplayer tank game. your name is ${bot.name}. right now you are ${this.botChatActivity(bot)}. reply like a real teen in one short sentence, mostly lowercase, with normal slang. if someone says your name, answer as yourself. do not sound like an assistant, do not write paragraphs, do not claim you actually added someone or performed an action outside the game, and do not mention being a bot or an ai.`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), Config.bot_chat_timeout_ms);
         try {
@@ -773,7 +920,8 @@ class gameHandler {
                         ...history,
                         { role: 'user', content: String(rawMessage).slice(0, 160) },
                     ],
-                    options: { temperature: 0.9, num_predict: 32 },
+                    temperature: 0.9,
+                    max_tokens: 48,
                 }),
             });
             if (!response.ok) throw new Error(`chat api ${response.status}`);
@@ -806,9 +954,18 @@ class gameHandler {
             .sort((a, b) => a.distance - b.distance);
         if (!nearby.length) return;
 
-        const greeting = /^(hi|hey|hello|yo|sup|heyy|hiya)\b/i.test(text);
-        const selected = nearby.find(({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0) &&
-            (greeting ? Math.random() < 0.8 : Math.random() < 0.22));
+        const addressed = nearby.filter(({ bot }) => this.botNameMentioned(text, bot));
+        const mentionsAnyBot = this.bots.some(bot => bot && !bot.isDead() && this.botNameMentioned(text, bot));
+        // A message aimed at a bot who is farther away must not accidentally
+        // make a random nearby bot answer it.
+        if (mentionsAnyBot && !addressed.length) return;
+        const greeting = /^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup)\b/i.test(text);
+        const selected = addressed.length
+            ? addressed.find(({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0))
+            : greeting
+                ? nearby.find(({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0) && Math.random() < 0.65)
+                : null;
+        // If a player named a nearby bot, nobody else gets to answer.
         if (!selected) return;
 
         const bot = selected.bot;
@@ -817,7 +974,7 @@ class gameHandler {
         setTimeout(async () => {
             try {
                 const reply = await this.aiBotChatReply(bot, text);
-                if (!bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900)
+                if (this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900)
                     bot.say(reply);
             } finally {
                 bot._chatPending = false;
@@ -825,23 +982,36 @@ class gameHandler {
         }, 1100 + Math.random() * 1500);
     }
 
+    hasRealPlayers() {
+        return !!this.gameManager?.socketManager?.players?.some(player =>
+            player?.body && !player.body.isDead() && !player.body.isGhost
+        );
+    }
+
     botAmbientChat() {
         const now = Date.now();
-        if (!Config.dig_wars || now < this.botChatAt || this.bots.length < 2) return;
-        this.botChatAt = now + 12_000 + Math.random() * 18_000;
+        if (!Config.dig_wars || !this.hasRealPlayers() || now < this.botChatAt || this.bots.length < 2) return;
+        this.botChatAt = now + 40_000 + Math.random() * 25_000;
+        const humanBodies = this.gameManager.socketManager.players
+            .map(player => player && player.body)
+            .filter(body => body && !body.isDead() && !body.isGhost);
         const pairs = [];
         for (let i = 0; i < this.bots.length; i++) {
             for (let j = i + 1; j < this.bots.length; j++) {
                 const a = this.bots[i], b = this.bots[j];
                 if (a.isDead() || b.isDead() || a.team !== b.team) continue;
-                if (Math.hypot(a.x - b.x, a.y - b.y) < 430) pairs.push([a, b]);
+                const nearHuman = humanBodies.some(human =>
+                    Math.hypot(a.x - human.x, a.y - human.y) < 700 ||
+                    Math.hypot(b.x - human.x, b.y - human.y) < 700
+                );
+                if (nearHuman && Math.hypot(a.x - b.x, a.y - b.y) < 430) pairs.push([a, b]);
             }
         }
-        if (!pairs.length || Math.random() > 0.3) return;
+        if (!pairs.length || Math.random() > 0.01) return;
         const [a, b] = ran.choose(pairs);
         a.say(ran.choose(['u heading mid?', 'u mining here too?', 'hold up lol', 'we got this']));
         setTimeout(() => {
-            if (!b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650)
+            if (this.hasRealPlayers() && !b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650)
                 b.say(ran.choose(['yeah lol', 'yep', 'on my way', 'bet', 'same here']));
         }, 1200 + Math.random() * 1600);
     }
@@ -857,6 +1027,8 @@ class gameHandler {
                     id: bot.id,
                     name: bot.name,
                     skill: bot.botSkill,
+                    statPoints: bot.botStatTotal,
+                    statLayout: bot.skill.raw.slice(),
                     spawnedAt: now,
                     deaths: 0,
                     gemsMined: 0,
@@ -875,7 +1047,9 @@ class gameHandler {
             const goal = bot._digWarsGoal || 'wander';
             stats.goalSeconds[goal] = (stats.goalSeconds[goal] || 0) + dt;
             stats.gemsMined = bot.gemsMined || 0;
-            stats.gemsBanked = bot.botGemsBanked || 0;
+            stats.gemsBanked = bot.botBanked || 0;
+            stats.statPoints = bot.botStatTotal || bot.skill.raw.reduce((sum, value) => sum + value, 0);
+            stats.statLayout = bot.skill.raw.slice();
             stats.stuckEvents = bot._unstickCount || 0;
             stats.kills = bot.killCount ? bot.killCount.solo | 0 : 0;
             const moved = Math.hypot(bot.x - stats.lastX, bot.y - stats.lastY);

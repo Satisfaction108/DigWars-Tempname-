@@ -80,6 +80,7 @@ function spawnOreBurst(rock, breaker) {
             : (Math.atan2(d.wy - rock.wy, d.wx - rock.wx) || Math.random() * Math.PI * 2);
         const gem = spawnGem(d.wx, d.wy, value, d.big ? bigCls : cls, size,
                              Math.cos(ang) * 1.5, Math.sin(ang) * 1.5);
+        if (gem && breaker && breaker.id !== undefined) gem.gemSourceId = breaker.id;
         // Reserve the drop for a player still working through the tutorial:
         // being sniped by a passing veteran mid-lesson is a miserable first
         // five minutes, and the tutorial explicitly asks them to collect THIS.
@@ -232,7 +233,7 @@ function tickGem(gem, tg, players) {
 
     if (!(gem.gemValue > 0)) return;
 
-    let best = null, bestD = Infinity;
+    let best = null, bestD = Infinity, bestScore = Infinity;
     const bias = gem.chamberBias;   
     for (const actor of players) {
         const body = actorBody(actor);
@@ -277,7 +278,9 @@ function tickGem(gem, tg, players) {
             }
             continue;
         }
-        if (d < bestD) { bestD = d; best = body; }
+        const sourceCollector = body.id === gem.gemSourceId && d < 850;
+        const score = d - (sourceCollector ? 100000 : 0);
+        if (score < bestScore) { bestScore = score; bestD = d; best = body; }
     }
 
     // hard ceiling: loot never outruns a tank - the shove bubbles above

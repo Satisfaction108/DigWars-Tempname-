@@ -581,6 +581,7 @@ class socketManager {
                 const pxw = Math.max(-room.width / 2, Math.min(room.width / 2, m[0]));
                 const pyw = Math.max(-room.height / 2, Math.min(room.height / 2, m[1]));
                 const pteam = player.body.team;
+                global.gameManager.gameHandler?.addEnemyMarker(pteam, pxw, pyw, player.body.id);
                 for (const s of global.gameManager.socketManager.clients) {
                     const b = s.player && s.player.body;
                     if (!b || b.team !== pteam) continue;
