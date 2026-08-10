@@ -169,7 +169,7 @@ class socketManager {
                 if (server.gameManager) server.players--;
             }
         } else {
-            global.gameManager.parentPort.postMessage([true, this.clients.length]);
+            global.gameManager.parentPort.postMessage([true, global.gameManager.reportedPlayerCount()]);
         }
         util.log("[INFO]: The connection has closed. Views: " + global.gameManager.views.length + ". Clients: " + this.clients.length + ".");
     }
@@ -2399,7 +2399,7 @@ class socketManager {
                 if (server.gameManager) server.players++;
             }
         } else {
-            global.gameManager.parentPort.postMessage([true, this.clients.length]);
+            global.gameManager.parentPort.postMessage([true, global.gameManager.reportedPlayerCount()]);
         }
         util.log(`[INFO]: Client has been welcomed!`);
 

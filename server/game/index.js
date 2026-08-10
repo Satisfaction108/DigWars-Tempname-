@@ -824,6 +824,16 @@ class gameHandler {
 
             this.spawnBots(loc, team);
         }
+
+        // Keep the lobby's player count honest as bots spawn and die, not
+        // just when a human connects or leaves.
+        if (global.gameManager.parentPort && global.gameManager.reportedPlayerCount) {
+            const reported = global.gameManager.reportedPlayerCount();
+            if (reported !== this._lastReportedCount) {
+                this._lastReportedCount = reported;
+                global.gameManager.parentPort.postMessage([true, reported]);
+            }
+        }
     }
 
     // Keeps the world feeling inhabited.
@@ -928,9 +938,10 @@ class gameHandler {
         // showoff moments are brief and never interrupt an actual player fight.
         o.botStyle = ran.choose(['normal', 'normal', 'normal', 'dancer', 'spinner']);
         o.botTemperament = ran.choose(['aggressive', 'aggressive', 'balanced', 'balanced', 'passive']);
-        // Body-only tanks are a spice, not the lobby's default. The upgrade
-        // picker below also forces the body branch only for this small group.
-        o.botRammerAllowed = ran.chance(0.08);
+        // Body-only tanks are a rare spice - roughly one rammer in fifty
+        // bots. The upgrade picker below also forces the body branch only
+        // for this small group.
+        o.botRammerAllowed = ran.chance(0.02);
         o.name = botName;
         o.invuln = true;
         o.leftoverUpgrades = ran.chooseChance(...Config.bot_class_upgrade_chances);

@@ -660,7 +660,11 @@ class io_nearestDifferentMaster extends IO {
             this._rock = null;
         }
         this._rockAt = now;
-        this._rock = tg.nearestRock(b.x, b.y, Math.min(range || 500, 620));
+        // Ore only - auto-turret fire chewing a worthless boulder just looks
+        // like the tank is shooting at nothing.
+        this._rock = tg.nearestRockWhere
+            ? tg.nearestRockWhere(b.x, b.y, Math.min(range || 500, 620), rock => rock.ore)
+            : tg.nearestRock(b.x, b.y, Math.min(range || 500, 620));
         if (!this._rock || !this._rock.alive) { this._rock = null; return null; }
         return { x: this._rock.wx - b.x, y: this._rock.wy - b.y };
     }
@@ -1615,7 +1619,8 @@ class io_digWarsGoals extends IO {
         // A full satchel is 4000 gems and a copper deposit is worth 15, so
         // banking "when nearly full" meant nobody ever banked. Bots cash in
         // on a realistic haul instead, at their own moment.
-        this.bankAt = 90 + Math.random() * 260;
+        this.bankAt = 60 + Math.random() * 200;
+        this.bornAt = Date.now();
         // Not everybody plays the same game. Miners feed the vault, raiders
         // hit outposts and cores, guards stay near home. Without this every
         // bot walked to the nearest structure and the map stopped producing
@@ -1946,10 +1951,10 @@ class io_digWarsGoals extends IO {
         const unclaimed = rock => !humans.some(h =>
             (h.x - rock.wx) * (h.x - rock.wx) + (h.y - rock.wy) * (h.y - rock.wy) < 260 * 260);
         const usable = rock => rock.alive && (this.rockBlacklist.get(rock) || 0) < now && unclaimed(rock);
-        // Ore is worth walking for; plain rock is only a fallback so a bot in
-        // a bare pocket still has something to do.
-        return tg.nearestRockWhere(this.body.x, this.body.y, 950, rock => rock.ore && usable(rock)) ||
-               tg.nearestRockWhere(this.body.x, this.body.y, 520, usable);
+        // Ore only. Plain rock drops nothing, so a bot chewing a random
+        // boulder is a bot visibly wasting everyone's time - if there is no
+        // ore in reach, exploring for some reads far more alive.
+        return tg.nearestRockWhere(this.body.x, this.body.y, 1100, rock => rock.ore && usable(rock));
     }
 
     // Any destination that falls on an enemy base tile is a death sentence;
@@ -2041,7 +2046,12 @@ class io_digWarsGoals extends IO {
 
         if (health < 0.16 || (threatened && (health < this.retreatAt() || (outnumbered && health < 0.6))))
             return { kind: 'survive', point: this.retreatPoint() };
-        if ((body.carriedGems || 0) >= this.bankTarget() || body.vaultDeposit)
+        // Bank on threshold, and also just periodically: a bot wandering
+        // around with an hour of unbanked loot never showed anyone what the
+        // vault is for.
+        const bankOverdue = (body.carriedGems || 0) >= 25 &&
+            now - (body._lastBankAt || this.bornAt) > 75000;
+        if ((body.carriedGems || 0) >= this.bankTarget() || body.vaultDeposit || bankOverdue)
             return { kind: 'bank' };
         // Never chase somebody into their own base: the tile kills us on
         // entry, so an enemy hiding there is a shooting-range target at most.
@@ -2154,8 +2164,13 @@ class io_digWarsGoals extends IO {
                     this.mineProgressAt = now;
                 }
                 // No damage landing for six seconds means the shots are not
-                // reaching it: give up and let another rock have a turn.
-                if (now - (this.mineProgressAt || this.goalStartedAt) > 6000) {
+                // reaching it: give up and let another rock have a turn. The
+                // clock only runs once the rock is in firing range - travel
+                // time is not a failed attempt.
+                if (this.distanceTo({ x: goal.rock.wx, y: goal.rock.wy }) - (goal.rock.maxPolyRadius || 60) >
+                    this.weaponRange() * 0.9) {
+                    this.mineProgressAt = now;
+                } else if (now - (this.mineProgressAt || this.goalStartedAt) > 6000) {
                     this.rockBlacklist.set(goal.rock, now + 20000);
                     return false;
                 }
@@ -2278,7 +2293,13 @@ class io_digWarsGoals extends IO {
                 rate: (0.00008 + Math.random() * 0.00014) * (ran.chance(0.5) ? 1 : -1),
             };
         }
-        const radius = Math.max(120, (rock.maxPolyRadius || 60) + this.nav.radius() + 55);
+        // Stand off comfortably, but never farther than the guns can shoot -
+        // a short-range tank parked politely out of its own range would stare
+        // at the rock forever.
+        const rockR = rock.maxPolyRadius || 60;
+        const hullMin = rockR + this.nav.radius() + 30;
+        const standoff = Math.max(120, rockR + this.nav.radius() + 55);
+        const radius = Math.min(standoff, Math.max(hullMin, this.weaponRange() * 0.6 + rockR));
         const angle = this.minePlan.phase + (now - this.minePlan.at) * this.minePlan.rate;
         // Rocks come in clusters: if the orbit slot lands inside a neighbour,
         // walk around the ring until open ground. Pressing the hull into the
@@ -2315,9 +2336,15 @@ class io_digWarsGoals extends IO {
             return { target: this.leadAim(goal.target, now), fire: true };
         if (goal.kind === 'defend' && goal.target)
             return { target: this.leadAim(goal.target, now), fire: true };
-        if (goal.kind === 'objective' && goal.point)
+        // Only open fire once the shells can actually land. Blazing away at
+        // a rock or banner from across the map looked like a bot shooting at
+        // nothing, because effectively it was.
+        if (goal.kind === 'objective' && goal.point && this.distanceTo(goal.point) <
+            this.structureClearance(goal.point) + this.weaponRange())
             return { target: this.aimVector(goal.point.x - body.x, goal.point.y - body.y, now), fire: true };
-        if (goal.kind === 'mine' && goal.rock && goal.rock.alive)
+        if (goal.kind === 'mine' && goal.rock && goal.rock.alive &&
+            this.distanceTo({ x: goal.rock.wx, y: goal.rock.wy }) - (goal.rock.maxPolyRadius || 60) <
+                this.weaponRange() * 0.9)
             return { target: this.aimVector(goal.rock.wx - body.x, goal.rock.wy - body.y, now), fire: true };
         return { target: forward, fire: false };
     }
@@ -2339,8 +2366,10 @@ class io_digWarsGoals extends IO {
                 const vault = this.ownVault();
                 if (!vault) break;
                 if (body.vaultOnPad) {
-                    if (!body.vaultDeposit && (body.carriedGems || 0) >= 15)
+                    if (!body.vaultDeposit && (body.carriedGems || 0) >= 15) {
                         digWarsVault.depositFor(body, body.carriedGems);
+                        body._lastBankAt = now;
+                    }
                     break;
                 }
                 destination = vault;

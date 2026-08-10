@@ -119,12 +119,20 @@ class gameServer {
         this.startServer();
     }
 
+    // What the server list shows as "players". Bots are real, visible
+    // inhabitants of the lobby, so they count - an empty-looking server
+    // number over a genuinely lively map just keeps humans away.
+    reportedPlayerCount() {
+        const bots = this.gameHandler?.bots?.filter(bot => bot && !bot.isDead() && !bot.isGhost).length || 0;
+        return this.socketManager.clients.length + bots;
+    }
+
     getInfo(includegameManager = false) {
         return {
             hidden: this.serverProperties.hidden ?? false,
             ip: this.host === "localhost" ? `${this.host}:${this.port}` : this.host,
             port: this.port,
-            players: this.socketManager.clients.length,
+            players: this.reportedPlayerCount(),
             maxPlayers: this.webProperties.maxPlayers,
             id: this.webProperties.id,
             featured: this.featured,
@@ -172,7 +180,7 @@ class gameServer {
                         res.writeHead(200);
                         res.end(JSON.stringify([{
                             ip: this.host,
-                            players: this.socketManager.clients.length,
+                            players: this.reportedPlayerCount(),
                             gameMode: this.name,
                         }]));
                     } else {

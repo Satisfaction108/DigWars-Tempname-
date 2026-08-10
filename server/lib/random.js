@@ -123,7 +123,7 @@ exports.chooseBotName = (() => {
         'void','echo','shade','ghost','phantom','reaper','blade','edge',
         'spike','thorn','fang','claw','talon','shank','razor','shear',
         'drift','wander','roam','scout','sentry','ward','guard','watch',
-        'relic','rune','sigil','totem','idol','fetish','tusk','horn',
+        'relic','rune','sigil','totem','idol','tusk','horn',
         'root','thorn','briar','vine','ivy','fern','moss','lichen',
         'warp','bend','twist','coil','loop','swerve','skew',
         'rust','oxide','patina','verdigris','tarnish','decay','erode',
@@ -164,20 +164,12 @@ exports.chooseBotName = (() => {
 
     function generate() {
         const r = Math.random();
-        // 40% simple word
-        if (r < 0.40) return maybeDigits(pick(words));
-        // 20% two words joined
-        if (r < 0.60) return maybeDigits(join(chance(0.25) ? '_' : ''));
+        // 45% simple word
+        if (r < 0.45) return maybeDigits(pick(words));
+        // 25% two words joined
+        if (r < 0.70) return maybeDigits(join(chance(0.25) ? '_' : ''));
         // 15% leet
-        if (r < 0.75) return toLeet(pick(words));
-        // 10% decorated
-        if (r < 0.85) {
-            const style = Math.random();
-            const w = pick(words);
-            if (style < 0.35) return 'xX_' + w + '_Xx';
-            if (style < 0.70) return '_' + w + '_';
-            return 'ii' + w.charAt(0).toUpperCase() + w.slice(1) + 'ii';
-        }
+        if (r < 0.85) return toLeet(pick(words));
         // 10% clan tagged
         if (r < 0.95) {
             const tag = pick(clanTags);
