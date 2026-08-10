@@ -92,8 +92,20 @@ function onStructureDeath(site) {
         }
     } else {
         const owner = site.team;
-        spawnStructure(site, 0);
-        announce(`The ${site.name} has fallen - ${teamName(owner)} lost it!`);
+        let capturingTeam = 0;
+        for (const k of (dead && dead.finalKillers) || []) {
+            if (k && (k.team === TEAM_BLUE || k.team === TEAM_RED) && k.team !== owner) {
+                capturingTeam = k.team;
+                break;
+            }
+        }
+        if (capturingTeam) {
+            spawnStructure(site, capturingTeam);
+            announce(`${teamName(capturingTeam)} captured the ${site.name} from ${teamName(owner)}!`);
+        } else {
+            spawnStructure(site, 0);
+            announce(`The ${site.name} has fallen - ${teamName(owner)} lost it!`);
+        }
     }
 }
 

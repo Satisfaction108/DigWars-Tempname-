@@ -562,10 +562,13 @@ class io_nearestDifferentMaster extends IO {
                 this.targetLock = undefined;
             }
             if (this.targetLock == null && this.validTargets.length) {
-                const candidate = (this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
+                const preferred = this.body._digWarsCombatTarget && this.validTargets.find(target =>
+                    target.id === this.body._digWarsCombatTarget.id
+                );
+                const candidate = preferred || ((this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
                     x: this.body.x,
                     y: this.body.y
-                });
+                }));
                 if (this.body.isBot) {
                     const delay = 90 + (1 - util.clamp(this.body.botSkill ?? 0.5, 0, 1)) * 310;
                     if (this.pendingTargetId !== candidate.id) {
@@ -773,10 +776,13 @@ class io_healTeamMasters extends IO {
                 this.targetLock = undefined;
             }
             if (this.targetLock == null && this.validTargets.length) {
-                const candidate = (this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
+                const preferred = this.body._digWarsCombatTarget && this.validTargets.find(target =>
+                    target.id === this.body._digWarsCombatTarget.id
+                );
+                const candidate = preferred || ((this.validTargets.length === 1) ? this.validTargets[0] : nearest(this.validTargets, {
                     x: this.body.x,
                     y: this.body.y
-                });
+                }));
                 if (this.body.isBot) {
                     const delay = 90 + (1 - util.clamp(this.body.botSkill ?? 0.5, 0, 1)) * 310;
                     if (this.pendingTargetId !== candidate.id) {
@@ -1326,7 +1332,10 @@ class io_unstick extends IO {
         this.escapeUntil = 0;
         this.lastJam = null;
         this.lastEscapeDir = 0;
+        this.nextJamAt = 0;
         this.escalation = 0;
+        this.lastMineProgress = body.gemsMined || body.rocksMined || 0;
+        this.lastMineProgressAt = Date.now();
     }
     think(input) {
         const now = Date.now(), b = this.body;
@@ -1344,10 +1353,30 @@ class io_unstick extends IO {
         this.acceptsFromTop = true;
         this.escapeUntil = 0;
 
-        // Grinding into a rock is deliberate progress, not a locomotion jam.
-        // Leaving this state would make every miner alternate between one hit
-        // and an escape instead of actually breaking the wall.
-        if (b._digWarsGoal === 'mine' && b.grindTouchUntil > now) {
+        const mineProgress = b.gemsMined || b.rocksMined || 0;
+        if (mineProgress !== this.lastMineProgress) {
+            this.lastMineProgress = mineProgress;
+            this.lastMineProgressAt = now;
+        }
+        if (b._digWarsGoal !== 'mine') this.lastMineProgressAt = now;
+
+        // Grinding into a rock is deliberate progress while the rock keeps
+        // losing health. A contact that produces no break for several seconds
+        // is instead treated as a stalled wall path and gets abandoned.
+        const miningContact = b._digWarsGoal === 'mine' && b.grindTouchUntil > now;
+        const miningStalled = miningContact && now - this.lastMineProgressAt > 3000;
+        if (miningContact && !miningStalled) {
+            this.history.length = 0;
+            return {};
+        }
+        if (miningStalled) {
+            b._digWarsIgnoredRock = b._digWarsMineRock || null;
+            b._digWarsIgnoredRockUntil = now + 4000;
+        }
+
+        // Give an escape a short settling window so one jam becomes one
+        // recovery event instead of being counted once per tick.
+        if (now < this.nextJamAt) {
             this.history.length = 0;
             return {};
         }
@@ -1407,6 +1436,7 @@ class io_unstick extends IO {
         this.lastEscapeDir = angle;
 
         this.escapeUntil = now + 600 + Math.random() * 400;
+        this.nextJamAt = now + 1200;
         this.history.length = 0;
         this.acceptsFromTop = false;
         return {
@@ -1441,6 +1471,8 @@ class io_digWarsGoals extends IO {
         this.nextThrustAt = 0;
         this.senseAt = 0;
         this.cachedRobber = null;
+        this.cachedCombat = null;
+        this.cachedDefense = null;
         this.cachedObjective = null;
     }
 
@@ -1533,6 +1565,45 @@ class io_digWarsGoals extends IO {
         return this.findEnemy((entity, root) => (root.carriedGems || 0) >= minimum);
     }
 
+    findCombatTarget() {
+        return this.findEnemy(() => true);
+    }
+
+    findEnemyNear(point, range) {
+        const entities = global.targetableEntities;
+        if (!entities) return null;
+        const maxFromBot = (this.body.fov || 1200) * 1.35;
+        let best = null, bestDistance = Infinity;
+        for (const entity of entities.values()) {
+            if (!['tank', 'miniboss', 'crasher'].includes(entity.type)) continue;
+            if (!this.enemy(entity) || !entity.health || entity.health.amount <= 0) continue;
+            if (entity.invuln || this.rootOf(entity).invuln) continue;
+            const fromBot = this.distanceTo(entity);
+            const fromPoint = Math.hypot(entity.x - point.x, entity.y - point.y);
+            if (fromBot > maxFromBot || fromPoint > range) continue;
+            if (fromBot < bestDistance) { best = entity; bestDistance = fromBot; }
+        }
+        return best;
+    }
+
+    findDefenseTarget() {
+        const states = new Map(digWarsOutposts.stateSnapshot().map(s => [s.id, s]));
+        const options = [];
+        for (const site of digWarsOutposts.getOutposts()) {
+            if (site.team !== this.body.team || !site.banner || site.banner.isDead()) continue;
+            const state = states.get(site.id);
+            const threat = this.findEnemyNear(site, 850);
+            const health = state ? state.h : 1;
+            if (!threat && health > 0.72) continue;
+            options.push({
+                point: site,
+                target: threat,
+                score: this.distanceTo(site) + health * 180 - (threat ? 350 : 0),
+            });
+        }
+        return options.sort((a, b) => a.score - b.score)[0] || null;
+    }
+
     findObjective() {
         if (this.isRammer()) return null;
         const range = Math.max(1200, this.body.fov || 0);
@@ -1543,7 +1614,7 @@ class io_digWarsGoals extends IO {
             const state = outpostStates.get(site.id);
             const enemyHeld = site.team !== 0 && site.team !== this.body.team;
             const unclaimed = site.team === 0;
-            if (!unclaimed && !(enemyHeld && state && state.h <= 0.75)) continue;
+            if (!unclaimed && !enemyHeld) continue;
             const distance = this.distanceTo(site);
             if (distance <= range) options.push({
                 kind: 'outpost', point: site, health: state ? state.h : 1,
@@ -1568,15 +1639,29 @@ class io_digWarsGoals extends IO {
     sense(now) {
         if (now < this.senseAt) return;
         this.cachedRobber = this.findRobTarget();
+        this.cachedCombat = this.findCombatTarget();
+        this.cachedDefense = this.findDefenseTarget();
         this.cachedObjective = this.findObjective();
         this.senseAt = now + 100 + (1 - this.skillLevel()) * 100;
     }
 
     nearestRock() {
         const terrain = global.gameManager && global.gameManager.terrainGrid;
-        return terrain && terrain.nearestRock
-            ? terrain.nearestRock(this.body.x, this.body.y, 450)
+        if (!terrain) return null;
+        const ignored = this.body._digWarsIgnoredRockUntil > Date.now()
+            ? this.body._digWarsIgnoredRock
             : null;
+        if (ignored && terrain.rocks) {
+            let best = null, bestDistance = 450 * 450;
+            for (const rock of terrain.rocks.values()) {
+                if (!rock.alive || rock === ignored) continue;
+                const dx = rock.wx - this.body.x, dy = rock.wy - this.body.y;
+                const distance = dx * dx + dy * dy;
+                if (distance < bestDistance) { bestDistance = distance; best = rock; }
+            }
+            if (best) return best;
+        }
+        return terrain.nearestRock ? terrain.nearestRock(this.body.x, this.body.y, 450) : null;
     }
 
     engagePoint(target, desiredRange) {
@@ -1671,10 +1756,16 @@ class io_digWarsGoals extends IO {
         if (this.current.kind === 'bank') {
             return !!this.body.vaultDeposit || (this.body.carriedGems || 0) >= 15;
         }
-        if (this.current.kind === 'rob') {
+        if (this.current.kind === 'rob' || this.current.kind === 'combat') {
             return this.current.target && this.visibleEnemy(this.current.target, (this.body.fov || 1200) * 1.35);
         }
-        if (this.current.kind === 'mine') return !!this.current.rock && this.current.rock.alive;
+        if (this.current.kind === 'defend') {
+            return !!this.current.point && (!this.current.target || this.visibleEnemy(this.current.target, (this.body.fov || 1200) * 1.35));
+        }
+        if (this.current.kind === 'mine') {
+            if (this.body._digWarsIgnoredRock === this.current.rock && Date.now() < (this.body._digWarsIgnoredRockUntil || 0)) return false;
+            return !!this.current.rock && this.current.rock.alive;
+        }
         if (this.current.kind === 'objective') return !!this.current.point;
         return true;
     }
@@ -1703,6 +1794,7 @@ class io_digWarsGoals extends IO {
         this.maybeOverride(now);
 
         if (goal.kind === 'bank') {
+            this.body._digWarsCombatTarget = null;
             const vault = this.ownVault();
             if (!vault) return {};
             if (this.body.vaultOnPad) {
@@ -1715,10 +1807,25 @@ class io_digWarsGoals extends IO {
             return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
         }
         if (goal.kind === 'survive') {
+            this.body._digWarsCombatTarget = null;
             const vault = this.ownVault();
             return { goal: vault ? this.steerGoal(vault, now, 'survive') : goal.point };
         }
+        if (goal.kind === 'defend') {
+            this.body._digWarsCombatTarget = goal.target || null;
+            const target = goal.target && this.visibleEnemy(goal.target, (this.body.fov || 1200) * 1.35)
+                ? goal.target : null;
+            const destination = target || goal.point;
+            const movementGoal = this.steerGoal(destination, now, `defend:${goal.point.id}`, !!target);
+            return {
+                goal: movementGoal,
+                target: this.aimVector(destination.x - this.body.x, destination.y - this.body.y, now),
+                fire: true,
+                main: true,
+            };
+        }
         if (goal.kind === 'objective') {
+            this.body._digWarsCombatTarget = null;
             const movementGoal = this.steerGoal(goal.point, now, `objective:${goal.point.id}`, true);
             const recoil = this.recoilAim(now, movementGoal);
             return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : {
@@ -1728,12 +1835,15 @@ class io_digWarsGoals extends IO {
                 main: true,
             };
         }
-        if (goal.kind === 'rob') {
-            const movementGoal = this.steerGoal(goal.target, now, `rob:${this.rootOf(goal.target).id ?? goal.target.id}`, true);
+        if (goal.kind === 'rob' || goal.kind === 'combat') {
+            this.body._digWarsCombatTarget = goal.target;
+            const movementGoal = this.steerGoal(goal.target, now, `${goal.kind}:${this.rootOf(goal.target).id ?? goal.target.id}`, true);
             const recoil = this.recoilAim(now, movementGoal);
             return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
         }
         if (goal.kind === 'mine') {
+            this.body._digWarsCombatTarget = null;
+            this.body._digWarsMineRock = goal.rock;
             const movementGoal = this.steerGoal({ x: goal.rock.wx, y: goal.rock.wy }, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25);
             const recoil = this.recoilAim(now, movementGoal);
             return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
@@ -1776,28 +1886,53 @@ class io_digWarsGoals extends IO {
         // not retargeted every frame. Objectives similarly outrank mining,
         // while every selected goal still gets its short human-like hold time.
         this.sense(now);
-        const robber = this.current?.kind === 'rob'
+        const defense = this.current?.kind === 'defend'
+            ? (this.validCurrent() ? this.current : null)
+            : this.cachedDefense;
+        if (defense && this.current?.kind !== 'bank') {
+            const defenseKey = `defend:${defense.point.id}`;
+            const ready = this.current?.kind === 'defend' || this.canReactTo(defenseKey, now);
+            if (ready) {
+                if (this.current?.kind !== 'defend' || now >= this.goalUntil)
+                    this.choose('defend', { point: defense.point, target: defense.target }, now, true);
+                return this.output(now);
+            }
+            if (this.current?.kind === 'defend') return this.output(now);
+        }
+
+        const carryingTarget = this.current?.kind === 'rob'
             ? (this.validCurrent() ? this.current.target : null)
             : this.cachedRobber;
-        if (robber) {
-            const targetKey = `rob:${this.rootOf(robber).id ?? robber.id}`;
+        if (carryingTarget && this.current?.kind !== 'bank') {
+            const targetKey = `rob:${this.rootOf(carryingTarget).id ?? carryingTarget.id}`;
             const ready = this.current?.kind === 'rob' || this.canReactTo(targetKey, now);
             if (ready && (this.current?.kind !== 'rob' || now >= this.goalUntil))
-                this.choose('rob', { target: robber }, now);
+                this.choose('rob', { target: carryingTarget }, now);
             else if (ready) return this.output(now);
         } else {
-            const objectiveHeld = ['rob', 'bank'].includes(this.current?.kind) ||
-                (this.current?.kind === 'objective' && now < this.goalUntil);
-            const objective = objectiveHeld ? null : this.cachedObjective;
-            const objectiveKey = objective && `${objective.kind}:${objective.point.id}`;
-            if (objective && (this.current?.kind === 'objective' || this.canReactTo(objectiveKey, now)))
-                this.choose('objective', { point: objective.point, structureKind: objective.kind }, now, true);
-            else if (this.current && now < this.goalUntil && this.validCurrent()) {
-                return this.output(now);
+            const combatTarget = this.current?.kind === 'combat'
+                ? (this.validCurrent() ? this.current.target : null)
+                : this.cachedCombat;
+            if (combatTarget && this.current?.kind !== 'bank') {
+                const targetKey = `combat:${this.rootOf(combatTarget).id ?? combatTarget.id}`;
+                const ready = this.current?.kind === 'combat' || this.canReactTo(targetKey, now);
+                if (ready && (this.current?.kind !== 'combat' || now >= this.goalUntil))
+                    this.choose('combat', { target: combatTarget }, now);
+                else if (ready) return this.output(now);
             } else {
-                const rock = this.nearestRock();
-                if (rock) this.choose('mine', { rock }, now);
-                else this.current = null;
+                const objectiveHeld = ['rob', 'bank', 'combat', 'defend'].includes(this.current?.kind) ||
+                    (this.current?.kind === 'objective' && now < this.goalUntil);
+                const objective = objectiveHeld ? null : this.cachedObjective;
+                const objectiveKey = objective && `${objective.kind}:${objective.point.id}`;
+                if (objective && (this.current?.kind === 'objective' || this.canReactTo(objectiveKey, now)))
+                    this.choose('objective', { point: objective.point, structureKind: objective.kind }, now, true);
+                else if (this.current && now < this.goalUntil && this.validCurrent()) {
+                    return this.output(now);
+                } else {
+                    const rock = this.nearestRock();
+                    if (rock) this.choose('mine', { rock }, now);
+                    else this.current = null;
+                }
             }
         }
         return this.output(now);

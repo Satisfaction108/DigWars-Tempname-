@@ -2068,6 +2068,11 @@ class socketManager {
                     if (t === TEAM_BLUE) bankBlue += b;
                     else if (t === TEAM_RED) bankRed += b;
                 }
+                for (const b of global.gameManager.gameHandler.bots) {
+                    if (b.isDead()) continue;
+                    if (b.team === TEAM_BLUE) bankBlue += (b.botBanked || 0) | 0;
+                    else if (b.team === TEAM_RED) bankRed += (b.botBanked || 0) | 0;
+                }
             }
             // Teammate positions + names for the map overlays, per team.
             let tmBlue = [], tmRed = [];
@@ -2075,6 +2080,12 @@ class socketManager {
                 for (const s of this.clients) {
                     const b = s.player && s.player.body;
                     if (!b || s.status.deceased) continue;
+                    const rec = [b.id, b.name || "", Math.round(b.x), Math.round(b.y)];
+                    if (b.team === TEAM_BLUE) tmBlue.push(rec);
+                    else if (b.team === TEAM_RED) tmRed.push(rec);
+                }
+                for (const b of global.gameManager.gameHandler.bots) {
+                    if (b.isDead()) continue;
                     const rec = [b.id, b.name || "", Math.round(b.x), Math.round(b.y)];
                     if (b.team === TEAM_BLUE) tmBlue.push(rec);
                     else if (b.team === TEAM_RED) tmRed.push(rec);

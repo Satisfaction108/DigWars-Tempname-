@@ -1206,12 +1206,15 @@ class Entity extends EventEmitter {
         entitiesToAvoid.push(this); this.isProtected = true;
     }
     
-    say(message, duration = Config.CHAT_MESSAGE_DURATION) {
+    say(message, duration = Config.chat_message_duration) {
         if (!chats[this.id]) {
             chats[this.id] = [];
             chats[this.id].messages = [];
         }
         chats[this.id].messages.unshift({ message, expires: Date.now() + duration, id: global.chatID++ });
+        // Keep NPC chatter readable and avoid stale bot lines piling up when
+        // nobody is looking at the entity.
+        if (chats[this.id].messages.length > 3) chats[this.id].messages.length = 3;
     }
 
     sendMessage(message) { } // Dummy

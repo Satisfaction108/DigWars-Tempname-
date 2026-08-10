@@ -56,7 +56,8 @@ function pushOutOfChamberRing(chamber, body) {
 }
 
 class gameHandler {
-    constructor() {
+    constructor(parent) {
+        this.gameManager = parent;
         this.loopCounter = 0;
         this.loophealCounter = 0;
         this.bots = [];
@@ -71,6 +72,9 @@ class gameHandler {
         this.botTelemetryAt = Date.now();
         this.soakMspt = [];
         this.soakStartedAt = Date.now();
+        this.pendingBotRespawns = 0;
+        this.botChatAt = 0;
+        Events.on('chatMessage', payload => this.handleBotChat(payload));
     }
     checkUsers = () => global.gameManager.clients.length >= 1 || !!Config.bot_soak_mode;
 
@@ -578,7 +582,8 @@ class gameHandler {
             }
         }
         
-        if (!global.gameManager.arenaClosed && !global.cannotRespawn && this.bots.length < Config.bot_cap) {
+        if (!global.gameManager.arenaClosed && !global.cannotRespawn &&
+            this.bots.length + this.pendingBotRespawns < Config.bot_cap) {
             let team = Config.mode === "tdm" || Config.mode === "tag" ? getWeakestTeam(global.gameManager) : undefined,
             limit = 20, 
             loc;
@@ -590,13 +595,17 @@ class gameHandler {
         }
     }
 
-    spawnBots(loc, team) {
-        let botName = Config.bot_name_prefix + ran.chooseBotName();
+    spawnBots(loc, team, existingName = null, lifecycle = null) {
+        const nameKey = lifecycle?.nameKey || (existingName ? null : ran.chooseBotName());
+        let botName = existingName || Config.bot_name_prefix + nameKey;
         let o = new Entity(loc);
         o.define(Config.spawn_class);
         o.define({ CONTROLLERS: ["unstick", "digWarsGoals", "minesRocks", "nearestDifferentMaster"] }, false, false, false);
         o.refreshBodyAttributes();
         o.isBot = true;
+        o.botFamilyId = lifecycle?.familyId ?? o.id;
+        o.botNameKey = nameKey;
+        o.botRespawnsRemaining = lifecycle?.respawnsRemaining ?? ran.irandomRange(2, 3);
         // This value changes decisions, not damage or movement stats. A broad
         // spread keeps a lobby from feeling like eight copies of one machine.
         o.botSkill = util.clamp(ran.gauss(0.55, 0.25), 0.1, 0.95);
@@ -637,7 +646,7 @@ class gameHandler {
         });
         if (Config.tag) Config.tag_data.addBot(o), global.nextTagBotTeam = null;
         setTimeout(() => {
-            
+            if (o.isDead()) return;
             let CC = Class[o.defs[0]];
             if (!CC) CC = {};
             o.controllers = [];
@@ -673,16 +682,105 @@ class gameHandler {
         o.on('dead', () => {
             const stats = this.botStats.get(o.id);
             if (stats) stats.deaths++;
-            ran.releaseBotName(botName);
-            setTimeout(() => {
-                if (global.nextTagBotTeam) {
-                    let loc = getSpawnableArea(global.nextTagBotTeam, global.gameManager);
-                    this.spawnBots(loc, global.nextTagBotTeam);
-                }
-            }, 10)
             util.remove(this.bots, this.bots.indexOf(o));
+
+            // A bot is a little persistent character, not a disposable tank.
+            // Keep its name through a small run of deaths, then let the slot
+            // receive a genuinely new bot with a new name.
+            const respawnsRemaining = o.botRespawnsRemaining || 0;
+            if (respawnsRemaining > 0 && !global.gameManager.arenaClosed && !global.cannotRespawn) {
+                this.pendingBotRespawns++;
+                setTimeout(() => {
+                    this.pendingBotRespawns = Math.max(0, this.pendingBotRespawns - 1);
+                    if (global.gameManager.arenaClosed || global.cannotRespawn) {
+                        ran.releaseBotName(o.botNameKey);
+                        return;
+                    }
+                    const respawnTeam = o.team;
+                    const respawnLoc = getSpawnableArea(respawnTeam, global.gameManager);
+                    this.spawnBots(respawnLoc, respawnTeam, botName, {
+                        familyId: o.botFamilyId,
+                        nameKey: o.botNameKey,
+                        respawnsRemaining: respawnsRemaining - 1,
+                    });
+                }, 350 + Math.floor(Math.random() * 650));
+            } else {
+                ran.releaseBotName(o.botNameKey);
+                setTimeout(() => {
+                    if (global.nextTagBotTeam) {
+                        const loc = getSpawnableArea(global.nextTagBotTeam, global.gameManager);
+                        this.spawnBots(loc, global.nextTagBotTeam);
+                    }
+                }, 10);
+            }
         });
     };
+
+    botChatReply(bot, rawMessage) {
+        const message = String(rawMessage || '').trim().toLowerCase();
+        const saysNo = /^(nah|no|nope|dont|don't|i dont|i don't|not really|maybe not)/.test(message);
+        if (bot._askedDiscordAt && Date.now() - bot._askedDiscordAt < 25_000) {
+            bot._askedDiscordAt = 0;
+            return saysNo ? ran.choose(['all good lol', 'fair enough', 'no worries']) : ran.choose(['alr ill add u lol', 'bet, ill add u', 'sounds good']);
+        }
+        if (/^(hi|hey|hello|yo|sup|heyy|hiya)\b/.test(message)) {
+            return ran.choose(['yo', 'hey', 'yo lol', 'sup', 'heyy']);
+        }
+        if (/discord|dc\b/.test(message)) {
+            bot._askedDiscordAt = Date.now();
+            return ran.choose(['whats ur discord', 'u got discord?', "what's ur dc", 'drop ur discord']);
+        }
+        if (/^(thanks|thx|ty)\b/.test(message)) return ran.choose(['np', 'all good', 'yw lol']);
+        if (/^(bye|cya|later)\b/.test(message)) return ran.choose(['later', 'cya', 'peace']);
+        return ran.choose(['fr', 'lol yeah', 'true', 'same tbh', 'no way lol', 'yeah i feel that', 'lmao']);
+    }
+
+    handleBotChat({ message, socket }) {
+        if (!Config.dig_wars || !socket?.player?.body || typeof message !== 'string') return;
+        const player = socket.player.body;
+        const text = message.trim();
+        if (!text || text.startsWith('$') || player.isDead()) return;
+
+        const nearby = this.bots.filter(bot => bot && !bot.isDead() && !bot.isGhost)
+            .map(bot => ({ bot, distance: Math.hypot(bot.x - player.x, bot.y - player.y) }))
+            .filter(entry => entry.distance <= 760)
+            .sort((a, b) => a.distance - b.distance);
+        if (!nearby.length) return;
+
+        const greeting = /^(hi|hey|hello|yo|sup|heyy|hiya)\b/i.test(text);
+        const selected = nearby.find(({ bot }) => Date.now() >= (bot._nextChatAt || 0) &&
+            (greeting ? Math.random() < 0.85 : Math.random() < 0.28));
+        if (!selected) return;
+
+        const bot = selected.bot;
+        bot._nextChatAt = Date.now() + 3500 + Math.random() * 4500;
+        const reply = this.botChatReply(bot, text);
+        setTimeout(() => {
+            if (!bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900)
+                bot.say(reply);
+        }, 350 + Math.random() * 850);
+    }
+
+    botAmbientChat() {
+        const now = Date.now();
+        if (!Config.dig_wars || now < this.botChatAt || this.bots.length < 2) return;
+        this.botChatAt = now + 12_000 + Math.random() * 18_000;
+        const pairs = [];
+        for (let i = 0; i < this.bots.length; i++) {
+            for (let j = i + 1; j < this.bots.length; j++) {
+                const a = this.bots[i], b = this.bots[j];
+                if (a.isDead() || b.isDead() || a.team !== b.team) continue;
+                if (Math.hypot(a.x - b.x, a.y - b.y) < 430) pairs.push([a, b]);
+            }
+        }
+        if (!pairs.length || Math.random() > 0.3) return;
+        const [a, b] = ran.choose(pairs);
+        a.say(ran.choose(['u heading mid?', 'u mining here too?', 'hold up lol', 'we got this']));
+        setTimeout(() => {
+            if (!b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650)
+                b.say(ran.choose(['yeah lol', 'yep', 'on my way', 'bet', 'same here']));
+        }, 500 + Math.random() * 700);
+    }
 
     sampleBotTelemetry() {
         const now = Date.now();
@@ -809,6 +907,7 @@ class gameHandler {
             if (!this.active) return clearInterval(otherloop);
             this.quickMaintainLoop();
             this.sampleBotTelemetry();
+            this.botAmbientChat();
             global.gameManager.socketManager.chatLoop();
         }, 200)
         let healingLoop = setInterval(() => {
