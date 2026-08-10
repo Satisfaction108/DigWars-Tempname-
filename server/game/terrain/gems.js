@@ -312,15 +312,11 @@ function tickGem(gem, tg, players) {
         }
         const pickR = body.realSize + gem.realSize * PICKUP_SLOP;
         if (d <= pickR && d < toucherD) { toucherD = d; toucher = body; }
-        // Whoever broke the rock gets a head start on their own ore, but only
-        // a brief one. A permanent flat bonus meant a fresh drop would flee
-        // from the player standing on it toward a miner 400 units away, which
-        // is the "gems ignore me and fly to a bot" bug.
-        const sourceCollector = body.id === gem.gemSourceId && d < 850;
-        const age = Date.now() - (gem.gemBornAt || 0);
-        const claimBonus = sourceCollector ? (age < 2500 ? 320 : 40) : 0;
-        const score = d - claimBonus;
-        if (score < bestScore) { bestScore = score; bestD = d; best = body; }
+        // No ownership: loose gems belong to whoever is closest, full stop.
+        // Every "breaker gets a head start" variant ended the same way - a
+        // gem fleeing from the player standing on it toward the bot that
+        // mined it, which felt like the gem had no collision at all.
+        if (d < bestScore) { bestScore = d; bestD = d; best = body; }
     }
 
     if (toucher) {

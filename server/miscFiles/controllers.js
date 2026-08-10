@@ -1424,10 +1424,15 @@ class BotNav {
     }
 
     structureBlocks(x, y, radius) {
-        // A rammer drives through whatever is in front of it, so structures
-        // are never an obstacle for one.
-        if (this.body.botIsRammer) return false;
+        // Only a rammer, and only for the structure it is currently attacking,
+        // may treat a structure as passable - ramming requires contact. Gun
+        // bots keep every structure as a wall (their siege orbit stands off
+        // outside it; letting them path through their target just drove them
+        // into its hull). The old blanket rammer bypass let rammers wedge
+        // into every chamber they merely passed.
+        const attacking = this.body.botIsRammer ? this.body._digWarsObjectivePoint : null;
         for (const chamber of digWarsChambers.getChambers()) {
+            if (chamber === attacking) continue;
             const entity = chamber.entity;
             if (!entity || entity.isDead?.()) continue;
             const reach = chamber.r * (entity.sizeMultiplier ?? 1) + radius;
@@ -1437,6 +1442,7 @@ class BotNav {
         for (const outpost of digWarsOutposts.getOutposts()) {
             const banner = outpost.banner;
             if (!banner || banner.isDead?.()) continue;
+            if (outpost === attacking) continue;
             const reach = (banner.realSize || banner.size || 30) + radius;
             const dx = x - banner.x, dy = y - banner.y;
             if (dx * dx + dy * dy < reach * reach) return true;
@@ -1622,6 +1628,7 @@ class io_digWarsGoals extends IO {
         this.aimError = 0;
         this.aimErrorAt = 0;
         this.rockBlacklist = new Map();
+        this.objectiveBlacklist = new Map();
         this.rockAt = 0;
         this.losCache = new Map();
         this.rangeAt = 0;
@@ -1793,6 +1800,20 @@ class io_digWarsGoals extends IO {
         view.rock = this.findRock(now);
     }
 
+    // A gem inside a standing chamber ring is scenery: nothing outside can
+    // reach it. Bots chasing one circled the ring until the stuck logic
+    // dragged them off, over and over.
+    gemSealedInChamber(gem) {
+        for (const chamber of digWarsChambers.getChambers()) {
+            const entity = chamber.entity;
+            if (!entity || entity.isDead?.() || chamber.state !== 'alive') continue;
+            const reach = chamber.r * (entity.sizeMultiplier ?? 1) + (gem.realSize || 8);
+            const dx = gem.x - chamber.x, dy = gem.y - chamber.y;
+            if (dx * dx + dy * dy < reach * reach) return true;
+        }
+        return false;
+    }
+
     findGem(now) {
         const body = this.body;
         if ((body.carriedGems || 0) >= (body.gemCap || 4000) * 0.98) return null;
@@ -1804,6 +1825,7 @@ class io_digWarsGoals extends IO {
             if (gem.gemOwnerId !== undefined && gem.gemOwnerId !== body.id) continue;
             const distance = this.distanceTo(gem);
             if (distance > 700) continue;
+            if (this.gemSealedInChamber(gem)) continue;
             const score = distance - (gem.gemSourceId === body.id ? 350 : 0) - Math.min(250, gem.gemValue * 0.4);
             if (score < bestScore) { bestScore = score; best = gem; }
         }
@@ -1843,9 +1865,14 @@ class io_digWarsGoals extends IO {
     findObjective() {
         const body = this.body;
         const options = [];
+        const nowMs = Date.now();
+        if (this.objectiveBlacklist.size > 8) {
+            for (const [key, until] of this.objectiveBlacklist) if (until < nowMs) this.objectiveBlacklist.delete(key);
+        }
         const outpostStates = new Map(digWarsOutposts.stateSnapshot().map(state => [state.id, state]));
         for (const site of digWarsOutposts.getOutposts()) {
             if (site.team === body.team || !site.banner || site.banner.isDead()) continue;
+            if ((this.objectiveBlacklist.get(site) || 0) > nowMs) continue;
             const state = outpostStates.get(site.id);
             options.push({
                 kind: 'outpost', point: site,
@@ -1858,6 +1885,7 @@ class io_digWarsGoals extends IO {
             if (!state || state.st !== 0) continue;
             if (chamber.team == null || chamber.team === TEAM_ROOM || chamber.team === body.team) continue;
             if (!chamber.entity || chamber.entity.isDead?.()) continue;
+            if ((this.objectiveBlacklist.get(chamber) || 0) > nowMs) continue;
             // The chamber is the match's real prize. It used to be skipped
             // entirely above 80 percent health, so a full one was never
             // attacked by anybody and bots never went near a core.
@@ -2015,14 +2043,41 @@ class io_digWarsGoals extends IO {
                     this.distanceTo(goal.target) < (body.fov || 1200) * 1.4 &&
                     !inEnemyBase(body.team, goal.target.x, goal.target.y);
             case 'collect':
-                return goal.gem && goal.gem.gemValue > 0 && !goal.gem.isDead?.() && this.distanceTo(goal.gem) < 900;
+                return goal.gem && goal.gem.gemValue > 0 && !goal.gem.isDead?.() &&
+                    this.distanceTo(goal.gem) < 900 && !this.gemSealedInChamber(goal.gem);
             case 'defend':
                 return !!goal.point && goal.point.team === body.team && !!goal.point.banner;
             case 'objective': {
                 if (!goal.point) return false;
-                if (goal.structure === 'chamber')
-                    return goal.point.state === 'alive' && goal.point.team !== body.team;
-                return !!goal.point.banner && !goal.point.banner.isDead() && goal.point.team !== body.team;
+                const alive = goal.structure === 'chamber'
+                    ? goal.point.state === 'alive' && goal.point.team !== body.team
+                    : !!goal.point.banner && !goal.point.banner.isDead() && goal.point.team !== body.team;
+                if (!alive) return false;
+                // A siege that lands no damage is a bot pressed uselessly
+                // against a wall. Chambers self-heal, so only a health DROP
+                // counts as progress; nine dry seconds means walk away and
+                // let this structure cool off.
+                const hp = goal.structure === 'chamber'
+                    ? goal.point.entity?.health?.amount
+                    : goal.point.banner?.health?.amount;
+                if (hp !== undefined) {
+                    if (hp < (this.objHealth ?? Infinity) - 1e-6) {
+                        this.objHealth = hp;
+                        this.objProgressAt = now;
+                    }
+                    // The dry-siege clock only runs while actually in siege
+                    // range. Counting travel time cancelled every objective
+                    // more than nine seconds of driving away.
+                    const besieging = this.distanceTo(goal.point) <
+                        this.structureClearance(goal.point) + Math.max(320, this.weaponRange());
+                    if (!besieging) {
+                        this.objProgressAt = now;
+                    } else if (now - (this.objProgressAt || this.goalStartedAt) > 9000) {
+                        this.objectiveBlacklist.set(goal.point, now + 30000);
+                        return false;
+                    }
+                }
+                return true;
             }
             case 'mine': {
                 if (!goal.rock || !goal.rock.alive) return false;
@@ -2067,6 +2122,12 @@ class io_digWarsGoals extends IO {
         if (candidate.kind === 'mine') {
             this.mineHealth = candidate.rock.health;
             this.mineProgressAt = now;
+        }
+        if (candidate.kind === 'objective') {
+            this.objHealth = candidate.structure === 'chamber'
+                ? candidate.point.entity?.health?.amount
+                : candidate.point.banner?.health?.amount;
+            this.objProgressAt = now;
         }
         this.holdUntil = now + GOAL_HOLD[candidate.kind] * (0.75 + Math.random() * 0.5);
         this.nav.nextProbeAt = 0;

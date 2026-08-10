@@ -1208,6 +1208,9 @@ class gameHandler {
     }
 
     handleBotChat({ message, socket }) {
+        // Bot chat is switched off for now (owner request). The machinery
+        // below stays so it can be re-enabled by deleting this line.
+        return;
         if (!Config.dig_wars || !socket?.player?.body || typeof message !== 'string') return;
         const player = socket.player.body;
         const text = message.trim();
