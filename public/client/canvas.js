@@ -143,9 +143,14 @@ class Canvas {
     }
 
     respawn() {
-        if (global.died && !global.cannotRespawn) {
+        if (global.died && !global.cannotRespawn && !global.respawnPending) {
+            global.respawnPending = true;
             this.socket.talk('s', global.playerName, 0, 1 * config.game.autoLevelUp, false, 1 * config.game.incognitoMode);
-            global.died = false;
+            // Keep the death screen until the server confirms the new body.
+            // This makes a missed packet retryable instead of hiding the button.
+            setTimeout(() => {
+                if (global.respawnPending) global.respawnPending = false;
+            }, 5000);
         }
     }
 
@@ -193,7 +198,6 @@ class Canvas {
                 // Enter to respawn
                 if (global.died && !global.cannotRespawn) {
                     this.respawn();
-                    global.died = false;
                     break;
                 }
 
@@ -1075,8 +1079,7 @@ class Canvas {
                 // Shoot
                 if (this.gamepad.buttons[7].pressed) {
                     if (global.died && !global.cannotRespawn) {
-                        this.socket.talk('s', global.playerName, 0, 1 * config.game.autoLevelUp);
-                        global.died = false;
+                        this.respawn();
                     } else {
                         this.socket.cmd.set(4, true);
                     }

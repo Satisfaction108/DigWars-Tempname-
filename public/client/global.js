@@ -191,6 +191,7 @@ const global = {
     autoSpin: false,
     syncingWithTank: false,
     respawnTimeout: false,
+    respawnPending: false,
     showDebug: false,
     died: false,
     kicked: false,

@@ -115,7 +115,12 @@ class gameHandler {
         this.botChatAiRetryAt = 0;
         Events.on('chatMessage', payload => this.handleBotChat(payload));
     }
-    checkUsers = () => global.gameManager.clients.length >= 1 || !!Config.bot_soak_mode;
+    // Keep the simulation alive while bots are present, even if no human has
+    // finished joining a team yet. Previously the whole game loop paused until
+    // a client entered the match, which made idle bots appear frozen.
+    checkUsers = () => global.gameManager.clients.length >= 1 ||
+        this.bots.some(bot => bot && !bot.isDead() && !bot.isGhost) ||
+        !!Config.bot_soak_mode;
 
     // Gem and vault systems consume body-like actors. Keep socket players in
     // their existing wrapper shape and append bot bodies, which have no socket.
@@ -763,6 +768,9 @@ class gameHandler {
         o.define({ CONTROLLERS: ["unstick", "digWarsGoals", "minesRocks", "nearestDifferentMaster"] }, false, false, false);
         o.refreshBodyAttributes();
         o.isBot = true;
+        // Bots should not be put to sleep by view-based activation. Their AI
+        // must keep simulating before a teammate's camera reaches them.
+        o.alwaysActive = true;
         o.botFamilyId = lifecycle?.familyId ?? o.id;
         o.botNameKey = nameKey;
         o.botRespawnsRemaining = lifecycle?.respawnsRemaining ?? ran.irandomRange(2, 3);
@@ -926,7 +934,11 @@ class gameHandler {
             bot._askedDiscordAt = Date.now();
             return 'whats ur discord';
         }
-        if (addressed && message.split(/\s+/).length <= 4) return 'yo whats up';
+        if (addressed && message.split(/\s+/).length <= 4) {
+            if (message.split(/\s+/).length === 1) return 'yeah?';
+            if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup|hyd)\b/.test(message)) return 'yo';
+            return null;
+        }
         if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup|hyd)\b/.test(message)) return 'yo';
         if (/^(thanks|thx|ty)\b/.test(message)) return 'np';
         if (/^(bye|cya|later)\b/.test(message)) return 'later';
@@ -947,6 +959,7 @@ class gameHandler {
         const text = this.sanitizeBotReply(reply);
         const message = String(rawMessage || '').trim().toLowerCase();
         if (!text || text.length < 2 || text.length > 96) return false;
+        if (bot._lastChatReply && text === bot._lastChatReply) return false;
         if (/[<>${}]/.test(text) || /\b(as an ai|as a bot|language model|i cannot comply)\b/.test(text)) return false;
         // Reject the exact low-information reactions that made the old
         // fallback feel random. DeepSeek may still use casual slang, but it
@@ -1049,15 +1062,17 @@ class gameHandler {
         if (!nearby.length) return;
 
         const addressed = nearby.filter(({ bot }) => this.botNameMentioned(text, bot));
+        const canAnswer = ({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0);
         const mentionsAnyBot = this.bots.some(bot => bot && !bot.isDead() && this.botNameMentioned(text, bot));
         // A message aimed at a bot who is farther away must not accidentally
         // make a random nearby bot answer it.
         if (mentionsAnyBot && !addressed.length) return;
-        // Every ordinary message gets exactly one nearby responder. A named
-        // bot wins; otherwise the nearest bot answers so the reply is never
-        // a random pile-on from the whole lobby.
-        const selected = addressed.length ? addressed[0] : nearby[0];
-        // If a player named a nearby bot, nobody else gets to answer.
+        // A named bot gets first refusal. If it is still thinking or on
+        // cooldown, stay quiet rather than handing the message to somebody
+        // else or making the same bot spam a repeated line.
+        const selected = addressed.length
+            ? addressed.find(canAnswer)
+            : nearby.find(canAnswer);
         if (!selected) return;
 
         const bot = selected.bot;
@@ -1068,7 +1083,8 @@ class gameHandler {
         setTimeout(async () => {
             try {
                 const reply = await this.aiBotChatReply(bot, text);
-                if (reply && this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900) {
+                if (reply && reply !== bot._lastChatReply && this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900) {
+                    bot._lastChatReply = reply;
                     bot.say(reply);
                     bot._chatPauseUntil = Date.now() + 700 + Math.random() * 900;
                 }

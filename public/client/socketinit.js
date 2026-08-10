@@ -1015,6 +1015,10 @@ let incoming = async function(message, socket) {
                 global.serverStats.players = m[1];
             } break;
             case 'c': {
+                // The camera packet is sent after a successful spawn. Use it as
+                // the acknowledgement for the respawn request.
+                global.respawnPending = false;
+                global.died = false;
                 global.player.renderx = global.player.cx.x = m[0];
                 global.player.rendery = global.player.cy.y = m[1];
                 global.player.renderv = global.player.view = m[2];

@@ -210,7 +210,16 @@ class socketManager {
                 }
             } break;
             case 's': {
-                if (!socket.status.deceased) { socket.kick('Trying to spawn while already alive.'); return 1; }
+                // A death packet and the client click can cross on the wire.
+                // Accept the request when the attached body is already dead or
+                // gone, instead of rejecting the first valid respawn attempt.
+                const liveBody = socket.player?.body && !socket.player.body.isDead();
+                if (!socket.status.deceased && liveBody) {
+                    socket.kick('Trying to spawn while already alive.');
+                    return 1;
+                }
+                socket.status.deceased = true;
+                socket.status.readyToSpawn = true;
                 if (!global.gameManager.webProperties.maxPlayers < 1 && this.clients.length > global.gameManager.webProperties.maxPlayers) return (
                     socket.talk("message", "This server is full, please rejoin later."),
                     socket.kick("Server full.")
@@ -1095,6 +1104,7 @@ class socketManager {
         };
 
         socket.status.deceased = false;
+        socket.status.readyToSpawn = true;
 
         if (this.players.indexOf(socket.player) != -1) { util.remove(this.players, this.players.indexOf(socket.player));  }
 

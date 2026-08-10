@@ -1415,8 +1415,13 @@ class io_unstick extends IO {
         }
 
         // Nothing wanted movement last tick — reset and stay quiet
-        const hadGoal = b.control && b.control.goal &&
-            (b.control.goal.x !== b.x || b.control.goal.y !== b.y);
+        const goalDistance = b.control?.goal
+            ? Math.hypot(b.control.goal.x - b.x, b.control.goal.y - b.y)
+            : 0;
+        const hadGoal = goalDistance > Math.max(35, b.size * 2);
+        // Being nearly on top of a waypoint is not a jam. Treating that as a
+        // stuck event made objective bots reverse just as they reached their
+        // firing lane, which looked like pointless back-and-forth motion.
         if (!hadGoal) { this.history.length = 0; this.escalation = 0; return {}; }
 
         if (this.history.length < 2) return {};
@@ -1796,7 +1801,11 @@ class io_digWarsGoals extends IO {
         const chamberStates = new Map(digWarsChambers.stateSnapshot().map(s => [s.id, s]));
         for (const chamber of chamberList) {
             const state = chamberStates.get(chamber.id);
-            if (chamber.team === this.body.team || !state || state.st !== 0 || state.h > 0.8) continue;
+            // A chamber with missing/neutral ownership is not a valid bot
+            // objective. This explicit check prevents a bad team value from
+            // turning a friendly core into an attack target.
+            if (chamber.team == null || chamber.team === TEAM_ROOM ||
+                chamber.team === this.body.team || !state || state.st !== 0 || state.h > 0.8) continue;
             const distance = this.distanceTo(chamber);
             if (distance <= range) options.push({
                 kind: 'chamber', point: chamber, health: state.h,
@@ -1927,7 +1936,7 @@ class io_digWarsGoals extends IO {
         return /penta|triplet|triple|spread|machinegun|minigun|sprayer|booster|fighter|falcon|annihilator/.test(defs);
     }
 
-    steerGoal(target, now, key, combat = false, finalDistance = 80) {
+    steerGoal(target, now, key, combat = false, finalDistance = 80, stable = false) {
         const b = this.body;
         const dx = target.x - b.x, dy = target.y - b.y;
         const distance = Math.hypot(dx, dy);
@@ -1948,9 +1957,10 @@ class io_digWarsGoals extends IO {
                 angle = base + side * weave - correction * side;
             } else {
                 // Commit to short waypoints instead of recomputing a point
-                // directly in front of the hull every tick. That produces the
-                // small imperfect course corrections real players make.
-                angle = base + side * ran.randomRange(0.08, 0.24 + (1 - skill) * 0.16);
+                // directly in front of the hull every tick. Objective pushes
+                // opt into the stable branch because the orbit itself already
+                // supplies imperfect movement.
+                angle = stable ? base : base + side * ran.randomRange(0.08, 0.24 + (1 - skill) * 0.16);
             }
             const reach = Math.min(distance, combat ? 260 : 330);
             this.movementPlan = {
@@ -1967,32 +1977,66 @@ class io_digWarsGoals extends IO {
     rockSafeGoal(goal, target) {
         const tg = global.gameManager && global.gameManager.terrainGrid;
         if (!tg || !tg.rockHitByCircle || !goal) return goal;
-        const radius = Math.max(this.body.realSize || this.body.size || 1, 12) * 0.82;
-        const pathBlocked = (from, to) => {
+        // The old 0.82 multiplier allowed the hull edge to scrape a canyon
+        // face, then the movement controller kept requesting the same blocked
+        // waypoint. Give the whole tank a small clearance margin.
+        const radius = Math.max(this.body.realSize || this.body.size || 1, 12) * 1.05 + 3;
+        const room = global.gameManager && global.gameManager.room;
+        const insideRoom = point => !room || (
+            Math.abs(point.x) < room.width / 2 - radius - 35 &&
+            Math.abs(point.y) < room.height / 2 - radius - 35
+        );
+        const pathBlockCount = (from, to) => {
             const distance = Math.hypot(to.x - from.x, to.y - from.y);
-            const steps = Math.max(2, Math.ceil(distance / Math.max(radius * 2.5, 24)));
+            const steps = Math.max(3, Math.ceil(distance / Math.max(radius * 2, 22)));
+            let blocked = 0;
             for (let i = 1; i <= steps; i++) {
                 const t = i / steps;
-                if (tg.rockHitByCircle(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, radius)) return true;
+                if (tg.rockHitByCircle(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, radius)) blocked++;
             }
-            return false;
+            return blocked;
         };
-        if (!pathBlocked(this.body, goal)) return goal;
+        const pathBlocked = (from, to) => pathBlockCount(from, to) > 0;
+        if (insideRoom(goal) && !pathBlocked(this.body, goal)) return goal;
 
-        const dx = target.x - this.body.x, dy = target.y - this.body.y;
+        const tx = target?.x ?? goal.x, ty = target?.y ?? goal.y;
+        const dx = tx - this.body.x, dy = ty - this.body.y;
         const distance = Math.hypot(dx, dy) || 1;
-        const ux = dx / distance, uy = dy / distance;
-        const side = radius * 8;
-        const forward = radius * 3;
-        const candidates = [
-            { x: this.body.x - uy * side + ux * forward, y: this.body.y + ux * side + uy * forward },
-            { x: this.body.x + uy * side + ux * forward, y: this.body.y - ux * side + uy * forward },
-            { x: this.body.x - ux * side, y: this.body.y - uy * side },
-            { x: this.body.x + ux * side, y: this.body.y + uy * side },
-        ].filter(point => !tg.rockHitByCircle(point.x, point.y, radius) && !pathBlocked(this.body, point));
+        const base = Math.atan2(dy, dx);
+        const distances = [radius * 4, radius * 7, radius * 10, radius * 13];
+        const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2,
+            3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI];
+        const candidates = [];
+        for (const reach of distances) {
+            for (const offset of angles) {
+                const angle = base + offset;
+                const point = {
+                    x: this.body.x + Math.cos(angle) * reach,
+                    y: this.body.y + Math.sin(angle) * reach,
+                };
+                if (!insideRoom(point)) continue;
+                candidates.push({ point, blocks: pathBlockCount(this.body, point) });
+            }
+        }
+        const clear = candidates.filter(candidate =>
+            candidate.blocks === 0 && !tg.rockHitByCircle(candidate.point.x, candidate.point.y, radius)
+        );
+        if (clear.length) {
+            return clear.sort((a, b) =>
+                Math.hypot(a.point.x - tx, a.point.y - ty) - Math.hypot(b.point.x - tx, b.point.y - ty)
+            )[0].point;
+        }
+        // A bot can be partially buried, so sometimes every complete path
+        // probe reports a hit. Still choose the least-blocked outward heading;
+        // returning its current position was the part that made the screenshot
+        // look permanently stuck.
         return candidates.sort((a, b) =>
-            Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y)
-        )[0] || { x: this.body.x, y: this.body.y };
+            a.blocks - b.blocks ||
+            Math.hypot(a.point.x - tx, a.point.y - ty) - Math.hypot(b.point.x - tx, b.point.y - ty)
+        )[0]?.point || {
+            x: this.body.x - Math.cos(base) * radius * 5,
+            y: this.body.y - Math.sin(base) * radius * 5,
+        };
     }
 
     playfulGoal(goal, now) {
@@ -2073,7 +2117,15 @@ class io_digWarsGoals extends IO {
         }
         if (this.current.kind === 'collect') return !!this.current.gem && this.current.gem.gemValue > 0;
         if (this.current.kind === 'marker') return !!this.current.marker && this.current.marker.expiresAt > Date.now();
-        if (this.current.kind === 'objective') return !!this.current.point;
+        if (this.current.kind === 'objective') {
+            if (!this.current.point) return false;
+            if (this.current.structureKind === 'chamber') {
+                return this.current.point.team != null &&
+                    this.current.point.team !== TEAM_ROOM &&
+                    this.current.point.team !== this.body.team;
+            }
+            return true;
+        }
         return true;
     }
 
@@ -2148,10 +2200,13 @@ class io_digWarsGoals extends IO {
             // parking on one pixel. Every bot has its own phase and orbit rate,
             // while rammer tanks still take the direct contact lane.
             const movementGoal = this.rockSafeGoal(
-                this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, true, 28), now), destination
+                this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, false, 28, true), now), destination
             );
             const showingOff = this.showoffUntil > now && this.body.botStyle !== 'normal';
-            const recoil = showingOff ? null : this.recoilAim(now, movementGoal);
+            // Recoil steering around an objective made tanks repeatedly reverse
+            // their hull while still technically making progress. Save recoil
+            // movement for actual combat; pushes use the stable orbit instead.
+            const recoil = null;
             return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : {
                 goal: movementGoal,
                 target: this.playfulAim(this.aimVector(pushTarget.x - this.body.x, pushTarget.y - this.body.y, now), now),
