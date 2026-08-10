@@ -1629,6 +1629,9 @@ class io_digWarsGoals extends IO {
         this.aimErrorAt = 0;
         this.rockBlacklist = new Map();
         this.objectiveBlacklist = new Map();
+        // Players this bot recently gave up chasing. A bot that hounds one
+        // person across the map is the single fastest way to make them quit.
+        this.playerBreakUntil = new Map();
         this.rockAt = 0;
         this.losCache = new Map();
         this.rangeAt = 0;
@@ -1642,7 +1645,14 @@ class io_digWarsGoals extends IO {
 
     retreatAt() {
         const temperament = this.body.botTemperament || 'balanced';
-        return temperament === 'aggressive' ? 0.24 : temperament === 'passive' ? 0.55 : 0.38;
+        let at = temperament === 'aggressive' ? 0.24 : temperament === 'passive' ? 0.55 : 0.38;
+        // Against a human, stand and fight longer. A bot that bolts for home
+        // the moment a duel turns even slightly against it robs the player of
+        // the kill they earned, and that chase-the-coward loop reads as
+        // cheap. Dying to a player is part of this job.
+        const attacker = this.body._lastDamageSource;
+        if (attacker?.isPlayer && Date.now() - (this.body._lastDamageAt || 0) < 4000) at *= 0.6;
+        return at;
     }
 
     isRammer() {
@@ -1726,10 +1736,10 @@ class io_digWarsGoals extends IO {
         return ok;
     }
 
-    aimVector(x, y, now) {
+    aimVector(x, y, now, skill = this.skill()) {
         if (now - this.aimErrorAt > 110) {
             this.aimErrorAt = now;
-            this.aimError = ran.gauss(0, (1 - this.skill()) * 0.07);
+            this.aimError = ran.gauss(0, (1 - skill) * 0.07);
         }
         const c = Math.cos(this.aimError), s = Math.sin(this.aimError);
         return { x: x * c - y * s, y: x * s + y * c };
@@ -1744,9 +1754,14 @@ class io_digWarsGoals extends IO {
             const tracking = gun.getTracking();
             if (tracking && tracking.speed > speed) speed = tracking.speed;
         }
-        const lead = speed > 0 ? util.clamp(distance / speed, 0, 0.7) * (0.5 + this.skill() * 0.5) : 0.2;
+        // Shooting at a player under mercy, the bot plays visibly worse -
+        // sloppier lead, wider spray - so the struggling player gets dodgeable
+        // fire rather than an aimbot finishing the job.
+        let skill = this.skill();
+        if (entity.isPlayer && (entity.socket?.botMercyUntil || 0) > now) skill *= 0.45;
+        const lead = speed > 0 ? util.clamp(distance / speed, 0, 0.7) * (0.5 + skill * 0.5) : 0.2;
         return this.aimVector(dx + (entity.velocity?.x || 0) * lead,
-                              dy + (entity.velocity?.y || 0) * lead, now);
+                              dy + (entity.velocity?.y || 0) * lead, now, skill);
     }
 
     // ── sensing ──────────────────────────────────────────────────────────
@@ -1823,6 +1838,10 @@ class io_digWarsGoals extends IO {
             // repelled from it, so chasing it is a guaranteed wasted trip.
             if (gem.chamberBias && gem.chamberBias === body.team) continue;
             if (gem.gemOwnerId !== undefined && gem.gemOwnerId !== body.id) continue;
+            // A dead player's scattered gems stay theirs for a moment: the
+            // run back to reclaim your own loot is a comeback story, and a
+            // bot vulturing it before you arrive is pure spite.
+            if (gem.gemLootFromPlayer && now - (gem.gemBornAt || 0) < 15000) continue;
             const distance = this.distanceTo(gem);
             if (distance > 700) continue;
             if (this.gemSealedInChamber(gem)) continue;
@@ -1918,7 +1937,15 @@ class io_digWarsGoals extends IO {
         if (this.rockBlacklist.size > 12) {
             for (const [rock, until] of this.rockBlacklist) if (until < now) this.rockBlacklist.delete(rock);
         }
-        const usable = rock => rock.alive && (this.rockBlacklist.get(rock) || 0) < now;
+        // Courtesy: a rock with a human parked next to it is that human's
+        // rock. Bots sniping the ore vein you were halfway through mining
+        // felt like theft, and there is always another rock.
+        const humans = (global.gameManager.socketManager?.players || [])
+            .map(player => player && player.body)
+            .filter(b => b && b.isPlayer && !b.isDead?.() && !b.isGhost);
+        const unclaimed = rock => !humans.some(h =>
+            (h.x - rock.wx) * (h.x - rock.wx) + (h.y - rock.wy) * (h.y - rock.wy) < 260 * 260);
+        const usable = rock => rock.alive && (this.rockBlacklist.get(rock) || 0) < now && unclaimed(rock);
         // Ore is worth walking for; plain rock is only a fallback so a bot in
         // a bare pocket still has something to do.
         return tg.nearestRockWhere(this.body.x, this.body.y, 950, rock => rock.ore && usable(rock)) ||
@@ -1984,6 +2011,28 @@ class io_digWarsGoals extends IO {
         return { x: body.x - (threat.x - body.x), y: body.y - (threat.y - body.y) };
     }
 
+    // Etiquette for starting fights with humans. None of this applies when
+    // the human shot first - self-defense is always allowed - and none of it
+    // applies to bot-vs-bot fights.
+    canInitiateFight(target, now) {
+        if (!target.isPlayer) return true;
+        const attackedMe = this.body._lastDamageSource === target &&
+            now - (this.body._lastDamageAt || 0) < 3000;
+        if (attackedMe) return true;
+        // Recently gave up chasing them: leave them alone for a while.
+        if ((this.playerBreakUntil.get(target.id) || 0) > now) return false;
+        // Mercy: somebody dying over and over to bots gets space to recover.
+        // It clears the moment they take a bot down themselves.
+        if ((target.socket?.botMercyUntil || 0) > now) return false;
+        // Dogpile cap: a 1v3 against machines is never a fun fight.
+        let fighting = 0;
+        for (const tank of botWorldScan().tanks) {
+            if (tank.isBot && tank !== this.body && tank._fightingPlayerId === target.id &&
+                ++fighting >= 2) return false;
+        }
+        return true;
+    }
+
     candidate(now) {
         const body = this.body, view = this.view;
         const health = body.health.max ? body.health.amount / body.health.max : 1;
@@ -1997,7 +2046,8 @@ class io_digWarsGoals extends IO {
         // Never chase somebody into their own base: the tile kills us on
         // entry, so an enemy hiding there is a shooting-range target at most.
         if (view.enemy && view.enemyDistance < this.engageRange() && !outnumbered &&
-            !inEnemyBase(body.team, view.enemy.x, view.enemy.y))
+            !inEnemyBase(body.team, view.enemy.x, view.enemy.y) &&
+            this.canInitiateFight(view.enemy, now))
             return { kind: 'fight', target: view.enemy };
         if (view.gem)
             return { kind: 'collect', gem: view.gem };
@@ -2038,10 +2088,23 @@ class io_digWarsGoals extends IO {
             }
             case 'bank':
                 return !!body.vaultDeposit || (body.carriedGems || 0) >= 15;
-            case 'fight':
-                return goal.target && !goal.target.isDead?.() && goal.target.health?.amount > 0 &&
-                    this.distanceTo(goal.target) < (body.fov || 1200) * 1.4 &&
-                    !inEnemyBase(body.team, goal.target.x, goal.target.y);
+            case 'fight': {
+                if (!goal.target || goal.target.isDead?.() || !(goal.target.health?.amount > 0) ||
+                    this.distanceTo(goal.target) >= (body.fov || 1200) * 1.4 ||
+                    inEnemyBase(body.team, goal.target.x, goal.target.y)) return false;
+                // Twelve seconds without a kill against a human is a chase,
+                // not a fight. Lose interest and let them breathe - unless
+                // they are still actively shooting back.
+                if (goal.target.isPlayer && now - this.goalStartedAt > 12000 &&
+                    !(body._lastDamageSource === goal.target && now - (body._lastDamageAt || 0) < 3000)) {
+                    if (this.playerBreakUntil.size > 8) {
+                        for (const [id, until] of this.playerBreakUntil) if (until < now) this.playerBreakUntil.delete(id);
+                    }
+                    this.playerBreakUntil.set(goal.target.id, now + 15000);
+                    return false;
+                }
+                return true;
+            }
             case 'collect':
                 return goal.gem && goal.gem.gemValue > 0 && !goal.gem.isDead?.() &&
                     this.distanceTo(goal.gem) < 900 && !this.gemSealedInChamber(goal.gem);
@@ -2135,6 +2198,9 @@ class io_digWarsGoals extends IO {
         this.body._digWarsGoal = candidate.kind;
         this.body._digWarsObjectivePoint = candidate.kind === 'objective' ? candidate.point : null;
         this.body._digWarsObjectiveKind = candidate.kind === 'objective' ? candidate.structure : null;
+        // Advertised so teammates can honor the dogpile cap.
+        this.body._fightingPlayerId = candidate.kind === 'fight' && candidate.target?.isPlayer
+            ? candidate.target.id : null;
     }
 
     // ── acting ───────────────────────────────────────────────────────────
@@ -2239,7 +2305,11 @@ class io_digWarsGoals extends IO {
             return { target: target ? { x: target.x - body.x, y: target.y - body.y } : forward, fire: false };
         }
         const enemy = this.view.enemy;
-        if (enemy && this.view.enemyDistance < this.weaponRange() && this.clearShot(enemy))
+        // Opportunistic fire obeys the same etiquette as starting a fight:
+        // no free potshots at somebody under mercy or freshly released from
+        // a chase. Return fire is always allowed via canInitiateFight.
+        if (enemy && this.view.enemyDistance < this.weaponRange() && this.clearShot(enemy) &&
+            (goal.kind === 'fight' && goal.target === enemy || this.canInitiateFight(enemy, now)))
             return { target: this.leadAim(enemy, now), fire: true };
         if (goal.kind === 'fight' && goal.target && this.distanceTo(goal.target) < this.weaponRange())
             return { target: this.leadAim(goal.target, now), fire: true };
@@ -2349,6 +2419,19 @@ class io_digWarsGoals extends IO {
         // and a bot has no reason to ever take that control away from them.
         body.autoOverride = false;
         this.sense(now);
+        // A beat of celebration after taking a player down - a little spin,
+        // guns quiet - before going back to work. Reads as a person enjoying
+        // the moment instead of a machine resuming its loop, and it hands the
+        // area a second of safety. Skipped if anything hostile is close.
+        if ((body._victoryEmoteUntil || 0) > now && this.view.enemyDistance > 500) {
+            this.emoteAngle = (this.emoteAngle ?? Math.atan2(body.control.target?.y || 0, body.control.target?.x || 1)) + 0.33;
+            this.nav.samples.length = 0;
+            return {
+                goal: { x: body.x, y: body.y },
+                target: { x: 120 * Math.cos(this.emoteAngle), y: 120 * Math.sin(this.emoteAngle) },
+                fire: false, main: false, alt: false,
+            };
+        }
         this.decide(now);
         if (!this.goal) return {};
         body._digWarsGoal = this.goal.kind;

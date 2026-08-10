@@ -836,9 +836,12 @@ class gameHandler {
     // happen. It never teleports and never targets the player directly: it
     // sets a destination in their region and lets the bot drive there.
     directorTick() {
-        const humans = (this.socketManagerPlayers?.() || [])
-            .filter(b => b && !b.isDead?.() && !b.isGhost);
         const now = Date.now();
+        // Players under mercy are not hosts: funneling fresh bots toward
+        // somebody who is already losing is manufactured frustration.
+        const humans = (this.socketManagerPlayers?.() || [])
+            .filter(b => b && !b.isDead?.() && !b.isGhost &&
+                !((b.socket?.botMercyUntil || 0) > now));
         if (!humans.length) return;
 
         const live = this.bots.filter(b => b && !b.isDead() && !b.isGhost);
@@ -878,9 +881,12 @@ class gameHandler {
     // still spawn anywhere so the rest of the map keeps living.
     botSpawnLocation(team) {
         const fallback = () => getSpawnableArea(team, global.gameManager);
+        // Same mercy rule as the director: no spawning reinforcements around
+        // a player who is already struggling.
         const humans = (global.gameManager.socketManager?.players || [])
             .map(p => p && p.body)
-            .filter(b => b && !b.isDead?.() && !b.isGhost && b.isPlayer);
+            .filter(b => b && !b.isDead?.() && !b.isGhost && b.isPlayer &&
+                !((b.socket?.botMercyUntil || 0) > Date.now()));
         if (!humans.length || Math.random() < 0.25) return fallback();
 
         const host = ran.choose(humans);
@@ -971,6 +977,18 @@ class gameHandler {
                 o._lastKillAt = Date.now();
                 o._collectLootUntil = o._lastKillAt + 5000;
             }
+            // Comeback pressure valve: a player losing to bots repeatedly gets
+            // breathing room - bots stop initiating on them and aim worse -
+            // until they take a bot down themselves. Nobody re-queues after
+            // being farmed by machines.
+            if (victim?.isPlayer && victim.socket) {
+                const s = victim.socket, now = Date.now();
+                s.botDeathStreak = now - (s.botDeathLastAt || 0) < 150_000 ? (s.botDeathStreak || 0) + 1 : 1;
+                s.botDeathLastAt = now;
+                if (s.botDeathStreak >= 2)
+                    s.botMercyUntil = now + Math.min(90_000, (s.botDeathStreak - 1) * 35_000);
+                o._victoryEmoteUntil = now + 1300;
+            }
         });
         this.bots.push(o);
         this.botStats.set(o.id, {
@@ -1033,6 +1051,14 @@ class gameHandler {
             const stats = this.botStats.get(o.id);
             if (stats) stats.deaths++;
             util.remove(this.bots, this.bots.indexOf(o));
+
+            // Killing a bot is the comeback: the moment a player lands one,
+            // mercy ends and bots treat them normally again.
+            const avenger = o._lastDamageSource;
+            if (avenger?.isPlayer && avenger.socket && Date.now() - (o._lastDamageAt || 0) < 8000) {
+                avenger.socket.botDeathStreak = 0;
+                avenger.socket.botMercyUntil = 0;
+            }
 
             // A bot is a little persistent character, not a disposable tank.
             // Keep its name through a small run of deaths, then let the slot

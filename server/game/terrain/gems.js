@@ -198,11 +198,14 @@ function dropGemsOnDeath(body) {
     for (const v of values) {
         if (v <= 0) continue;
         const ang = Math.random() * Math.PI * 2;
-        
+
         const sp  = 1.6 * (0.45 + Math.random() * 0.55);
-        spawnGem(body.x, body.y, v, 'gemPickupLoot',
+        const gem = spawnGem(body.x, body.y, v, 'gemPickupLoot',
                  Math.max(6.5, Math.min(15, 4.5 + 1.1 * Math.sqrt(v))),
                  Math.cos(ang) * sp, Math.sin(ang) * sp);
+        // A player's death drop is reserved from BOTS for a grace window so
+        // the player can run back for it. Other humans may take it freely.
+        if (gem) gem.gemLootFromPlayer = !!body.socket;
     }
 }
 
@@ -270,6 +273,10 @@ function tickGem(gem, tg, players) {
     for (const actor of players) {
         const body = actorBody(actor);
         if (!body || body.isDead() || body.isGhost) continue;
+        // Bots keep their hands off a dead player's loot during the reclaim
+        // window - no magnet, no pickup. Humans are unaffected.
+        if (body.isBot && gem.gemLootFromPlayer &&
+            Date.now() - (gem.gemBornAt || 0) < 15000) continue;
         const dx = body.x - gem.x, dy = body.y - gem.y;
         const d = Math.hypot(dx, dy) || 1;
         // A drop reserved for a tutorial player behaves toward everyone else
