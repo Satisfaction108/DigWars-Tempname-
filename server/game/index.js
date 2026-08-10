@@ -55,6 +55,41 @@ function pushOutOfChamberRing(chamber, body) {
     }
 }
 
+// Advanced collision impulses are intentionally soft, but two fast tanks can
+// still remain visibly inside each other for a frame. Bots should never occupy
+// the same hull as a player or teammate, so resolve the remaining penetration
+// explicitly after the normal collision response.
+function separateBotTanks(first, second) {
+    if (first.type !== 'tank' || second.type !== 'tank' ||
+        (!first.isBot && !second.isBot)) return;
+    const firstRadius = first.realSize || first.size || 1;
+    const secondRadius = second.realSize || second.size || 1;
+    let dx = second.x - first.x, dy = second.y - first.y;
+    let distance = Math.hypot(dx, dy);
+    if (distance >= firstRadius + secondRadius) return;
+    if (distance < 0.001) {
+        const angle = (((first.id || 0) * 0.754877666) + ((second.id || 1) * 1.324717957)) % (Math.PI * 2);
+        dx = Math.cos(angle); dy = Math.sin(angle); distance = 1;
+    }
+    const nx = dx / distance, ny = dy / distance;
+    const overlap = firstRadius + secondRadius - distance + 0.75;
+    const firstShare = first.isBot && second.isBot ? 0.5 : (first.isBot ? 0.58 : 0.42);
+    first.x -= nx * overlap * firstShare;
+    first.y -= ny * overlap * firstShare;
+    second.x += nx * overlap * (1 - firstShare);
+    second.y += ny * overlap * (1 - firstShare);
+
+    const relativeVelocity = (second.velocity.x - first.velocity.x) * nx +
+        (second.velocity.y - first.velocity.y) * ny;
+    if (relativeVelocity < 0) {
+        const impulse = -relativeVelocity * 0.45;
+        first.velocity.x -= nx * impulse * firstShare;
+        first.velocity.y -= ny * impulse * firstShare;
+        second.velocity.x += nx * impulse * (1 - firstShare);
+        second.velocity.y += ny * impulse * (1 - firstShare);
+    }
+}
+
 class gameHandler {
     constructor(parent) {
         this.gameManager = parent;
@@ -101,7 +136,9 @@ class gameHandler {
         
         if (instance.noclip || other.noclip) return 0;
 
-        
+        // Remove an existing bot/tank overlap before advancedcollide computes
+        // its direction vector; coincident centers otherwise produce NaNs.
+        separateBotTanks(instance, other);
         instance.emit('collide', { body: instance, instance, other });
         other.emit('collide', { body: other, instance: other, other: instance });
         
@@ -358,6 +395,9 @@ class gameHandler {
                 }
                 break;
         }
+        // Keep this after the regular response: advancedcollide may move the
+        // pair to its time-of-impact and reintroduce a visible overlap.
+        separateBotTanks(instance, other);
     };
 
     gameloop() {
@@ -664,11 +704,26 @@ class gameHandler {
 
     botUpgradeIndex(bot) {
         if (!bot.upgrades?.length) return null;
-        let options = bot.upgrades.map((upgrade, index) => ({ upgrade, index }));
-        if (!bot.botRammerAllowed) {
-            options = options.filter(({ upgrade }) => !/(smasher|spike|landmine|bonker|mace|flail)/i.test(JSON.stringify(upgrade.class || upgrade)));
-        }
-        return options.length ? ran.choose(options).index : null;
+        const options = bot.upgrades.map((upgrade, index) => ({ upgrade, index }));
+        const textFor = ({ upgrade }) => {
+            const classes = Array.isArray(upgrade.class) ? upgrade.class : [upgrade.class];
+            return [upgrade.index, ...classes.map(entry =>
+                typeof entry === 'string' ? entry : entry?.index || entry?.LABEL || '')]
+                .filter(Boolean).join(' ').toLowerCase();
+        };
+        const rammer = /(?:^|[-_ ])(?:smasher|spike|landmine|autosmasher|megasmasher|jumpsmasher|bonker|mace|flail)(?:$|[-_ ])/i;
+        const weak = /director|desmos|healer|overseer|underseer|spawner|cruiser|carrier|battleship|factory|manager|overlord|overtrapper|necromancer|maleficitor|infestor/;
+        let usable = options.filter(option => {
+            const text = textFor(option);
+            if (bot.botRammerAllowed) return rammer.test(text);
+            return !rammer.test(text) && !weak.test(text);
+        });
+        // A permitted rammer may have already taken its one body branch; keep
+        // it alive rather than forcing a random weak upgrade afterward.
+        if (!usable.length && bot.botRammerAllowed)
+            usable = options.filter(option => !weak.test(textFor(option)));
+        if (!usable.length) usable = options.filter(option => !rammer.test(textFor(option)) && !weak.test(textFor(option)));
+        return usable.length ? ran.choose(usable).index : null;
     }
 
     quickMaintainLoop = () => {
@@ -718,7 +773,9 @@ class gameHandler {
         // showoff moments are brief and never interrupt an actual player fight.
         o.botStyle = ran.choose(['normal', 'normal', 'normal', 'dancer', 'spinner']);
         o.botTemperament = ran.choose(['aggressive', 'aggressive', 'balanced', 'balanced', 'passive']);
-        o.botRammerAllowed = ran.chance(0.12);
+        // Body-only tanks are a spice, not the lobby's default. The upgrade
+        // picker below also forces the body branch only for this small group.
+        o.botRammerAllowed = ran.chance(0.08);
         o.name = botName;
         o.invuln = true;
         o.leftoverUpgrades = ran.chooseChance(...Config.bot_class_upgrade_chances);
@@ -855,31 +912,26 @@ class gameHandler {
     };
 
     botChatReply(bot, rawMessage) {
+        // This is intentionally a small, deterministic emergency fallback.
+        // A failed model request must never turn into a random reaction.
         const message = String(rawMessage || '').trim().toLowerCase();
         const addressed = this.botNameMentioned(message, bot);
-        const saysNo = /^(nah|no|nope|dont|don't|i dont|i don't|not really|maybe not)/.test(message);
+        const saysNo = /^(nah|no|nope|dont|don't|i dont|i don't|not really|maybe not)\b/.test(message);
         if (bot._askedDiscordAt && Date.now() - bot._askedDiscordAt < 25_000) {
             bot._askedDiscordAt = 0;
-            return saysNo ? ran.choose(['all good lol', 'fair enough', 'no worries']) : ran.choose(['alr ill add u lol', 'bet, ill add u', 'sounds good']);
+            return saysNo ? 'all good lol' : 'bet, ill add u';
         }
-        if (/\b(kill|shoot|die|destroy)\b/.test(message)) {
-            return ran.choose(['yo im chill', 'really bruh', 'why me lol', 'nah im good']);
-        }
-        // Short messages containing this bot's name must get an actual
-        // addressed response; never fall through to a random "lol yeah".
-        if (addressed && message.split(/\s+/).length <= 4 && !/discord|dc\b/.test(message)) {
-            return ran.choose(['yo whats up', 'sup', 'yeah?', 'what u need lol', 'im here']);
-        }
-        if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup)\b/.test(message)) {
-            return ran.choose(['yo', 'hey', 'yo lol', 'sup', 'heyy']);
-        }
+        if (/\b(kill|shoot|die|destroy)\b/.test(message)) return 'yo im chill';
         if (/discord|dc\b/.test(message)) {
             bot._askedDiscordAt = Date.now();
-            return ran.choose(['whats ur discord', 'u got discord?', "what's ur dc", 'drop ur discord']);
+            return 'whats ur discord';
         }
-        if (/^(thanks|thx|ty)\b/.test(message)) return ran.choose(['np', 'all good', 'yw lol']);
-        if (/^(bye|cya|later)\b/.test(message)) return ran.choose(['later', 'cya', 'peace']);
-        return ran.choose(['fr', 'lol yeah', 'true', 'same tbh', 'no way lol', 'yeah i feel that', 'lmao']);
+        if (addressed && message.split(/\s+/).length <= 4) return 'yo whats up';
+        if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup|hyd)\b/.test(message)) return 'yo';
+        if (/^(thanks|thx|ty)\b/.test(message)) return 'np';
+        if (/^(bye|cya|later)\b/.test(message)) return 'later';
+        // Unknown messages are safer as silence than an irrelevant agreement.
+        return null;
     }
 
     sanitizeBotReply(reply) {
@@ -889,6 +941,28 @@ class gameHandler {
             .trim()
             .toLowerCase()
             .slice(0, 96);
+    }
+
+    chatReplyIsUsable(reply, rawMessage, bot) {
+        const text = this.sanitizeBotReply(reply);
+        const message = String(rawMessage || '').trim().toLowerCase();
+        if (!text || text.length < 2 || text.length > 96) return false;
+        if (/[<>${}]/.test(text) || /\b(as an ai|as a bot|language model|i cannot comply)\b/.test(text)) return false;
+        // Reject the exact low-information reactions that made the old
+        // fallback feel random. DeepSeek may still use casual slang, but it
+        // must contribute an actual answer.
+        if (/^(fr|lol yeah|true|same tbh|no way lol|yeah i feel that|lmao|yeah)\W*$/.test(text)) return false;
+        if (/\b(discord|dc)\b/.test(message) && !/\b(discord|dc|add|send|drop|have)\b/.test(text)) return false;
+        if (/\b(kill|shoot|die|destroy)\b/.test(message) && !/\b(chill|why|me|nah|no|stop|lol|please|fight)\b/.test(text)) return false;
+        if (this.botNameMentioned(message, bot) && message.split(/\s+/).length <= 4) {
+            const greeting = /^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup|hyd)\b/.test(message) ||
+                message.split(/\s+/).length === 1;
+            const directAnswer = greeting
+                ? /\b(yo|hey|hi|sup|wsp|what|up|here)\b|\?/.test(text)
+                : !/^(fr|lol|true|same|yeah|yep|nah|lmao)\b/.test(text);
+            if (!directAnswer) return false;
+        }
+        return true;
     }
 
     botChatActivity(bot) {
@@ -914,16 +988,14 @@ class gameHandler {
     async aiBotChatReply(bot, rawMessage) {
         const fallback = this.botChatReply(bot, rawMessage);
         const now = Date.now();
-        const directAddress = this.botNameMentioned(String(rawMessage), bot) &&
-            String(rawMessage).trim().split(/\s+/).length <= 4;
-        // Tiny name calls are handled locally so they cannot waste an API
-        // request or produce a contextless generic answer.
-        if (directAddress || !Config.bot_chat_ai_enabled || typeof fetch !== 'function' || now < this.botChatAiRetryAt)
-            return fallback;
+        // Every ordinary player message that reaches a nearby bot is sent to
+        // DeepSeek, including short messages such as just the bot's name.
+        // The local reply is only a provider-failure fallback.
+        if (!Config.bot_chat_ai_enabled || typeof fetch !== 'function') return fallback;
 
         bot._chatHistory ??= [];
         const history = bot._chatHistory.slice(-8);
-        const system = `you are a casual player in a fast multiplayer tank game. your name is ${bot.name}. right now you are ${this.botChatActivity(bot)}. reply like a real teen in one short sentence, mostly lowercase, with normal slang. if someone says your name, answer them directly and do not ignore the name. do not reply with a generic reaction that fails to address the player. do not sound like an assistant, do not write paragraphs, do not claim you actually added someone or performed an action outside the game, and do not mention being a bot or an ai.`;
+        const system = `you are ${bot.name}, a casual human-like player in a fast multiplayer tank game. right now you are ${this.botChatActivity(bot)}. answer the player's latest message directly in one short casual sentence, mostly lowercase, using natural slang. respond to what they actually said, not to a random imagined conversation. never use empty reactions like "lol yeah", "fr", "true", or "same tbh" as the whole answer. if you do not understand, ask a short clarification instead of inventing context. if the message is only your name, greet them and ask what is up. if they say a greeting plus your name, greet them back. if they ask a question, answer that question. if they ask about discord, respond naturally. if they threaten to kill you, respond as yourself. never ignore the exact message or the fact that your name was addressed. do not sound like an assistant, do not write paragraphs, do not claim actions outside the game, and do not mention being a bot or an ai.`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), Config.bot_chat_timeout_ms);
         try {
@@ -939,18 +1011,19 @@ class gameHandler {
                     messages: [
                         { role: 'system', content: system },
                         ...history,
-                        { role: 'user', content: String(rawMessage).slice(0, 160) },
+                        { role: 'user', content: `the player just said: "${String(rawMessage).slice(0, 160)}"\nreply directly to that message as ${bot.name}.` },
                     ],
-                    temperature: 0.9,
-                    max_tokens: 48,
+                    temperature: 0.35,
+                    top_p: 0.75,
+                    max_tokens: 40,
                 }),
             });
             if (!response.ok) throw new Error(`chat api ${response.status}`);
             const data = await response.json();
             const reply = this.sanitizeBotReply(data?.message?.content || data?.choices?.[0]?.message?.content);
-            if (!reply) throw new Error('empty chat reply');
+            if (!this.chatReplyIsUsable(reply, rawMessage, bot)) throw new Error('irrelevant chat reply');
             this.botChatAiAvailable = true;
-            bot._chatHistory.push({ role: 'user', content: String(rawMessage).slice(0, 160) });
+            bot._chatHistory.push({ role: 'user', content: `the player just said: "${String(rawMessage).slice(0, 160)}"` });
             bot._chatHistory.push({ role: 'assistant', content: reply });
             bot._chatHistory = bot._chatHistory.slice(-8);
             return reply;
@@ -980,28 +1053,28 @@ class gameHandler {
         // A message aimed at a bot who is farther away must not accidentally
         // make a random nearby bot answer it.
         if (mentionsAnyBot && !addressed.length) return;
-        const greeting = /^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup)\b/i.test(text);
-        const selected = addressed.length
-            ? addressed.find(({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0))
-            : greeting
-                ? nearby.find(({ bot }) => !bot._chatPending && Date.now() >= (bot._nextChatAt || 0) && Math.random() < 0.65)
-                : null;
+        // Every ordinary message gets exactly one nearby responder. A named
+        // bot wins; otherwise the nearest bot answers so the reply is never
+        // a random pile-on from the whole lobby.
+        const selected = addressed.length ? addressed[0] : nearby[0];
         // If a player named a nearby bot, nobody else gets to answer.
         if (!selected) return;
 
         const bot = selected.bot;
+        bot._chatPendingCount = (bot._chatPendingCount || 0) + 1;
         bot._chatPending = true;
         bot._chatPauseUntil = Date.now() + 5000;
         bot._nextChatAt = Date.now() + 9000 + Math.random() * 7000;
         setTimeout(async () => {
             try {
                 const reply = await this.aiBotChatReply(bot, text);
-                if (this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900) {
+                if (reply && this.hasRealPlayers() && !bot.isDead() && !bot.isGhost && Math.hypot(bot.x - player.x, bot.y - player.y) <= 900) {
                     bot.say(reply);
                     bot._chatPauseUntil = Date.now() + 700 + Math.random() * 900;
                 }
             } finally {
-                bot._chatPending = false;
+                bot._chatPendingCount = Math.max(0, (bot._chatPendingCount || 1) - 1);
+                bot._chatPending = bot._chatPendingCount > 0;
             }
         }, 1100 + Math.random() * 1500);
     }
@@ -1013,34 +1086,9 @@ class gameHandler {
     }
 
     botAmbientChat() {
-        const now = Date.now();
-        if (!Config.dig_wars || !this.hasRealPlayers() || now < this.botChatAt || this.bots.length < 2) return;
-        this.botChatAt = now + 40_000 + Math.random() * 25_000;
-        const humanBodies = this.gameManager.socketManager.players
-            .map(player => player && player.body)
-            .filter(body => body && !body.isDead() && !body.isGhost);
-        const pairs = [];
-        for (let i = 0; i < this.bots.length; i++) {
-            for (let j = i + 1; j < this.bots.length; j++) {
-                const a = this.bots[i], b = this.bots[j];
-                if (a.isDead() || b.isDead() || a.team !== b.team) continue;
-                const nearHuman = humanBodies.some(human =>
-                    Math.hypot(a.x - human.x, a.y - human.y) < 700 ||
-                    Math.hypot(b.x - human.x, b.y - human.y) < 700
-                );
-                if (nearHuman && Math.hypot(a.x - b.x, a.y - b.y) < 430) pairs.push([a, b]);
-            }
-        }
-        if (!pairs.length || Math.random() > 0.01) return;
-        const [a, b] = ran.choose(pairs);
-        a._chatPauseUntil = Date.now() + 1400;
-        a.say(ran.choose(['u heading mid?', 'u mining here too?', 'hold up lol', 'we got this']));
-        setTimeout(() => {
-            if (this.hasRealPlayers() && !b.isDead() && Math.hypot(a.x - b.x, a.y - b.y) < 650) {
-                b._chatPauseUntil = Date.now() + 1400;
-                b.say(ran.choose(['yeah lol', 'yep', 'on my way', 'bet', 'same here']));
-            }
-        }, 1200 + Math.random() * 1600);
+        // Bot-to-bot ambient lines were not player conversation and frequently
+        // looked like random NPC noise. Keep chat player-triggered only.
+        return;
     }
 
     sampleBotTelemetry() {

@@ -1326,7 +1326,7 @@ class io_scaleWithMaster extends IO {
 }
 
 // Dig Wars: every bot controller chain starts with this. When the body has
-// a movement goal but hasn't actually moved anywhere in about a second it
+// a movement goal but hasn't actually moved anywhere in about two seconds it
 // jams against rock, so we pick an escape heading perpendicular to the
 // blocked direction and override movement for 600-1000ms. Repeated jams at
 // the same spot escalate: try the other side, then reverse out entirely.
@@ -1368,7 +1368,7 @@ class io_unstick extends IO {
 
         // Record position
         this.history.push({ x: b.x, y: b.y, t: now });
-        while (this.history.length > 1 && now - this.history[0].t > 1200)
+        while (this.history.length > 1 && now - this.history[0].t > 1800)
             this.history.shift();
 
         // Already escaping — hold the line until the timer expires
@@ -1392,6 +1392,13 @@ class io_unstick extends IO {
         const miningContact = b._digWarsGoal === 'mine' && b.grindTouchUntil > now;
         const miningStalled = miningContact && now - this.lastMineProgressAt > 3000;
         if (miningContact && !miningStalled) {
+            this.history.length = 0;
+            return {};
+        }
+        // Armed miners use a deliberate firing lane, not hull contact. Do not
+        // let the generic jam escape make them reverse away from a rock and
+        // then lurch forward again while their bullets are working.
+        if (b._digWarsGoal === 'mine' && !b.botIsRammer) {
             this.history.length = 0;
             return {};
         }
@@ -1419,7 +1426,7 @@ class io_unstick extends IO {
         // Tanks are large but their world-speed is comparatively small. Using
         // half the hull size here called ordinary slow movement "stuck" every
         // second, which made bots twitch and flee from perfectly open ground.
-        const progressThreshold = Math.max(1, Math.min(b.size * 0.5, (b.topSpeed || 1) * 0.25));
+        const progressThreshold = Math.max(1.5, Math.min(b.size * 0.5, (b.topSpeed || 1) * 0.12));
         if (dist >= progressThreshold) {
             // Moving freely — cool down escalation after a few seconds
             if (this.lastJam && now - this.lastJam.t > 3000) {
@@ -1513,6 +1520,11 @@ class io_digWarsGoals extends IO {
         this.nextShowoffAt = Date.now() + 5000 + Math.random() * 8000;
         this.showoffAngle = ran.random(2 * Math.PI);
         this.cachedObjective = null;
+        // Each bot gets a different orbit phase and pace. These are deliberately
+        // independent from the squad target so a push looks like people moving
+        // together, not a synchronized animation.
+        this.orbitPlan = null;
+        this.minePlan = null;
     }
 
     skillLevel() {
@@ -1850,6 +1862,46 @@ class io_digWarsGoals extends IO {
         return { x: target.x + Math.cos(angle) * radius, y: target.y + Math.sin(angle) * radius };
     }
 
+    orbitGoal(target, desiredRange, now, key) {
+        const slot = this.body._botPushSlot ?? 0;
+        const size = this.body._botPushSize || 1;
+        if (!this.orbitPlan || this.orbitPlan.key !== key) {
+            const startingAngle = Math.atan2(this.body.y - target.y, this.body.x - target.x);
+            this.orbitPlan = {
+                key,
+                startedAt: now,
+                phase: startingAngle + ran.gauss(0, 0.35),
+                rate: (0.00018 + Math.random() * 0.00024) * (ran.chance(0.5) ? 1 : -1),
+            };
+        }
+        const offset = slot - (size - 1) / 2;
+        const angle = this.orbitPlan.phase + (now - this.orbitPlan.startedAt) * this.orbitPlan.rate + offset * 0.58;
+        const radius = desiredRange + Math.abs(offset) * 28;
+        return {
+            x: target.x + Math.cos(angle) * radius,
+            y: target.y + Math.sin(angle) * radius,
+        };
+    }
+
+    mineFiringPoint(rock, now) {
+        const key = `mine:${rock.k ?? rock.wx}`;
+        if (!this.minePlan || this.minePlan.key !== key) {
+            const angle = Math.atan2(this.body.y - rock.wy, this.body.x - rock.wx) || this.orbitSign * Math.PI / 2;
+            this.minePlan = {
+                key,
+                startedAt: now,
+                phase: angle + ran.gauss(0, 0.18),
+                rate: (0.00012 + Math.random() * 0.00016) * (ran.chance(0.5) ? 1 : -1),
+            };
+        }
+        const range = Math.max(145, (this.body.realSize || this.body.size || 1) * 2.8);
+        const angle = this.minePlan.phase + (now - this.minePlan.startedAt) * this.minePlan.rate;
+        return {
+            x: rock.wx + Math.cos(angle) * range,
+            y: rock.wy + Math.sin(angle) * range,
+        };
+    }
+
     engagePoint(target, desiredRange) {
         const dx = target.x - this.body.x, dy = target.y - this.body.y;
         const distance = Math.hypot(dx, dy) || 1;
@@ -2091,11 +2143,12 @@ class io_digWarsGoals extends IO {
                 ? this.body._botPushTarget : goal.point;
             const destination = this.isRammer()
                 ? pushTarget
-                : (this.body._botPushTarget ? this.pushFormationPoint(pushTarget, desiredRange) : this.engagePoint(pushTarget, desiredRange));
-            // Armed tanks hold a firing lane around the structure instead of
-            // nose-diving into its banner just because the objective is close.
+                : this.orbitGoal(pushTarget, desiredRange, now, `objective:${goal.point.id}`);
+            // Armed tanks keep drifting around the objective instead of
+            // parking on one pixel. Every bot has its own phase and orbit rate,
+            // while rammer tanks still take the direct contact lane.
             const movementGoal = this.rockSafeGoal(
-                this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, true), now), destination
+                this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, true, 28), now), destination
             );
             const showingOff = this.showoffUntil > now && this.body.botStyle !== 'normal';
             const recoil = showingOff ? null : this.recoilAim(now, movementGoal);
@@ -2143,14 +2196,13 @@ class io_digWarsGoals extends IO {
         if (goal.kind === 'mine') {
             this.body._digWarsCombatTarget = null;
             this.body._digWarsMineRock = goal.rock;
-            // Only true rammers should physically enter the rock line. Gun and
-            // drone tanks stay put and mine from range, even with body damage.
+            // Only true rammers should physically enter the rock line. Armed
+            // tanks use a slowly moving firing lane, which makes them feel
+            // alive without ever steering their hull into the rock.
+            const rockPoint = { x: goal.rock.wx, y: goal.rock.wy };
             const movementGoal = this.isRammer()
-                ? this.steerGoal({ x: goal.rock.wx, y: goal.rock.wy }, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25)
-                // Armed tanks mine from a stationary firing lane. This is
-                // intentionally stricter than merely checking body damage:
-                // guns and drones must never use the rock as a bumper.
-                : { x: this.body.x, y: this.body.y };
+                ? this.steerGoal(rockPoint, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25)
+                : this.rockSafeGoal(this.mineFiringPoint(goal.rock, now), rockPoint);
             if (this.isRammer()) {
                 // A rammer breaks terrain through contact, never through an
                 // imaginary ranged attack while it is still approaching.
