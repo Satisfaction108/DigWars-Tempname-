@@ -1862,12 +1862,24 @@ class io_digWarsGoals extends IO {
         return terrain.nearestRock ? terrain.nearestRock(this.body.x, this.body.y, 450) : null;
     }
 
+    // A structure's collision body is much larger than an enemy tank, so the
+    // orbit radius must clear the whole structure or the bot drives into the
+    // chamber/outpost face and looks stuck while pushing against it.
+    clearanceFor(target) {
+        if (!target) return 0;
+        const chamber = digWarsChambers.getChambers().find(c => c.id === target.id);
+        if (chamber) return chamber.r + 30;
+        const outpost = digWarsOutposts.getOutposts().find(o => o.id === target.id);
+        if (outpost) return outpost.r + 25;
+        return (target.realSize || target.size || 0) * 0.5 + 20;
+    }
+
     pushFormationPoint(target, desiredRange) {
         const slot = this.body._botPushSlot ?? 0;
         const size = this.body._botPushSize || 1;
         const base = Math.atan2(this.body.y - target.y, this.body.x - target.x);
         const angle = base + (slot - (size - 1) / 2) * 0.6;
-        const radius = desiredRange + Math.abs(slot - (size - 1) / 2) * 28;
+        const radius = desiredRange + this.clearanceFor(target) + Math.abs(slot - (size - 1) / 2) * 28;
         return { x: target.x + Math.cos(angle) * radius, y: target.y + Math.sin(angle) * radius };
     }
 
@@ -1885,7 +1897,7 @@ class io_digWarsGoals extends IO {
         }
         const offset = slot - (size - 1) / 2;
         const angle = this.orbitPlan.phase + (now - this.orbitPlan.startedAt) * this.orbitPlan.rate + offset * 0.58;
-        const radius = desiredRange + Math.abs(offset) * 28;
+        const radius = desiredRange + this.clearanceFor(target) + Math.abs(offset) * 28;
         return {
             x: target.x + Math.cos(angle) * radius,
             y: target.y + Math.sin(angle) * radius,
@@ -1981,6 +1993,30 @@ class io_digWarsGoals extends IO {
         // face, then the movement controller kept requesting the same blocked
         // waypoint. Give the whole tank a small clearance margin.
         const radius = Math.max(this.body.realSize || this.body.size || 1, 12) * 1.05 + 3;
+        // Chambers and outpost banners have real collision bodies even though
+        // they are not terrain rocks. Armed bots must never try to drive into
+        // one; rammers still charge the structure directly so they keep their
+        // direct lane. The depth guard stops any pathological re-entry.
+        if (!this.isRammer()) {
+            const chambers = digWarsChambers.getChambers();
+            const outposts = digWarsOutposts.getOutposts();
+            const structureBlocks = (x, y) => {
+                for (const chamber of chambers) {
+                    if (!chamber.entity || chamber.entity.isDead?.()) continue;
+                    if (Math.hypot(x - chamber.x, y - chamber.y) < chamber.r + radius) return true;
+                }
+                for (const outpost of outposts) {
+                    const banner = outpost.banner;
+                    if (!banner || banner.isDead?.()) continue;
+                    if (Math.hypot(x - banner.x, y - banner.y) < (banner.realSize || banner.size || 30) + radius) return true;
+                }
+                return false;
+            };
+            if (structureBlocks(goal.x, goal.y)) {
+                const orbit = this.orbitGoal(target || goal, this.desiredCombatRange(), Date.now(), `clear:${goal.x},${goal.y}`);
+                if (!structureBlocks(orbit.x, orbit.y)) return this.rockSafeGoal(orbit, target);
+            }
+        }
         const room = global.gameManager && global.gameManager.room;
         const insideRoom = point => !room || (
             Math.abs(point.x) < room.width / 2 - radius - 35 &&

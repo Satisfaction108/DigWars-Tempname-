@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const gems = require('./terrain/gems.js');
 const mining = require('./terrain/mining.js');
 const vault = require('./terrain/vault.js');
@@ -707,18 +708,49 @@ class gameHandler {
         }
     }
 
+    botTankExclusions() {
+        // Keep the player-editable checklist as the source of truth. Read it
+        // at selection time so an admin can change [x] entries and restart the
+        // match without another code edit. A missing file means no extra
+        // exclusions, preserving the existing built-in safety filters below.
+        try {
+            const checklist = fs.readFileSync(
+                path.join(__dirname, '..', '..', 'BOT_TANK_CHECKLIST.md'),
+                'utf8'
+            );
+            const excluded = new Set();
+            for (const rawLine of checklist.split(String.fromCharCode(10))) {
+                const line = rawLine.trim();
+                if (!line.toLowerCase().startsWith('- [x]')) continue;
+                const start = line.indexOf('(`');
+                const end = start < 0 ? -1 : line.indexOf('`)', start + 2);
+                if (start >= 0 && end > start + 2) {
+                    excluded.add(line.slice(start + 2, end).trim().toLowerCase());
+                }
+            }
+            return excluded;
+        } catch {
+            return new Set();
+        }
+    }
+
     botUpgradeIndex(bot) {
         if (!bot.upgrades?.length) return null;
         const options = bot.upgrades.map((upgrade, index) => ({ upgrade, index }));
-        const textFor = ({ upgrade }) => {
+        const excluded = this.botTankExclusions();
+        const classIdsFor = ({ upgrade }) => {
             const classes = Array.isArray(upgrade.class) ? upgrade.class : [upgrade.class];
             return [upgrade.index, ...classes.map(entry =>
                 typeof entry === 'string' ? entry : entry?.index || entry?.LABEL || '')]
-                .filter(Boolean).join(' ').toLowerCase();
+                .filter(Boolean)
+                .map(value => String(value).trim().toLowerCase());
         };
+        const textFor = option => classIdsFor(option).join(' ');
         const rammer = /(?:^|[-_ ])(?:smasher|spike|landmine|autosmasher|megasmasher|jumpsmasher|bonker|mace|flail)(?:$|[-_ ])/i;
         const weak = /director|desmos|healer|overseer|underseer|spawner|cruiser|carrier|battleship|factory|manager|overlord|overtrapper|necromancer|maleficitor|infestor/;
         let usable = options.filter(option => {
+            const ids = classIdsFor(option);
+            if (ids.some(id => excluded.has(id))) return false;
             const text = textFor(option);
             if (bot.botRammerAllowed) return rammer.test(text);
             return !rammer.test(text) && !weak.test(text);
@@ -726,8 +758,15 @@ class gameHandler {
         // A permitted rammer may have already taken its one body branch; keep
         // it alive rather than forcing a random weak upgrade afterward.
         if (!usable.length && bot.botRammerAllowed)
-            usable = options.filter(option => !weak.test(textFor(option)));
-        if (!usable.length) usable = options.filter(option => !rammer.test(textFor(option)) && !weak.test(textFor(option)));
+            usable = options.filter(option =>
+                !classIdsFor(option).some(id => excluded.has(id)) &&
+                !weak.test(textFor(option))
+            );
+        if (!usable.length) usable = options.filter(option =>
+            !classIdsFor(option).some(id => excluded.has(id)) &&
+            !rammer.test(textFor(option)) &&
+            !weak.test(textFor(option))
+        );
         return usable.length ? ran.choose(usable).index : null;
     }
 
