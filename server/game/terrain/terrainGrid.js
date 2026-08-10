@@ -1366,6 +1366,12 @@ class TerrainGrid {
     
     
     nearestRock(wx, wy, maxR = 450) {
+        return this.nearestRockWhere(wx, wy, maxR, null);
+    }
+
+    // Same lattice walk as nearestRock with an optional predicate, so callers
+    // can ask for "nearest ore rock" without scanning every rock on the map.
+    nearestRockWhere(wx, wy, maxR = 450, predicate = null) {
         if (!this._voronoiMap) return null;
         const halfW = this.cols * this.cellSize / 2;
         const halfH = this.rows * this.cellSize / 2;
@@ -1381,6 +1387,7 @@ class TerrainGrid {
                     vj < this._voroVjLo || vj > this._voroVjHi) continue;
                 const rock = this.rocks.get(vi * 100003 + vj);
                 if (!rock || !rock.alive) continue;
+                if (predicate && !predicate(rock)) continue;
                 const dx = rock.wx - wx, dy = rock.wy - wy;
                 const d2 = dx * dx + dy * dy;
                 if (d2 < best) { best = d2; hit = rock; }

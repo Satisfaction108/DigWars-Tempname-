@@ -31,8 +31,11 @@ const SATCHEL_CAP  = 4000;
 const DEATH_DROP   = 0.85;  
 
 const BANK_DEATH_LOSS = 0.4;
-const MAGNET_BONUS = 110;   
-const PICKUP_SLOP  = 0.6;   
+const MAGNET_BONUS = 110;
+// A full gem radius of grab slack: at 0.6 a gem sliding past a moving tank
+// could stay just outside the touch ring for its whole flyby, which read as
+// "the gem passed straight through me".
+const PICKUP_SLOP  = 1.0;
 
 const GEM_MAX_SPEED = 6;
 
@@ -49,6 +52,7 @@ function spawnGem(x, y, value, cls, size, vx = 0, vy = 0) {
     
     
     o.RANGE = o.range = 5400 + Math.random() * 900;
+    o.gemBornAt = Date.now();
     o.refreshBodyAttributes();
     
     const facetCls = FACET_CLASS[cls];
@@ -220,9 +224,32 @@ function tickGem(gem, tg, players) {
     
     
     if (tg.pointInRock(gem.x, gem.y)) {
-        if (gem.gemSafeX !== undefined) {
+        const safeStillOpen = gem.gemSafeX !== undefined && !tg.pointInRock(gem.gemSafeX, gem.gemSafeY);
+        if (safeStillOpen) {
             gem.x = gem.gemSafeX;
             gem.y = gem.gemSafeY;
+        } else {
+            // Rock regrew over the last known open spot, so the gem has no
+            // memory to fall back on and used to sit inside the boulder until
+            // somebody mined it out. Walk outward for the nearest free ground.
+            const now = Date.now();
+            if (now - (gem.gemDigOutAt || 0) > 400) {
+                gem.gemDigOutAt = now;
+                const step = Math.max(18, gem.realSize * 2);
+                let freed = false;
+                for (let ring = 1; ring <= 6 && !freed; ring++) {
+                    for (let i = 0; i < 12; i++) {
+                        const a = (i / 12) * Math.PI * 2 + ring * 0.26;
+                        const x = gem.x + Math.cos(a) * step * ring;
+                        const y = gem.y + Math.sin(a) * step * ring;
+                        if (tg.pointInRock(x, y)) continue;
+                        gem.x = x; gem.y = y;
+                        gem.gemSafeX = x; gem.gemSafeY = y;
+                        freed = true;
+                        break;
+                    }
+                }
+            }
         }
         gem.velocity.x = 0;
         gem.velocity.y = 0;
@@ -233,8 +260,13 @@ function tickGem(gem, tg, players) {
 
     if (!(gem.gemValue > 0)) return;
 
+    // Two separate questions: who is the gem flying toward (one actor, the
+    // magnet), and who is actually touching it (anyone). They used to be the
+    // same answer, so a gem reserved by a distant miner could not be picked up
+    // by the player standing on top of it - it simply passed through them.
     let best = null, bestD = Infinity, bestScore = Infinity;
-    const bias = gem.chamberBias;   
+    let toucher = null, toucherD = Infinity;
+    const bias = gem.chamberBias;
     for (const actor of players) {
         const body = actorBody(actor);
         if (!body || body.isDead() || body.isGhost) continue;
@@ -278,9 +310,27 @@ function tickGem(gem, tg, players) {
             }
             continue;
         }
+        const pickR = body.realSize + gem.realSize * PICKUP_SLOP;
+        if (d <= pickR && d < toucherD) { toucherD = d; toucher = body; }
+        // Whoever broke the rock gets a head start on their own ore, but only
+        // a brief one. A permanent flat bonus meant a fresh drop would flee
+        // from the player standing on it toward a miner 400 units away, which
+        // is the "gems ignore me and fly to a bot" bug.
         const sourceCollector = body.id === gem.gemSourceId && d < 850;
-        const score = d - (sourceCollector ? 100000 : 0);
+        const age = Date.now() - (gem.gemBornAt || 0);
+        const claimBonus = sourceCollector ? (age < 2500 ? 320 : 40) : 0;
+        const score = d - claimBonus;
         if (score < bestScore) { bestScore = score; bestD = d; best = body; }
+    }
+
+    if (toucher) {
+        const v = gem.gemValue;
+        gem.gemValue = 0;
+        toucher.carriedGems = (toucher.carriedGems | 0) + v;
+        updateSatchel(toucher);
+        talkGems(toucher, v);
+        gem.kill();
+        return;
     }
 
     // hard ceiling: loot never outruns a tank - the shove bubbles above
@@ -293,20 +343,6 @@ function tickGem(gem, tg, players) {
     }
     if (!best) return;
 
-    const pickR = best.realSize + gem.realSize * PICKUP_SLOP;
-    if (bestD <= pickR) {
-        
-        
-        const v = gem.gemValue;
-        gem.gemValue = 0;
-        best.carriedGems = (best.carriedGems | 0) + v;
-        updateSatchel(best);
-        talkGems(best, v);
-        gem.kill();
-        return;
-    }
-
-    
     const magR = (best.realSize * 2.6 + MAGNET_BONUS) * (bias ? 1.45 : 1);
     if (bestD < magR) {
         

@@ -4,6 +4,18 @@ class Activation {
         this.active = true;
         this.timer = 15;
     }
+    // A bot's bullets, drones and traps must keep simulating with no player
+    // camera nearby, or bots can only mine and fight while being watched -
+    // off-screen their shots died within a tick and every gun bot looked
+    // frozen until someone drove over to it.
+    botOwned() {
+        if (this.body._rootIsBot === undefined) {
+            let root = this.body, hops = 0;
+            while (root.master && root.master !== root && hops++ < 8) root = root.master;
+            this.body._rootIsBot = !!(root.isBot || root.isPlayer);
+        }
+        return this.body._rootIsBot;
+    }
     update() {
         if (this.body.skipLife) { return this.active = false; }
         if (this.body.alwaysActive) { return this.active = true; }
@@ -11,13 +23,17 @@ class Activation {
         switch (this.active) {
             case false:
                 this.body.removeFromGrid();
-                if (this.body.settings.diesAtRange) this.body.kill();
-                if (!(this.timer--)) this.active = true; 
+                // A dropped gem is world state, not a projectile. Killing it
+                // the moment no client camera covers it meant every gem mined
+                // away from a player - all bot mining, and anything you walked
+                // away from - silently vanished.
+                if (this.body.settings.diesAtRange && !this.body.isGemPickup && !this.botOwned()) this.body.kill();
+                if (!(this.timer--)) this.active = true;
                 break;
             case true:
                 this.body.addToGrid();
                 this.timer = 15;
-                this.active = this.body.isPlayer || this.body.isBot || global.gameManager.views.some(v => v.check(this.body, 0.6));
+                this.active = this.body.isPlayer || this.body.isBot || this.botOwned() || global.gameManager.views.some(v => v.check(this.body, 0.6));
                 break;
         }
     }

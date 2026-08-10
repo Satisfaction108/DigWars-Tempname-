@@ -651,7 +651,7 @@ class io_nearestDifferentMaster extends IO {
         if (!b || b.master.autoOverride) return null;
         let root = b, guard = 0;
         while (root.master && root.master !== root && guard++ < 8) root = root.master;
-        if (!root.isPlayer) return null;
+        if (!root.isPlayer && !root.isBot) return null;
         const tg = global.gameManager && global.gameManager.terrainGrid;
         if (!tg || !tg.nearestRock) return null;
         const now = Date.now();
@@ -1325,183 +1325,51 @@ class io_scaleWithMaster extends IO {
     }
 }
 
-// Dig Wars: every bot controller chain starts with this. When the body has
-// a movement goal but hasn't actually moved anywhere in about two seconds it
-// jams against rock, so we pick an escape heading perpendicular to the
-// blocked direction and override movement for 600-1000ms. Repeated jams at
-// the same spot escalate: try the other side, then reverse out entirely.
-// acceptsFromTop = false while escaping so nothing above can hijack the
-// escape, and controllers below (notably wanderAroundMap) already check
-// input.goal == null so they defer automatically.
-class io_unstick extends IO {
-    constructor(body) {
-        super(body);
-        this.history = [];
-        this.escapeUntil = 0;
-        this.lastJam = null;
-        this.lastEscapeDir = 0;
-        this.nextJamAt = 0;
-        this.escalation = 0;
-        this.lastMineProgress = body.gemsMined || body.rocksMined || 0;
-        this.lastMineProgressAt = Date.now();
-    }
-    think(input) {
-        const now = Date.now(), b = this.body;
-
-        // A replying bot briefly stops its hull and guns so chat feels like a
-        // real interruption instead of text appearing while it keeps farming.
-        if (b._chatPending || (b._chatPauseUntil || 0) > now) {
-            this.history.length = 0;
-            this.escapeUntil = 0;
-            this.nextJamAt = now + 500;
-            this.acceptsFromTop = false;
-            return {
-                goal: { x: b.x, y: b.y },
-                target: { x: 0, y: 0 },
-                fire: false,
-                main: false,
-                alt: false,
-                power: 0,
-            };
-        }
-        this.acceptsFromTop = true;
-
-        // Record position
-        this.history.push({ x: b.x, y: b.y, t: now });
-        while (this.history.length > 1 && now - this.history[0].t > 1800)
-            this.history.shift();
-
-        // Already escaping — hold the line until the timer expires
-        if (now < this.escapeUntil) {
-            this.acceptsFromTop = false;
-            return {};
-        }
-        this.acceptsFromTop = true;
-        this.escapeUntil = 0;
-
-        const mineProgress = b.gemsMined || b.rocksMined || 0;
-        if (mineProgress !== this.lastMineProgress) {
-            this.lastMineProgress = mineProgress;
-            this.lastMineProgressAt = now;
-        }
-        if (b._digWarsGoal !== 'mine') this.lastMineProgressAt = now;
-
-        // Grinding into a rock is deliberate progress while the rock keeps
-        // losing health. A contact that produces no break for several seconds
-        // is instead treated as a stalled wall path and gets abandoned.
-        const miningContact = b._digWarsGoal === 'mine' && b.grindTouchUntil > now;
-        const miningStalled = miningContact && now - this.lastMineProgressAt > 3000;
-        if (miningContact && !miningStalled) {
-            this.history.length = 0;
-            return {};
-        }
-        // Armed miners use a deliberate firing lane, not hull contact. Do not
-        // let the generic jam escape make them reverse away from a rock and
-        // then lurch forward again while their bullets are working.
-        if (b._digWarsGoal === 'mine' && !b.botIsRammer) {
-            this.history.length = 0;
-            return {};
-        }
-        if (miningStalled) {
-            b._digWarsIgnoredRock = b._digWarsMineRock || null;
-            b._digWarsIgnoredRockUntil = now + 4000;
-        }
-
-        // Give an escape a short settling window so one jam becomes one
-        // recovery event instead of being counted once per tick.
-        if (now < this.nextJamAt) {
-            this.history.length = 0;
-            return {};
-        }
-
-        // Nothing wanted movement last tick — reset and stay quiet
-        const goalDistance = b.control?.goal
-            ? Math.hypot(b.control.goal.x - b.x, b.control.goal.y - b.y)
-            : 0;
-        const hadGoal = goalDistance > Math.max(35, b.size * 2);
-        // Being nearly on top of a waypoint is not a jam. Treating that as a
-        // stuck event made objective bots reverse just as they reached their
-        // firing lane, which looked like pointless back-and-forth motion.
-        if (!hadGoal) { this.history.length = 0; this.escalation = 0; return {}; }
-
-        if (this.history.length < 2) return {};
-
-        const first = this.history[0], last = this.history[this.history.length - 1];
-        const dist = Math.hypot(last.x - first.x, last.y - first.y);
-        // Tanks are large but their world-speed is comparatively small. Using
-        // half the hull size here called ordinary slow movement "stuck" every
-        // second, which made bots twitch and flee from perfectly open ground.
-        const progressThreshold = Math.max(1.5, Math.min(b.size * 0.5, (b.topSpeed || 1) * 0.12));
-        if (dist >= progressThreshold) {
-            // Moving freely — cool down escalation after a few seconds
-            if (this.lastJam && now - this.lastJam.t > 3000) {
-                this.escalation = 0; this.lastJam = null;
-            }
-            return {};
-        }
-
-        // ── stuck ──
-        b._unstickCount = (b._unstickCount || 0) + 1;
-
-        if (this.lastJam) {
-            const jd = Math.hypot(b.x - this.lastJam.x, b.y - this.lastJam.y);
-            if (jd < b.size * 2 && now - this.lastJam.t < 4000)
-                this.escalation = Math.min(2, this.escalation + 1);
-            else this.escalation = 0;
-        }
-        this.lastJam = { x: b.x, y: b.y, t: now };
-
-        // Blocked direction = toward last tick's goal
-        const gx = b.control.goal.x - b.x, gy = b.control.goal.y - b.y;
-        const gl = Math.hypot(gx, gy) || 1;
-        const bdx = gx / gl, bdy = gy / gl;
-
-        let angle;
-        if (this.escalation >= 2) {
-            angle = Math.atan2(-bdy, -bdx);                 // reverse
-        } else if (this.escalation >= 1) {
-            angle = this.lastEscapeDir + Math.PI;            // other side
-        } else {
-            // Probe both perpendiculars, pick the more open side
-            const tg = global.gameManager && global.gameManager.terrainGrid;
-            let s1 = 0, s2 = 0;
-            if (tg && tg.rockHitByCircle) {
-                for (let d = b.size; d <= b.size * 5; d += b.size) {
-                    if (!tg.rockHitByCircle(b.x - bdy * d, b.y + bdx * d, b.size)) s1++;
-                    if (!tg.rockHitByCircle(b.x + bdy * d, b.y - bdx * d, b.size)) s2++;
-                }
-            } else { s1 = s2 = 1; }
-            const px = s1 >= s2 ? -bdy : bdy;
-            const py = s1 >= s2 ? bdx  : -bdx;
-            angle = Math.atan2(py, px);
-        }
-        this.lastEscapeDir = angle;
-
-        this.escapeUntil = now + 600 + Math.random() * 400;
-        this.nextJamAt = now + 1200;
-        this.history.length = 0;
-        this.acceptsFromTop = false;
-        return {
-            goal: { x: b.x + Math.cos(angle) * b.size * 8,
-                    y: b.y + Math.sin(angle) * b.size * 8 },
-            power: 1,
-        };
-    }
-}
-
-// The goal controller owns the bot's job while the controllers below it own
-// the weapons. Holding the job here prevents the chain from making a bot
-// retarget or abandon a vault every frame.
+// ── Dig Wars bots ────────────────────────────────────────────────────────
+// The brain is split in two on purpose. BotNav owns "how do I get there",
+// io_digWarsGoals owns "where am I going and what am I shooting at". Mixing
+// the two is what produced tanks that re-decided their route thirty times a
+// second and shuffled left and right without ever arriving anywhere.
 const digWarsVault = require('../game/terrain/vault.js');
 const digWarsOutposts = require('../game/terrain/outposts.js');
 const digWarsChambers = require('../game/terrain/coreChambers.js');
 
-// Shared per-tick view of the world for bot AI.
-//
-// Every bot used to walk targetableEntities several times per sense, and
-// findNearbyGem walked ALL entities, bullets included. Nine bots doing that
-// seven times a second over 180 entities dominated the server tick. The set of
-// tanks and gems is identical for every bot, so it is built once and reused.
+const TAU = Math.PI * 2;
+const wrapAngle = a => {
+    a %= TAU;
+    if (a > Math.PI) a -= TAU;
+    if (a < -Math.PI) a += TAU;
+    return a;
+};
+
+// Base tiles kill any wrong-team entity outright, so to a bot every enemy
+// base tile is a wall. Navigation could not see them, which is why bots kept
+// driving into the enemy base and dying with no shot fired.
+const baseTileCache = { room: null, owners: null };
+function baseTileOwner(x, y) {
+    const room = global.gameManager && global.gameManager.room;
+    if (!room || !room.getAt) return undefined;
+    if (baseTileCache.room !== room) {
+        baseTileCache.room = room;
+        baseTileCache.owners = new Map();
+        const spawnable = room.spawnable || {};
+        for (const key of Object.keys(spawnable)) {
+            const tiles = spawnable[key];
+            if (!Array.isArray(tiles)) continue;
+            for (const tile of tiles) baseTileCache.owners.set(tile, Number(key));
+        }
+    }
+    const tile = room.getAt({ x, y });
+    return tile ? baseTileCache.owners.get(tile) : undefined;
+}
+function inEnemyBase(team, x, y) {
+    const owner = baseTileOwner(x, y);
+    return owner !== undefined && owner !== team;
+}
+
+// Shared per-tick view of the world for bot AI. Every bot needs the same
+// list of tanks and gems, so it is built once per 110ms and reused instead
+// of each bot walking every entity several times a second.
 const botScan = { at: 0, tanks: [], gems: [] };
 function botWorldScan() {
     const now = Date.now();
@@ -1517,7 +1385,12 @@ function botWorldScan() {
     }
     if (global.entities) {
         for (const entity of global.entities.values()) {
-            if (entity.isGemPickup && entity.gemValue > 0 && !entity.isDead?.()) gems.push(entity);
+            // Gems locked inside a standing core chamber are scenery: nobody
+            // can reach them until the ring falls. Bots used to drive at them
+            // and mill around the enemy core waiting for a pickup that could
+            // never happen.
+            if (entity.isGemPickup && entity.gemValue > 0 && entity.chamberHome === undefined &&
+                !entity.isDead?.()) gems.push(entity);
         }
     }
     botScan.tanks = tanks;
@@ -1525,127 +1398,261 @@ function botWorldScan() {
     return botScan;
 }
 
+// Steering directions are tried nearest-first so the straight line wins
+// whenever it is open and the fan is only paid for when it is not.
+const NAV_OFFSETS = [0, 0.36, -0.36, 0.72, -0.72, 1.1, -1.1, 1.5, -1.5,
+                     1.95, -1.95, 2.4, -2.4, 2.85, -2.85, Math.PI];
+
+// One committed heading per bot, turned smoothly toward the best open
+// direction. The commitment is the whole point: a bot with two equally good
+// ways around a boulder must keep the one it picked, or it oscillates.
+class BotNav {
+    constructor(body) {
+        this.body = body;
+        this.heading = ran.randomAngle();
+        this.nextProbeAt = 0;
+        this.samples = [];
+        this.escapeUntil = 0;
+        this.lastEscapeAt = 0;
+        this.escalation = 0;
+        this.blocked = [];
+        this.arrived = false;
+    }
+
+    radius() {
+        return Math.max(this.body.realSize || this.body.size || 12, 10);
+    }
+
+    structureBlocks(x, y, radius) {
+        // A rammer drives through whatever is in front of it, so structures
+        // are never an obstacle for one.
+        if (this.body.botIsRammer) return false;
+        for (const chamber of digWarsChambers.getChambers()) {
+            const entity = chamber.entity;
+            if (!entity || entity.isDead?.()) continue;
+            const reach = chamber.r * (entity.sizeMultiplier ?? 1) + radius;
+            const dx = x - chamber.x, dy = y - chamber.y;
+            if (dx * dx + dy * dy < reach * reach) return true;
+        }
+        for (const outpost of digWarsOutposts.getOutposts()) {
+            const banner = outpost.banner;
+            if (!banner || banner.isDead?.()) continue;
+            const reach = (banner.realSize || banner.size || 30) + radius;
+            const dx = x - banner.x, dy = y - banner.y;
+            if (dx * dx + dy * dy < reach * reach) return true;
+        }
+        return false;
+    }
+
+    // 0 means blocked immediately, 1 means open for the whole probe.
+    clearance(angle, radius, reach) {
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        const room = global.gameManager && global.gameManager.room;
+        const cos = Math.cos(angle), sin = Math.sin(angle);
+        const steps = 3;
+        let clear = 0;
+        for (let i = 1; i <= steps; i++) {
+            const x = this.body.x + cos * reach * i / steps;
+            const y = this.body.y + sin * reach * i / steps;
+            if (room && (Math.abs(x) > room.width / 2 - radius - 30 ||
+                         Math.abs(y) > room.height / 2 - radius - 30)) break;
+            if (inEnemyBase(this.body.team, x, y)) break;
+            if (tg && tg.rockHitByCircle(x, y, radius * (i === 1 ? 1.1 : 0.92))) break;
+            if (this.structureBlocks(x, y, radius)) break;
+            clear++;
+        }
+        return clear / steps;
+    }
+
+    // Directions that recently jammed this tank stay unattractive for a few
+    // seconds, so an escape does not immediately walk back into the wall.
+    blockedPenalty(angle, now) {
+        let worst = 0;
+        for (const arc of this.blocked) {
+            if (arc.until < now) continue;
+            const difference = Math.abs(wrapAngle(angle - arc.angle));
+            if (difference < 0.9) worst = Math.max(worst, (1 - difference / 0.9) * 2.6);
+        }
+        return worst;
+    }
+
+    repoint(desired, radius, reach, now) {
+        if (this.blocked.length > 6) this.blocked = this.blocked.filter(arc => arc.until > now);
+        let bestAngle = desired, bestScore = -Infinity;
+        for (const offset of NAV_OFFSETS) {
+            const angle = desired + offset;
+            const open = this.clearance(angle, radius, reach);
+            if (offset === 0 && open >= 1) { bestAngle = desired; break; }
+            // The offsets are ordered nearest-first, so the first fully open
+            // direction that does not demand a hard turn is good enough. This
+            // keeps the common case at a handful of terrain probes.
+            if (open >= 1 && Math.abs(wrapAngle(angle - this.heading)) < 1.2 &&
+                this.blockedPenalty(angle, now) === 0) { bestAngle = angle; break; }
+            const score = open * 2.6
+                - Math.abs(offset) * 0.85
+                - Math.abs(wrapAngle(angle - this.heading)) * 0.7
+                - this.blockedPenalty(angle, now);
+            if (score > bestScore) { bestScore = score; bestAngle = angle; }
+        }
+        this.heading = wrapAngle(this.heading + util.clamp(wrapAngle(bestAngle - this.heading), -0.42, 0.42));
+    }
+
+    bestEscape(around, radius, now) {
+        let bestAngle = around, bestScore = -Infinity;
+        for (let i = 0; i < 12; i++) {
+            const angle = around + (i % 2 ? -1 : 1) * Math.ceil(i / 2) * 0.52;
+            const score = this.clearance(angle, radius, radius * 7) * 3
+                - Math.abs(wrapAngle(angle - around)) * 0.4
+                - this.blockedPenalty(angle, now);
+            if (score > bestScore) { bestScore = score; bestAngle = angle; }
+        }
+        return bestAngle;
+    }
+
+    track(now, wantsMove) {
+        if (!wantsMove) { this.samples.length = 0; return; }
+        const body = this.body;
+        const last = this.samples[this.samples.length - 1];
+        if (!last || now - last.t > 180) this.samples.push({ x: body.x, y: body.y, t: now });
+        while (this.samples.length > 1 && now - this.samples[0].t > 2000) this.samples.shift();
+        if (now < this.escapeUntil || this.samples.length < 9) return;
+        const first = this.samples[0], latest = this.samples[this.samples.length - 1];
+        if (Math.hypot(latest.x - first.x, latest.y - first.y) > Math.max(8, this.radius() * 0.5)) return;
+        this.escape(now);
+    }
+
+    escape(now) {
+        const body = this.body;
+        body._unstickCount = (body._unstickCount || 0) + 1;
+        this.escalation = now - this.lastEscapeAt < 5000 ? Math.min(3, this.escalation + 1) : 0;
+        this.lastEscapeAt = now;
+        this.blocked.push({ angle: this.heading, until: now + 4000 });
+        // Each bot keeps one preferred slide side. Alternating sides on every
+        // jam is exactly the left-right-left shuffle players kept seeing: the
+        // tank must commit to going around one way before it tries the other.
+        this.side ??= ran.chance(0.5) ? 1 : -1;
+        const away = this.heading + (this.escalation >= 2
+            ? Math.PI
+            : (this.escalation === 1 ? -this.side : this.side) * 1.9);
+        this.heading = this.bestEscape(away, this.radius(), now);
+        this.escapeUntil = now + 750 + Math.random() * 450;
+        this.samples.length = 0;
+    }
+
+    // The only entry point. Returns a movement goal (with a throttle in
+    // `power`), or null once arrived.
+    steer(destination, arriveAt, now, contact = false) {
+        const body = this.body;
+        const radius = this.radius();
+        const dx = destination.x - body.x, dy = destination.y - body.y;
+        const distance = Math.hypot(dx, dy);
+        if (now < this.escapeUntil) {
+            this.track(now, true);
+            const reach = radius * 8;
+            return { x: body.x + Math.cos(this.heading) * reach, y: body.y + Math.sin(this.heading) * reach, power: 1 };
+        }
+        if (distance <= arriveAt) {
+            this.arrived = true;
+            this.track(now, false);
+            return null;
+        }
+        // Arrival is sticky, but drifting waypoints (orbits around a rock or
+        // a fight) are followed at low throttle instead of the old pattern of
+        // dead stop, then full-throttle lurch once the point got far enough.
+        // That lurch was most of the "oscillating" look.
+        if (this.arrived) {
+            if (distance < arriveAt * 2 + 25) {
+                this.track(now, false);
+                return { x: destination.x, y: destination.y, power: 0.3 };
+            }
+            this.arrived = false;
+        }
+        // Grinding a rock is progress even though the hull is not moving, so
+        // contact goals suppress the stuck check while the hull is in contact.
+        this.track(now, !(contact && body.grindTouchUntil > now));
+        if (now >= this.nextProbeAt) {
+            this.nextProbeAt = now + 110;
+            this.repoint(Math.atan2(dy, dx), radius, util.clamp(distance, 120, 260), now);
+        }
+        const reach = Math.max(90, Math.min(distance, 240));
+        // Ease off close to the goal so the tank settles onto it instead of
+        // overshooting and doubling back at full speed. Contact goals (ramming
+        // a tank, grinding a rock) want the opposite: full speed into impact.
+        const power = !contact && distance < arriveAt * 2 + 60 ? 0.55 : 1;
+        return { x: body.x + Math.cos(this.heading) * reach, y: body.y + Math.sin(this.heading) * reach, power };
+    }
+}
+
+// Higher wins. A candidate only interrupts the running job when it scores
+// above it, which is what gives the bot a human-looking attention span.
+// Objective sits above collect on purpose: a chamber push is the match's
+// point, and a bot that abandons a siege for every gem within 700 units
+// never actually sieges anything.
+const GOAL_PRIORITY = {
+    survive: 100, bank: 75, fight: 70, objective: 65,
+    collect: 60, defend: 55, rally: 45, mine: 30, explore: 10,
+};
+const GOAL_HOLD = {
+    survive: 2200, bank: 7000, fight: 2800, collect: 2600,
+    defend: 4500, objective: 9000, rally: 6000, mine: 5000, explore: 9000,
+};
+
 class io_digWarsGoals extends IO {
     constructor(body) {
         super(body);
-        this.current = null;
-        this.goalUntil = 0;
-        this.bankThreshold = null;
-        this.orbitSign = ran.chance(0.5) ? 1 : -1;
-        this.overrideUntil = 0;
-        this.pendingReactionKey = null;
-        this.pendingReactionUntil = 0;
+        this.nav = new BotNav(body);
+        this.goal = null;
+        this.goalStartedAt = 0;
+        this.holdUntil = 0;
+        this.senseAt = 0;
+        this.view = { enemy: null, enemyDistance: Infinity, enemies: 0, allies: 0, gem: null, defense: null, objective: null, rock: null };
+        // A full satchel is 4000 gems and a copper deposit is worth 15, so
+        // banking "when nearly full" meant nobody ever banked. Bots cash in
+        // on a realistic haul instead, at their own moment.
+        this.bankAt = 90 + Math.random() * 260;
+        // Not everybody plays the same game. Miners feed the vault, raiders
+        // hit outposts and cores, guards stay near home. Without this every
+        // bot walked to the nearest structure and the map stopped producing
+        // gems entirely.
+        this.role = ran.chance(0.45) ? 'miner' : ran.chance(0.62) ? 'raider' : 'guard';
+        body._botRole = this.role;
+        this.objectiveReach = this.role === 'raider' ? 4200 : this.role === 'guard' ? 1600 : 2400;
+        this.orbit = null;
+        this.minePlan = null;
         this.aimError = 0;
         this.aimErrorAt = 0;
-        this.movementPlan = null;
-        this.thrustUntil = 0;
-        this.nextThrustAt = 0;
-        this.senseAt = 0;
-        this.cachedRobber = null;
-        this.cachedCombat = null;
-        this.cachedGem = null;
-        this.cachedMarkerHelp = null;
-        this.cachedImmediateThreat = null;
-        this.cachedPlayer = null;
-        this.cachedKing = null;
-        this.cachedDefense = null;
-        this.nextRockAt = 0;
-        this.showoffUntil = 0;
-        this.nextShowoffAt = Date.now() + 5000 + Math.random() * 8000;
-        this.showoffAngle = ran.random(2 * Math.PI);
-        this.cachedObjective = null;
-        // Each bot gets a different orbit phase and pace. These are deliberately
-        // independent from the squad target so a push looks like people moving
-        // together, not a synchronized animation.
-        this.orbitPlan = null;
-        this.minePlan = null;
+        this.rockBlacklist = new Map();
+        this.rockAt = 0;
+        this.losCache = new Map();
+        this.rangeAt = 0;
+        this.range = 0;
     }
 
-    skillLevel() {
+    // ── personality ──────────────────────────────────────────────────────
+    skill() {
         return util.clamp(this.body.botSkill ?? 0.5, 0, 1);
     }
 
-    advancedChance() {
-        return 0.15 + this.skillLevel() * 0.8;
-    }
-
-    reactionDelay() {
-        return 400 - this.skillLevel() * 310;
-    }
-
-    // One pending slot meant an objective check would overwrite a pending
-    // combat reaction every tick, so the delay never elapsed and bots walked
-    // past players while pushing a structure. Each subject now waits its own
-    // turn, and stale entries are swept so this cannot grow without bound.
-    canReactTo(key, now) {
-        this.reactions ??= new Map();
-        const due = this.reactions.get(key);
-        if (due === undefined) {
-            this.reactions.set(key, now + this.reactionDelay());
-            if (this.reactions.size > 24) {
-                for (const [k, t] of this.reactions) if (t < now - 8000) this.reactions.delete(k);
-            }
-            return false;
-        }
-        if (now < due) return false;
-        this.reactions.delete(key);
-        return true;
-    }
-
-    aimVector(x, y, now) {
-        if (now - this.aimErrorAt > 110) {
-            this.aimErrorAt = now;
-            this.aimError = ran.gauss(0, (1 - this.skillLevel()) * 0.07);
-        }
-        const c = Math.cos(this.aimError), s = Math.sin(this.aimError);
-        return { x: x * c - y * s, y: x * s + y * c };
-    }
-
-    aimAt(entity, now) {
-        if (!entity) return { x: 0, y: 0 };
-        const dx = entity.x - this.body.x, dy = entity.y - this.body.y;
-        const distance = Math.hypot(dx, dy);
-        let projectileSpeed = 0;
-        for (const gun of this.body.guns?.values?.() || []) {
-            if (!gun.canShoot || !gun.getTracking) continue;
-            const tracking = gun.getTracking();
-            if (tracking && tracking.speed > projectileSpeed) projectileSpeed = tracking.speed;
-        }
-        const lead = projectileSpeed > 0 ? util.clamp(distance / projectileSpeed, 0, 0.7) : 0.2;
-        const vx = entity.velocity?.x || 0, vy = entity.velocity?.y || 0;
-        return this.aimVector(dx + vx * lead, dy + vy * lead, now);
+    retreatAt() {
+        const temperament = this.body.botTemperament || 'balanced';
+        return temperament === 'aggressive' ? 0.24 : temperament === 'passive' ? 0.55 : 0.38;
     }
 
     isRammer() {
         return this.body.botIsRammer ?? (!this.body.guns || this.body.guns.size === 0);
     }
 
-    combatNumbers(range = 760) {
-        const enemies = new Set(), allies = new Set();
-        for (const entity of botWorldScan().tanks) {
-            const root = this.rootOf(entity);
-            if (!root || root === this.body || !root.health || root.health.amount <= 0) continue;
-            if (Math.hypot(root.x - this.body.x, root.y - this.body.y) > range) continue;
-            if (root.team === this.body.team && (root.isBot || root.isPlayer)) allies.add(root.id);
-            else if (this.visibleEnemy(root, range)) enemies.add(root.id);
-        }
-        return { enemies, allies };
-    }
-
-    shouldRetreatFrom(entity) {
-        const root = this.rootOf(entity);
-        const healthRatio = this.body.health.max ? this.body.health.amount / this.body.health.max : 1;
-        const temperament = this.body.botTemperament || 'balanced';
-        const threshold = temperament === 'aggressive' ? 0.28 : temperament === 'passive' ? 0.62 : 0.46;
-        const numbers = this.combatNumbers();
-        const outnumbered = numbers.enemies.size > numbers.allies.size + 1;
-        return healthRatio < threshold || outnumbered || (root && root.isBot && temperament === 'passive');
-    }
-
+    // ── perception helpers ───────────────────────────────────────────────
     rootOf(entity) {
         let root = entity, hops = 0;
         while (root && root.master && root.master !== root && hops++ < 8) root = root.master;
         return root || entity;
+    }
+
+    isEnemy(root) {
+        return root && root !== this.body && root.team !== this.body.team &&
+            root.team !== TEAM_ROOM && !root.godmode && !root.passive && !root.invuln &&
+            !root.ignoredByAi && !(root.isDead && root.isDead());
     }
 
     distanceTo(point) {
@@ -1653,967 +1660,644 @@ class io_digWarsGoals extends IO {
     }
 
     ownVault() {
-        return digWarsVault.getVaults().find(v => v.team === this.body.team) || null;
+        return digWarsVault.getVaults().find(vault => vault.team === this.body.team) || null;
     }
 
-    enemy(entity) {
-        const root = this.rootOf(entity);
-        return root && root !== this.body && root.team !== this.body.team &&
-            root.team !== TEAM_ROOM && !root.godmode && !root.passive &&
-            !(root.isDead && root.isDead());
+    weaponRange() {
+        const now = Date.now();
+        if (now - this.rangeAt < 4000 && this.range) return this.range;
+        this.rangeAt = now;
+        const fov = this.body.fov || 1200;
+        let range = 0;
+        for (const gun of this.body.guns?.values?.() || []) {
+            if (!gun.canShoot || !gun.getTracking) continue;
+            const tracking = gun.getTracking();
+            if (!tracking || !tracking.speed) continue;
+            const reach = tracking.speed * (tracking.range < this.body.size * 2 ? fov : tracking.range);
+            range = Math.max(range, Math.min(reach, fov));
+        }
+        return this.range = range || fov * 0.7;
     }
 
-    visibleEnemy(entity, range) {
-        if (!this.enemy(entity)) return false;
-        if (!entity.health || entity.health.amount <= 0) return false;
-        if (entity.invuln || this.rootOf(entity).invuln) return false;
-        if (entity.alpha != null && entity.alpha <= 0.5 && !this.body.aiSettings?.seeInvisible) return false;
-        const dx = entity.x - this.body.x, dy = entity.y - this.body.y;
-        return dx * dx + dy * dy <= range * range;
+    desiredRange() {
+        if (this.isRammer()) return 0;
+        const defs = (this.body.defs || []).join(' ').toLowerCase();
+        let want = 170;
+        if (/sniper|assassin|ranger|marksman|stalker|rifle|predator|hunter|deadeye/.test(defs)) want = 330;
+        else if (/destroyer|artillery|mortar|launcher|ordnance|annihilator|hybrid/.test(defs)) want = 250;
+        return Math.min(want, this.weaponRange() * 0.8);
     }
 
-    // Is there anything solid between us and them? Bots used to sit behind a
-    // chamber ring or an outpost banner emptying their magazine into it. A
-    // rammer does not care, it is going to drive through whatever is there.
+    engageRange() {
+        const fov = this.body.fov || 1200;
+        if (this.isRammer()) return fov * 0.85;
+        return Math.max(520, Math.min(fov * 1.1, this.weaponRange() * 1.4));
+    }
+
+    // Is there anything solid in the way? Bots used to empty a magazine into
+    // the chamber wall they were standing behind.
     clearShot(entity) {
         if (this.isRammer()) return true;
-        const b = this.body;
-        const dx = entity.x - b.x, dy = entity.y - b.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < 1) return true;
-        this.losCache ??= new Map();
-        const key = entity.id ?? `${Math.round(entity.x)}:${Math.round(entity.y)}`;
+        const body = this.body;
+        const distance = Math.hypot(entity.x - body.x, entity.y - body.y);
+        if (distance < 90) return true;
         const now = Date.now();
-        const hit = this.losCache.get(key);
-        if (hit && now < hit.until) return hit.ok;
-
-        const ok = this.segmentClear(b.x, b.y, entity.x, entity.y, dist);
-        if (this.losCache.size > 32) this.losCache.clear();
-        this.losCache.set(key, { ok, until: now + 260 });
+        const key = entity.id ?? `${Math.round(entity.x)}:${Math.round(entity.y)}`;
+        const cached = this.losCache.get(key);
+        if (cached && now < cached.until) return cached.ok;
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        const steps = Math.min(10, Math.max(3, Math.round(distance / 110)));
+        let ok = true;
+        for (let i = 1; i < steps && ok; i++) {
+            const t = i / steps;
+            const x = body.x + (entity.x - body.x) * t, y = body.y + (entity.y - body.y) * t;
+            if (tg?.pointInRock && tg.pointInRock(x, y)) ok = false;
+            else if (this.nav.structureBlocks(x, y, 6)) ok = false;
+        }
+        if (this.losCache.size > 24) this.losCache.clear();
+        this.losCache.set(key, { ok, until: now + 300 });
         return ok;
     }
 
-    segmentClear(x0, y0, x1, y1, dist) {
-        const tg = global.gameManager && global.gameManager.terrainGrid;
-        const steps = Math.min(14, Math.max(4, Math.round(dist / 90)));
-        const pad = Math.max(this.body.realSize || this.body.size || 10, 10) * 0.5;
-        let chambers = [], outposts = [];
-        try {
-            chambers = digWarsChambers.getChambers() || [];
-            outposts = digWarsOutposts.getOutposts() || [];
-        } catch (e) { }
-        for (let i = 1; i < steps; i++) {
-            const t = i / steps;
-            const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
-            if (tg?.pointInRock && tg.pointInRock(x, y)) return false;
-            for (const c of chambers) {
-                if (!c.entity || c.entity.isDead?.()) continue;
-                if (Math.hypot(x - c.x, y - c.y) < (c.r || 160) + pad) return false;
-            }
-            for (const o of outposts) {
-                const banner = o.banner;
-                if (!banner || banner.isDead?.()) continue;
-                if (Math.hypot(x - banner.x, y - banner.y) < (banner.realSize || banner.size || 30) + pad) return false;
-            }
+    aimVector(x, y, now) {
+        if (now - this.aimErrorAt > 110) {
+            this.aimErrorAt = now;
+            this.aimError = ran.gauss(0, (1 - this.skill()) * 0.07);
         }
-        return true;
+        const c = Math.cos(this.aimError), s = Math.sin(this.aimError);
+        return { x: x * c - y * s, y: x * s + y * c };
     }
 
-    findEnemy(predicate, range = this.body.fov || 1200) {
-        const candidates = [];
+    leadAim(entity, now) {
+        const dx = entity.x - this.body.x, dy = entity.y - this.body.y;
+        const distance = Math.hypot(dx, dy);
+        let speed = 0;
+        for (const gun of this.body.guns?.values?.() || []) {
+            if (!gun.canShoot || !gun.getTracking) continue;
+            const tracking = gun.getTracking();
+            if (tracking && tracking.speed > speed) speed = tracking.speed;
+        }
+        const lead = speed > 0 ? util.clamp(distance / speed, 0, 0.7) * (0.5 + this.skill() * 0.5) : 0.2;
+        return this.aimVector(dx + (entity.velocity?.x || 0) * lead,
+                              dy + (entity.velocity?.y || 0) * lead, now);
+    }
+
+    // ── sensing ──────────────────────────────────────────────────────────
+    sense(now) {
+        if (now < this.senseAt) return;
+        this.senseAt = now + 150 + (1 - this.skill()) * 120;
+        const body = this.body, view = this.view;
+        const fov = body.fov || 1200;
+        const seeInvisible = !!body.aiSettings?.seeInvisible;
+        let best = null, bestScore = Infinity, enemies = 0, allies = 0;
+
         for (const entity of botWorldScan().tanks) {
-            if (!this.visibleEnemy(entity, range) || !predicate(entity, this.rootOf(entity))) continue;
-            candidates.push(entity);
+            const root = this.rootOf(entity);
+            if (!root.health || root.health.amount <= 0) continue;
+            const distance = Math.hypot(root.x - body.x, root.y - body.y);
+            if (root === body) continue;
+            if (root.team === body.team) {
+                if (distance < 800 && (root.isBot || root.isPlayer)) allies++;
+                continue;
+            }
+            if (!this.isEnemy(root)) continue;
+            if (root.alpha != null && root.alpha <= 0.5 && !seeInvisible) continue;
+            if (distance > fov * 1.25) continue;
+            if (distance < 800) enemies++;
+            // A human is a little more interesting than another bot, but only
+            // a little. Treating players as the only target is what made bots
+            // ignore the tank shooting them to walk at a distant player.
+            const score = distance
+                - (root.isPlayer ? 80 : 0)
+                - Math.min(400, (root.carriedGems || 0) * 0.12)
+                + (this.clearShot(root) ? 0 : 220);
+            if (score < bestScore) { bestScore = score; best = root; }
         }
-        if (!candidates.length) return null;
-        candidates.sort((a, b) => {
-            const ar = this.rootOf(a), br = this.rootOf(b);
-            const av = predicate(a, ar) === true ? (ar.carriedGems || 0) : 0;
-            const bv = predicate(b, br) === true ? (br.carriedGems || 0) : 0;
-            return (this.distanceTo(a) - av * 0.08) - (this.distanceTo(b) - bv * 0.08);
-        });
-        // Line of sight is the expensive test, so it runs on the shortlist
-        // rather than on every entity on the map. Prefer someone we can
-        // actually hit; fall back to the nearest so bots still advance on a
-        // target that is merely behind cover rather than freezing.
-        for (let i = 0; i < Math.min(candidates.length, 3); i++)
-            if (this.clearShot(candidates[i])) return candidates[i];
-        return candidates[0];
+
+        // Whoever is actually shooting us outranks the scoring above.
+        const attacker = body._lastDamageSource && now - (body._lastDamageAt || 0) < 3000
+            ? body._lastDamageSource : null;
+        if (attacker && this.isEnemy(attacker) && attacker.health?.amount > 0 &&
+            Math.hypot(attacker.x - body.x, attacker.y - body.y) < fov * 1.25) best = attacker;
+
+        view.enemy = best;
+        view.enemyDistance = best ? Math.hypot(best.x - body.x, best.y - body.y) : Infinity;
+        view.enemies = enemies;
+        view.allies = allies;
+        view.gem = this.findGem(now);
+        view.defense = this.findDefense();
+        // Rammers siege too: body damage against a banner or chamber ring is
+        // real damage, and barring them from objectives left them with nothing
+        // to do but pace between rocks.
+        view.objective = this.findObjective();
+        view.rock = this.findRock(now);
     }
 
-    findRobTarget() {
-        const cap = this.body.gemCap || 4000;
-        const minimum = Math.max(30, cap * 0.05);
-        return this.findEnemy((entity, root) => (root.carriedGems || 0) >= minimum);
-    }
-
-    findKingTarget() {
-        const kingId = global.gameManager?.room?.topPlayerID;
-        const king = kingId != null ? global.entities.get(kingId) : null;
-        return king && king.type === 'tank' && this.visibleEnemy(king, this.body.fov || 1200)
-            ? king : null;
-    }
-
-    findCombatTarget() {
-        // Real players outrank every polygon and bot. The top player is the
-        // server's king, so a visible king gets priority after humans nearby.
-        return this.findEnemy((entity, root) => !!root.isPlayer) ||
-            this.findKingTarget() ||
-            this.findEnemy(() => true);
-    }
-
-    findRealPlayerTarget() {
-        const players = global.gameManager?.socketManager?.players || [];
-        let best = null, bestDistance = Infinity;
-        for (const socketPlayer of players) {
-            const player = socketPlayer?.body;
-            if (!player || player.isDead?.() || player.isGhost || player.team === this.body.team || player.invuln) continue;
-            const distance = this.distanceTo(player);
-            const nearObjective = digWarsOutposts.getOutposts().some(site =>
-                Math.hypot(player.x - site.x, player.y - site.y) <= 700 &&
-                Math.hypot(this.body.x - site.x, this.body.y - site.y) <= 1900
-            );
-            if (distance > (this.body.fov || 1200) * 1.45 && !nearObjective) continue;
-            if (distance < bestDistance) { best = player; bestDistance = distance; }
-        }
-        return best;
-    }
-
-    findNearbyGem() {
-        if ((this.body.carriedGems || 0) >= (this.body.gemCap || 4000)) return null;
-        const now = Date.now();
+    findGem(now) {
+        const body = this.body;
+        if ((body.carriedGems || 0) >= (body.gemCap || 4000) * 0.98) return null;
         let best = null, bestScore = Infinity;
-        for (const entity of botWorldScan().gems) {
-            const distance = this.distanceTo(entity);
-            if (distance > 850) continue;
-            // Chamber loot carries the owning team in chamberBias, and that
-            // team is physically repelled from it. Chasing your own chamber's
-            // gems is a guaranteed wasted trip.
-            if (entity.chamberBias && entity.chamberBias === this.body.team) continue;
-            const ownMine = entity.gemSourceId === this.body.id;
-            const recentKillLoot = (this.body._collectLootUntil || 0) > now && entity.gemSourceId === undefined;
-            if (!ownMine && !recentKillLoot && distance > 260) continue;
-            const score = distance - (ownMine ? 900 : 0) - (recentKillLoot ? 500 : 0);
-            if (score < bestScore) { best = entity; bestScore = score; }
+        for (const gem of botWorldScan().gems) {
+            // Chamber loot carries the owning team, and that team is physically
+            // repelled from it, so chasing it is a guaranteed wasted trip.
+            if (gem.chamberBias && gem.chamberBias === body.team) continue;
+            if (gem.gemOwnerId !== undefined && gem.gemOwnerId !== body.id) continue;
+            const distance = this.distanceTo(gem);
+            if (distance > 700) continue;
+            const score = distance - (gem.gemSourceId === body.id ? 350 : 0) - Math.min(250, gem.gemValue * 0.4);
+            if (score < bestScore) { bestScore = score; best = gem; }
         }
         return best;
-    }
-
-    findMarkerHelp() {
-        const markers = global.gameManager?.gameHandler?.activeEnemyMarkers?.(this.body.team) || [];
-        const assigned = this.body._botHelpMarker && this.body._botHelpMarker.expiresAt > Date.now()
-            ? this.body._botHelpMarker : null;
-        const pool = assigned ? [assigned] : markers;
-        return pool
-            .filter(marker => marker && marker.expiresAt > Date.now())
-            .sort((a, b) => this.distanceTo(a) - this.distanceTo(b))[0] || null;
     }
 
     findEnemyNear(point, range) {
-        const maxFromBot = (this.body.fov || 1200) * 1.35;
         let best = null, bestDistance = Infinity;
         for (const entity of botWorldScan().tanks) {
-            if (!this.enemy(entity) || !entity.health || entity.health.amount <= 0) continue;
-            if (entity.invuln || this.rootOf(entity).invuln) continue;
-            const fromBot = this.distanceTo(entity);
-            const fromPoint = Math.hypot(entity.x - point.x, entity.y - point.y);
-            if (fromBot > maxFromBot || fromPoint > range) continue;
-            if (fromBot < bestDistance) { best = entity; bestDistance = fromBot; }
+            const root = this.rootOf(entity);
+            if (!this.isEnemy(root) || !root.health || root.health.amount <= 0) continue;
+            const fromPoint = Math.hypot(root.x - point.x, root.y - point.y);
+            if (fromPoint > range) continue;
+            const fromBot = this.distanceTo(root);
+            if (fromBot < bestDistance) { bestDistance = fromBot; best = root; }
         }
         return best;
     }
 
-    findPlayerNearObjective() {
-        const players = [];
-        for (const entity of botWorldScan().tanks) {
-            const player = this.rootOf(entity);
-            if (entity !== player || !player.isPlayer || player.team === this.body.team || player.isDead?.()) continue;
-            if (!player.health || player.health.amount <= 0 || player.invuln) continue;
-            for (const site of digWarsOutposts.getOutposts()) {
-                const nearSite = Math.hypot(player.x - site.x, player.y - site.y) <= 650;
-                const botCanJoin = Math.hypot(this.body.x - site.x, this.body.y - site.y) <= 1800;
-                if (nearSite && botCanJoin) {
-                    players.push({ player, distance: Math.hypot(player.x - this.body.x, player.y - this.body.y) });
-                    break;
-                }
-            }
-        }
-        return players.sort((a, b) => a.distance - b.distance)[0]?.player || null;
-    }
-
-    findDefenseTarget() {
-        const states = new Map(digWarsOutposts.stateSnapshot().map(s => [s.id, s]));
-        const options = [];
+    findDefense() {
+        const states = new Map(digWarsOutposts.stateSnapshot().map(state => [state.id, state]));
+        let best = null, bestScore = Infinity;
         for (const site of digWarsOutposts.getOutposts()) {
             if (site.team !== this.body.team || !site.banner || site.banner.isDead()) continue;
+            const distance = this.distanceTo(site);
+            if (distance > 2000) continue;
             const state = states.get(site.id);
-            const threat = this.findEnemyNear(site, 850);
             const health = state ? state.h : 1;
-            if (!threat && health > 0.72) continue;
-            options.push({
-                point: site,
-                target: threat,
-                score: this.distanceTo(site) + health * 180 - (threat ? 350 : 0),
-            });
+            const threat = this.findEnemyNear(site, 850);
+            if (!threat && health > 0.75) continue;
+            const score = distance + health * 200 - (threat ? 400 : 0);
+            if (score < bestScore) { bestScore = score; best = { point: site, target: threat }; }
         }
-        return options.sort((a, b) => a.score - b.score)[0] || null;
+        return best;
     }
 
     findObjective() {
-        const room = global.gameManager && global.gameManager.room;
-        const range = room ? Math.hypot(room.width, room.height) : Math.max(1200, this.body.fov || 0);
+        const body = this.body;
         const options = [];
-        const outpostList = digWarsOutposts.getOutposts();
-        const outpostStates = new Map(digWarsOutposts.stateSnapshot().map(s => [s.id, s]));
-        const push = this.body._botPushTarget && (this.body._botPushTargetUntil || 0) > Date.now()
-            ? this.body._botPushTarget : null;
-        const pushSite = push && outpostList.find(site => site.id === push.id &&
-            (site.team === 0 || site.team !== this.body.team));
-        for (const site of outpostList) {
+        const outpostStates = new Map(digWarsOutposts.stateSnapshot().map(state => [state.id, state]));
+        for (const site of digWarsOutposts.getOutposts()) {
+            if (site.team === body.team || !site.banner || site.banner.isDead()) continue;
             const state = outpostStates.get(site.id);
-            const enemyHeld = site.team !== 0 && site.team !== this.body.team;
-            const unclaimed = site.team === 0;
-            if (!unclaimed && !enemyHeld) continue;
-            const distance = this.distanceTo(site);
-            if (distance <= range) options.push({
-                kind: 'outpost', point: site, health: state ? state.h : 1,
-                score: distance + (unclaimed ? 0 : (state ? state.h : 1) * 250),
+            options.push({
+                kind: 'outpost', point: site,
+                score: this.distanceTo(site) + (state ? state.h : 1) * 260 - (site.team === 0 ? 300 : 0),
             });
         }
-
-        const chamberList = digWarsChambers.getChambers();
-        const chamberStates = new Map(digWarsChambers.stateSnapshot().map(s => [s.id, s]));
-        for (const chamber of chamberList) {
+        const chamberStates = new Map(digWarsChambers.stateSnapshot().map(state => [state.id, state]));
+        for (const chamber of digWarsChambers.getChambers()) {
             const state = chamberStates.get(chamber.id);
-            // A chamber with missing/neutral ownership is not a valid bot
-            // objective. This explicit check prevents a bad team value from
-            // turning a friendly core into an attack target.
-            if (chamber.team == null || chamber.team === TEAM_ROOM ||
-                chamber.team === this.body.team || !state || state.st !== 0 || state.h > 0.8) continue;
-            const distance = this.distanceTo(chamber);
-            if (distance <= range) options.push({
-                kind: 'chamber', point: chamber, health: state.h,
-                score: distance + state.h * 250,
+            if (!state || state.st !== 0) continue;
+            if (chamber.team == null || chamber.team === TEAM_ROOM || chamber.team === body.team) continue;
+            if (!chamber.entity || chamber.entity.isDead?.()) continue;
+            // The chamber is the match's real prize. It used to be skipped
+            // entirely above 80 percent health, so a full one was never
+            // attacked by anybody and bots never went near a core.
+            options.push({
+                kind: 'chamber', point: chamber,
+                score: this.distanceTo(chamber) * 0.7 + state.h * 380,
             });
         }
-        if (pushSite) {
-            const pushed = options.find(option => option.point.id === pushSite.id);
-            if (pushed) return { ...pushed, score: pushed.score - 1000 };
+        const push = body._botPushTarget && (body._botPushTargetUntil || 0) > Date.now()
+            ? body._botPushTarget : null;
+        if (push) {
+            const match = options.find(option => option.kind === 'outpost' && option.point.id === push.id);
+            if (match) match.score -= 900;
         }
-        return options.sort((a, b) => a.score - b.score)[0] || null;
+        // Structures are only worth crossing the map for if that is this
+        // bot's job. Everyone else takes the one on their doorstep or none.
+        const reach = this.objectiveReach;
+        return options
+            .filter(option => this.distanceTo(option.point) <= reach)
+            .sort((a, b) => a.score - b.score)[0] || null;
     }
 
-    sense(now) {
-        if (now < this.senseAt) return;
-        this.cachedRobber = this.findRobTarget();
-        this.cachedPlayer = this.findRealPlayerTarget() ||
-            this.findEnemy((entity, root) => !!root.isPlayer) || this.findPlayerNearObjective();
-        this.cachedGem = this.findNearbyGem();
-        this.cachedMarkerHelp = this.findMarkerHelp();
-        this.cachedKing = this.findKingTarget();
-        // Nearby enemy tanks are an immediate situation, not background map
-        // traffic. Notice them before defending or mining so a bot either
-        // fights back or takes an open route away from the attacker.
-        const recentAttacker = this.body._lastDamageSource &&
-            now - (this.body._lastDamageAt || 0) < 2500 &&
-            this.visibleEnemy(this.body._lastDamageSource, Math.min(this.body.fov || 1200, 900))
-            ? this.body._lastDamageSource : null;
-        this.cachedImmediateThreat = recentAttacker ||
-            this.findEnemy(() => true, Math.min(this.body.fov || 1200, 1600));
-        this.cachedCombat = this.cachedPlayer || this.cachedKing || this.findEnemy(() => true);
-        this.cachedDefense = this.findDefenseTarget();
-        this.cachedObjective = this.findObjective();
-        this.senseAt = now + 100 + (1 - this.skillLevel()) * 100;
+    findRock(now) {
+        const current = this.view.rock;
+        if (current && current.alive && now < this.rockAt && this.distanceTo({ x: current.wx, y: current.wy }) < 1100)
+            return current;
+        this.rockAt = now + 1200;
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        if (!tg || !tg.nearestRockWhere) return null;
+        if (this.rockBlacklist.size > 12) {
+            for (const [rock, until] of this.rockBlacklist) if (until < now) this.rockBlacklist.delete(rock);
+        }
+        const usable = rock => rock.alive && (this.rockBlacklist.get(rock) || 0) < now;
+        // Ore is worth walking for; plain rock is only a fallback so a bot in
+        // a bare pocket still has something to do.
+        return tg.nearestRockWhere(this.body.x, this.body.y, 950, rock => rock.ore && usable(rock)) ||
+               tg.nearestRockWhere(this.body.x, this.body.y, 520, usable);
     }
 
-    nearestRock() {
-        if (Date.now() < this.nextRockAt) return null;
-        const terrain = global.gameManager && global.gameManager.terrainGrid;
-        if (!terrain) return null;
-        const ignored = this.body._digWarsIgnoredRockUntil > Date.now()
-            ? this.body._digWarsIgnoredRock
-            : null;
-        if (ignored && terrain.rocks) {
-            let best = null, bestDistance = 450 * 450;
-            for (const rock of terrain.rocks.values()) {
-                if (!rock.alive || rock === ignored) continue;
-                const dx = rock.wx - this.body.x, dy = rock.wy - this.body.y;
-                const distance = dx * dx + dy * dy;
-                if (distance < bestDistance) { bestDistance = distance; best = rock; }
+    // Any destination that falls on an enemy base tile is a death sentence;
+    // walk it back toward the map center until it lands on safe ground.
+    safePoint(x, y) {
+        const team = this.body.team;
+        for (let i = 0; i < 8 && inEnemyBase(team, x, y); i++) {
+            const away = Math.hypot(x, y) || 1;
+            x -= (x / away) * 300;
+            y -= (y / away) * 300;
+        }
+        return { x, y };
+    }
+
+    explorePoint(now) {
+        const body = this.body;
+        const director = body._botDirectorPoint;
+        if (director && now < (body._botDirectorUntil || 0) &&
+            Math.hypot(director.x - body.x, director.y - body.y) > 300)
+            return { ...this.safePoint(director.x, director.y), until: now + 14000 };
+        const marker = body._botHelpMarker && body._botHelpMarker.expiresAt > now ? body._botHelpMarker : null;
+        if (marker && this.distanceTo(marker) > 300)
+            return { ...this.safePoint(marker.x, marker.y), until: now + 14000 };
+        const room = global.gameManager && global.gameManager.room;
+        const halfWidth = (room?.width || 6300) / 2, halfHeight = (room?.height || 6300) / 2;
+        const all = digWarsOutposts.getOutposts();
+        const sites = this.role === 'guard'
+            ? all.filter(site => site.team === body.team)
+            : this.role === 'raider'
+                ? all.filter(site => site.team !== body.team)
+                : all;
+        if (sites.length && ran.chance(0.65)) {
+            const site = ran.choose(sites);
+            return {
+                ...this.safePoint(
+                    util.clamp(site.x + ran.gauss(0, 260), -halfWidth + 280, halfWidth - 280),
+                    util.clamp(site.y + ran.gauss(0, 260), -halfHeight + 280, halfHeight - 280)),
+                until: now + 16000,
+            };
+        }
+        return {
+            ...this.safePoint(
+                util.clamp(body.x + ran.gauss(0, 1500), -halfWidth + 280, halfWidth - 280),
+                util.clamp(body.y + ran.gauss(0, 1500), -halfHeight + 280, halfHeight - 280)),
+            until: now + 16000,
+        };
+    }
+
+    // ── deciding ─────────────────────────────────────────────────────────
+    bankTarget() {
+        return Math.min(this.bankAt, (this.body.gemCap || 4000) * 0.9);
+    }
+
+    retreatPoint() {
+        const body = this.body, threat = this.view.enemy;
+        const vault = this.ownVault();
+        if (vault) return { x: vault.x, y: vault.y };
+        if (!threat) return { x: body.x, y: body.y };
+        return { x: body.x - (threat.x - body.x), y: body.y - (threat.y - body.y) };
+    }
+
+    candidate(now) {
+        const body = this.body, view = this.view;
+        const health = body.health.max ? body.health.amount / body.health.max : 1;
+        const outnumbered = view.enemies > view.allies + 1;
+        const threatened = view.enemy && view.enemyDistance < 900;
+
+        if (health < 0.16 || (threatened && (health < this.retreatAt() || (outnumbered && health < 0.6))))
+            return { kind: 'survive', point: this.retreatPoint() };
+        if ((body.carriedGems || 0) >= this.bankTarget() || body.vaultDeposit)
+            return { kind: 'bank' };
+        // Never chase somebody into their own base: the tile kills us on
+        // entry, so an enemy hiding there is a shooting-range target at most.
+        if (view.enemy && view.enemyDistance < this.engageRange() && !outnumbered &&
+            !inEnemyBase(body.team, view.enemy.x, view.enemy.y))
+            return { kind: 'fight', target: view.enemy };
+        if (view.gem)
+            return { kind: 'collect', gem: view.gem };
+        if (view.defense)
+            return { kind: 'defend', point: view.defense.point, target: view.defense.target };
+        if (view.objective)
+            return { kind: 'objective', point: view.objective.point, structure: view.objective.kind };
+        // A teammate is fighting somewhere close: go take part. This is what
+        // turns eight solo grinders into something that behaves like a lobby.
+        const marker = body._botHelpMarker && body._botHelpMarker.expiresAt > now ? body._botHelpMarker : null;
+        if (marker && this.distanceTo(marker) < 3000 && this.distanceTo(marker) > 300)
+            return { kind: 'rally', point: this.safePoint(marker.x, marker.y), expiresAt: marker.expiresAt };
+        if (view.rock)
+            return { kind: 'mine', rock: view.rock };
+        return { kind: 'explore', point: this.explorePoint(now) };
+    }
+
+    sameGoal(a, b) {
+        if (a.kind !== b.kind) return false;
+        switch (a.kind) {
+            case 'fight': return a.target === b.target;
+            case 'collect': return a.gem === b.gem;
+            // Any live rock is the same job, so a nearer one never steals the
+            // one already half broken.
+            case 'mine': return true;
+            case 'objective':
+            case 'defend': return a.point === b.point;
+            default: return true;
+        }
+    }
+
+    stillValid(goal, now) {
+        const body = this.body;
+        switch (goal.kind) {
+            case 'survive': {
+                const health = body.health.max ? body.health.amount / body.health.max : 1;
+                return health < this.retreatAt() + 0.2;
             }
-            if (best) return best;
+            case 'bank':
+                return !!body.vaultDeposit || (body.carriedGems || 0) >= 15;
+            case 'fight':
+                return goal.target && !goal.target.isDead?.() && goal.target.health?.amount > 0 &&
+                    this.distanceTo(goal.target) < (body.fov || 1200) * 1.4 &&
+                    !inEnemyBase(body.team, goal.target.x, goal.target.y);
+            case 'collect':
+                return goal.gem && goal.gem.gemValue > 0 && !goal.gem.isDead?.() && this.distanceTo(goal.gem) < 900;
+            case 'defend':
+                return !!goal.point && goal.point.team === body.team && !!goal.point.banner;
+            case 'objective': {
+                if (!goal.point) return false;
+                if (goal.structure === 'chamber')
+                    return goal.point.state === 'alive' && goal.point.team !== body.team;
+                return !!goal.point.banner && !goal.point.banner.isDead() && goal.point.team !== body.team;
+            }
+            case 'mine': {
+                if (!goal.rock || !goal.rock.alive) return false;
+                if ((this.rockBlacklist.get(goal.rock) || 0) >= now) return false;
+                // Stay on one rock until it breaks. Re-picking the nearest
+                // rock every few seconds spread a bot's damage across a dozen
+                // boulders and broke none of them, which is why bots mined for
+                // minutes and came away with nothing.
+                if (goal.rock.health < (this.mineHealth ?? Infinity) - 1e-6) {
+                    this.mineHealth = goal.rock.health;
+                    this.mineProgressAt = now;
+                }
+                // No damage landing for six seconds means the shots are not
+                // reaching it: give up and let another rock have a turn.
+                if (now - (this.mineProgressAt || this.goalStartedAt) > 6000) {
+                    this.rockBlacklist.set(goal.rock, now + 20000);
+                    return false;
+                }
+                return true;
+            }
+            case 'rally':
+                return now < (goal.expiresAt || 0) && this.distanceTo(goal.point) > 260;
+            case 'explore':
+                return goal.point && now < goal.point.until && this.distanceTo(goal.point) > 220;
         }
-        return terrain.nearestRock ? terrain.nearestRock(this.body.x, this.body.y, 450) : null;
+        return false;
     }
 
-    // A structure's collision body is much larger than an enemy tank, so the
-    // orbit radius must clear the whole structure or the bot drives into the
-    // chamber/outpost face and looks stuck while pushing against it.
-    clearanceFor(target) {
-        if (!target) return 0;
-        const chamber = digWarsChambers.getChambers().find(c => c.id === target.id);
-        if (chamber) return chamber.r + 30;
-        const outpost = digWarsOutposts.getOutposts().find(o => o.id === target.id);
-        if (outpost) return outpost.r + 25;
-        return (target.realSize || target.size || 0) * 0.5 + 20;
+    decide(now) {
+        const current = this.goal;
+        const valid = current ? this.stillValid(current, now) : false;
+        const candidate = this.candidate(now);
+        const mustSwitch = !current || !valid || now >= this.holdUntil ||
+            GOAL_PRIORITY[candidate.kind] > GOAL_PRIORITY[current.kind];
+        if (!mustSwitch) return;
+        if (current && valid && this.sameGoal(current, candidate)) {
+            this.holdUntil = now + GOAL_HOLD[candidate.kind];
+            return;
+        }
+        this.goal = candidate;
+        this.goalStartedAt = now;
+        if (candidate.kind === 'mine') {
+            this.mineHealth = candidate.rock.health;
+            this.mineProgressAt = now;
+        }
+        this.holdUntil = now + GOAL_HOLD[candidate.kind] * (0.75 + Math.random() * 0.5);
+        this.nav.nextProbeAt = 0;
+        this.nav.arrived = false;
+        this.body._digWarsGoal = candidate.kind;
+        this.body._digWarsObjectivePoint = candidate.kind === 'objective' ? candidate.point : null;
+        this.body._digWarsObjectiveKind = candidate.kind === 'objective' ? candidate.structure : null;
     }
 
-    pushFormationPoint(target, desiredRange) {
-        const slot = this.body._botPushSlot ?? 0;
-        const size = this.body._botPushSize || 1;
-        const base = Math.atan2(this.body.y - target.y, this.body.x - target.x);
-        const angle = base + (slot - (size - 1) / 2) * 0.6;
-        const radius = desiredRange + this.clearanceFor(target) + Math.abs(slot - (size - 1) / 2) * 28;
+    // ── acting ───────────────────────────────────────────────────────────
+    // A chamber ring is far larger than an outpost banner, so the standoff
+    // has to clear the whole structure or the bot presses into its face.
+    structureClearance(target) {
+        if (target.entity !== undefined) return (target.r || 160) + 26;
+        const banner = target.banner;
+        return Math.max(target.r || 95, banner ? (banner.realSize || banner.size || 40) + 25 : 60);
+    }
+
+    orbitPoint(key, target, radius, now, spread = 0) {
+        if (!this.orbit || this.orbit.key !== key) {
+            this.orbit = {
+                key,
+                at: now,
+                phase: Math.atan2(this.body.y - target.y, this.body.x - target.x) + ran.gauss(0, 0.25),
+                rate: (0.00025 + Math.random() * 0.0004) * (ran.chance(0.5) ? 1 : -1),
+            };
+        }
+        const angle = this.orbit.phase + (now - this.orbit.at) * this.orbit.rate + spread;
+        // Same neighbour-rock dodge as minePoint: an orbit slot inside a rock
+        // is a slot the tank can only shove against.
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        const stride = this.orbit.rate >= 0 ? 0.55 : -0.55;
+        for (let i = 0; i < 6; i++) {
+            const a = angle + i * stride;
+            const x = target.x + Math.cos(a) * radius, y = target.y + Math.sin(a) * radius;
+            if (!tg?.pointInRock || !tg.pointInRock(x, y)) return { x, y };
+        }
         return { x: target.x + Math.cos(angle) * radius, y: target.y + Math.sin(angle) * radius };
     }
 
-    orbitGoal(target, desiredRange, now, key) {
+    combatPoint(target, now) {
+        if (this.isRammer()) return target;
+        return this.orbitPoint(`f${target.id}`, target, this.desiredRange(), now);
+    }
+
+    structurePoint(target, now) {
+        const clearance = this.structureClearance(target);
+        if (this.isRammer()) return target;
         const slot = this.body._botPushSlot ?? 0;
         const size = this.body._botPushSize || 1;
-        if (!this.orbitPlan || this.orbitPlan.key !== key) {
-            const startingAngle = Math.atan2(this.body.y - target.y, this.body.x - target.x);
-            this.orbitPlan = {
-                key,
-                startedAt: now,
-                phase: startingAngle + ran.gauss(0, 0.35),
-                rate: (0.00018 + Math.random() * 0.00024) * (ran.chance(0.5) ? 1 : -1),
-            };
-        }
         const offset = slot - (size - 1) / 2;
-        const angle = this.orbitPlan.phase + (now - this.orbitPlan.startedAt) * this.orbitPlan.rate + offset * 0.58;
-        const radius = desiredRange + this.clearanceFor(target) + Math.abs(offset) * 28;
-        return {
-            x: target.x + Math.cos(angle) * radius,
-            y: target.y + Math.sin(angle) * radius,
-        };
+        const radius = clearance + Math.min(this.desiredRange(), this.weaponRange() * 0.55) + Math.abs(offset) * 26;
+        return this.orbitPoint(`s${target.id}:${target.name || ''}`, target, radius, now, offset * 0.5);
     }
 
-    mineFiringPoint(rock, now) {
-        const key = `mine:${rock.k ?? rock.wx}`;
-        if (!this.minePlan || this.minePlan.key !== key) {
-            const angle = Math.atan2(this.body.y - rock.wy, this.body.x - rock.wx) || this.orbitSign * Math.PI / 2;
-            this.minePlan = {
-                key,
-                startedAt: now,
-                phase: angle + ran.gauss(0, 0.18),
-                rate: (0.00012 + Math.random() * 0.00016) * (ran.chance(0.5) ? 1 : -1),
-            };
-        }
-        const range = Math.max(145, (this.body.realSize || this.body.size || 1) * 2.8);
-        const angle = this.minePlan.phase + (now - this.minePlan.startedAt) * this.minePlan.rate;
-        return {
-            x: rock.wx + Math.cos(angle) * range,
-            y: rock.wy + Math.sin(angle) * range,
-        };
-    }
-
-    engagePoint(target, desiredRange) {
-        const dx = target.x - this.body.x, dy = target.y - this.body.y;
-        const distance = Math.hypot(dx, dy) || 1;
-        const ux = dx / distance, uy = dy / distance;
-        const tangent = { x: -uy * this.orbitSign, y: ux * this.orbitSign };
-        const side = Math.min(100, Math.max(35, desiredRange * 0.45));
-        return {
-            x: target.x - ux * desiredRange + tangent.x * side,
-            y: target.y - uy * desiredRange + tangent.y * side,
-        };
-    }
-
-    desiredCombatRange() {
-        if (this.isRammer()) return Math.max(this.body.size * 2.5, 45);
-        const defs = (this.body.defs || []).join(' ').toLowerCase();
-        if (/sniper|assassin|ranger|marksman|stalker|rifle|predator/.test(defs)) return 280;
-        if (/destroyer|artillery|mortar|launcher|ordnance/.test(defs)) return 230;
-        return 135;
-    }
-
-    hasRecoilDrive() {
-        const defs = (this.body.defs || []).join(' ').toLowerCase();
-        return /penta|triplet|triple|spread|machinegun|minigun|sprayer|booster|fighter|falcon|annihilator/.test(defs);
-    }
-
-    steerGoal(target, now, key, combat = false, finalDistance = 80, stable = false) {
-        const b = this.body;
-        const dx = target.x - b.x, dy = target.y - b.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance <= finalDistance) return { x: target.x, y: target.y };
-
-        const base = Math.atan2(dy, dx);
-        const planDistance = this.movementPlan
-            ? Math.hypot(this.movementPlan.x - b.x, this.movementPlan.y - b.y)
-            : Infinity;
-        if (!this.movementPlan || this.movementPlan.key !== key || now >= this.movementPlan.until || planDistance < Math.max(28, b.size * 2)) {
-            const skill = this.skillLevel();
-            // A fresh random side on every replan makes a bot pressed against
-            // its target wobble left, then right, then left. Hold the side for
-            // as long as the waypoint key does.
-            this.steerSides ??= new Map();
-            if (this.steerSides.size > 12) this.steerSides.clear();
-            if (!this.steerSides.has(key)) this.steerSides.set(key, ran.chance(0.5) ? 1 : -1);
-            const side = this.steerSides.get(key);
-            let angle = base;
-            if (combat) {
-                const desired = this.desiredCombatRange();
-                const correction = util.clamp((distance - desired) / Math.max(desired, 1), -1, 1) * 0.35;
-                const weave = distance > desired + 70 ? ran.randomRange(0.12, 0.32) : Math.PI / 2 + ran.gauss(0, 0.12);
-                angle = base + side * weave - correction * side;
-            } else {
-                // Commit to short waypoints instead of recomputing a point
-                // directly in front of the hull every tick. Objective pushes
-                // opt into the stable branch because the orbit itself already
-                // supplies imperfect movement.
-                angle = stable ? base : base + side * ran.randomRange(0.08, 0.24 + (1 - skill) * 0.16);
-            }
-            const reach = Math.min(distance, combat ? 260 : 330);
-            this.movementPlan = {
-                key,
-                until: now + (combat ? 650 : 850) + ran.random(1000 + skill * 1200),
-                angle,
-                x: b.x + Math.cos(angle) * reach,
-                y: b.y + Math.sin(angle) * reach,
-            };
-        }
-        return { x: this.movementPlan.x, y: this.movementPlan.y };
-    }
-
-    rockSafeGoal(goal, target) {
+    // The rock a bullet reaches first is the rock this tank is really mining.
+    // Aiming past a nearer boulder at a "chosen" one spread damage over half
+    // the canyon and broke nothing.
+    firstRockAlong(target) {
         const tg = global.gameManager && global.gameManager.terrainGrid;
-        if (!tg || !tg.rockHitByCircle || !goal) return goal;
-        // The old 0.82 multiplier allowed the hull edge to scrape a canyon
-        // face, then the movement controller kept requesting the same blocked
-        // waypoint. Give the whole tank a small clearance margin.
-        const radius = Math.max(this.body.realSize || this.body.size || 1, 12) * 1.05 + 3;
-        // Chambers and outpost banners have real collision bodies even though
-        // they are not terrain rocks. Armed bots must never try to drive into
-        // one; rammers still charge the structure directly so they keep their
-        // direct lane. The depth guard stops any pathological re-entry.
-        if (!this.isRammer()) {
-            const chambers = digWarsChambers.getChambers();
-            const outposts = digWarsOutposts.getOutposts();
-            const structureBlocks = (x, y) => {
-                for (const chamber of chambers) {
-                    if (!chamber.entity || chamber.entity.isDead?.()) continue;
-                    if (Math.hypot(x - chamber.x, y - chamber.y) < chamber.r + radius) return true;
-                }
-                for (const outpost of outposts) {
-                    const banner = outpost.banner;
-                    if (!banner || banner.isDead?.()) continue;
-                    if (Math.hypot(x - banner.x, y - banner.y) < (banner.realSize || banner.size || 30) + radius) return true;
-                }
-                return false;
-            };
-            if (structureBlocks(goal.x, goal.y)) {
-                const orbit = this.orbitGoal(target || goal, this.desiredCombatRange(), Date.now(), `clear:${goal.x},${goal.y}`);
-                if (!structureBlocks(orbit.x, orbit.y)) return this.rockSafeGoal(orbit, target);
-            }
-        }
-        const room = global.gameManager && global.gameManager.room;
-        const insideRoom = point => !room || (
-            Math.abs(point.x) < room.width / 2 - radius - 35 &&
-            Math.abs(point.y) < room.height / 2 - radius - 35
-        );
-        const pathBlockCount = (from, to) => {
-            const distance = Math.hypot(to.x - from.x, to.y - from.y);
-            const steps = Math.max(3, Math.ceil(distance / Math.max(radius * 2, 22)));
-            let blocked = 0;
-            for (let i = 1; i <= steps; i++) {
-                const t = i / steps;
-                if (tg.rockHitByCircle(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, radius)) blocked++;
-            }
-            return blocked;
-        };
-        const pathBlocked = (from, to) => pathBlockCount(from, to) > 0;
-        if (insideRoom(goal) && !pathBlocked(this.body, goal)) return goal;
-
-        const tx = target?.x ?? goal.x, ty = target?.y ?? goal.y;
-        const dx = tx - this.body.x, dy = ty - this.body.y;
-        const distance = Math.hypot(dx, dy) || 1;
-        const base = Math.atan2(dy, dx);
-        const distances = [radius * 4, radius * 7, radius * 10, radius * 13];
-        const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2,
-            3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI];
-        const candidates = [];
-        for (const reach of distances) {
-            for (const offset of angles) {
-                const angle = base + offset;
-                const point = {
-                    x: this.body.x + Math.cos(angle) * reach,
-                    y: this.body.y + Math.sin(angle) * reach,
-                };
-                if (!insideRoom(point)) continue;
-                candidates.push({ point, blocks: pathBlockCount(this.body, point) });
-            }
-        }
-        const clear = candidates.filter(candidate =>
-            candidate.blocks === 0 && !tg.rockHitByCircle(candidate.point.x, candidate.point.y, radius)
-        );
-        if (clear.length) {
-            return clear.sort((a, b) =>
-                Math.hypot(a.point.x - tx, a.point.y - ty) - Math.hypot(b.point.x - tx, b.point.y - ty)
-            )[0].point;
-        }
-        // A bot can be partially buried, so sometimes every complete path
-        // probe reports a hit. Still choose the least-blocked outward heading;
-        // returning its current position was the part that made the screenshot
-        // look permanently stuck.
-        return candidates.sort((a, b) =>
-            a.blocks - b.blocks ||
-            Math.hypot(a.point.x - tx, a.point.y - ty) - Math.hypot(b.point.x - tx, b.point.y - ty)
-        )[0]?.point || {
-            x: this.body.x - Math.cos(base) * radius * 5,
-            y: this.body.y - Math.sin(base) * radius * 5,
-        };
-    }
-
-    playfulGoal(goal, now) {
-        if (this.body.botStyle === 'normal' || ['combat', 'rob', 'bank', 'defend', 'survive'].includes(this.current?.kind)) {
-            this.showoffUntil = 0;
-            return goal;
-        }
-        if (!this.showoffUntil && now >= this.nextShowoffAt && ran.chance(0.45)) {
-            this.showoffUntil = now + 650 + Math.random() * 900;
-            this.showoffAngle = ran.random(2 * Math.PI);
-        }
-        if (this.showoffUntil && now < this.showoffUntil) {
-            this.showoffAngle += this.body.botStyle === 'spinner' ? 0.42 : 0.16;
-            const radius = this.body.size * (this.body.botStyle === 'spinner' ? 7 : 4);
-            return {
-                x: this.body.x + Math.cos(this.showoffAngle) * radius,
-                y: this.body.y + Math.sin(this.showoffAngle) * radius,
-            };
-        }
-        if (this.showoffUntil) {
-            this.showoffUntil = 0;
-            this.nextShowoffAt = now + 7000 + Math.random() * 10000;
-        }
-        return goal;
-    }
-
-    playfulAim(target, now) {
-        if (!target || !this.showoffUntil || this.body.botStyle !== 'spinner') return target;
-        const length = Math.hypot(target.x, target.y);
-        const angle = Math.atan2(target.y, target.x) + Math.sin(now / 70) * 0.3;
-        return { x: Math.cos(angle) * length, y: Math.sin(angle) * length };
-    }
-
-    recoilAim(now, movementGoal) {
-        if (!this.hasRecoilDrive() || this.isRammer()) return null;
-        const dx = movementGoal.x - this.body.x, dy = movementGoal.y - this.body.y;
+        if (!tg || !tg.pointInRock) return null;
+        const body = this.body;
+        const dx = target.x - body.x, dy = target.y - body.y;
         const distance = Math.hypot(dx, dy);
-        if (distance < 100) return null;
-        if (!this.thrustUntil && now < this.nextThrustAt) return null;
-        if (!this.thrustUntil) {
-            this.nextThrustAt = now + 900 + ran.random(1800);
-            if (!ran.chance(0.18 + this.advancedChance() * 0.45)) return null;
-            this.thrustUntil = now + 260 + ran.random(420);
+        if (distance < 1) return null;
+        const steps = Math.min(24, Math.max(3, Math.round(distance / 22)));
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            const rock = tg.pointInRock(body.x + dx * t, body.y + dy * t);
+            if (rock) return rock;
         }
-        if (now >= this.thrustUntil) {
-            this.thrustUntil = 0;
-            return null;
-        }
-        // Aim behind the hull while firing. Recoil then supplies a forward
-        // burst, the same small cursor correction a human uses on recoil tanks.
-        return this.aimVector(-dx / distance * 140, -dy / distance * 140, now);
+        return null;
     }
 
-    choose(kind, data, now, locked = false) {
-        this.current = { kind, ...data };
-        const hold = 1500 + (1 - this.skillLevel()) * 1500;
-        this.goalUntil = now + hold;
-        this.body._digWarsGoalLocked = locked;
-        this.body._digWarsGoal = kind;
-        this.body._digWarsObjectivePoint = kind === 'objective' ? data.point : null;
-        this.body._digWarsObjectiveKind = kind === 'objective' ? data.structureKind : null;
+    minePoint(rock, now) {
+        if (this.isRammer()) return { x: rock.wx, y: rock.wy };
+        const key = `r${rock.k}`;
+        if (!this.minePlan || this.minePlan.key !== key) {
+            this.minePlan = {
+                key, at: now,
+                phase: Math.atan2(this.body.y - rock.wy, this.body.x - rock.wx),
+                rate: (0.00008 + Math.random() * 0.00014) * (ran.chance(0.5) ? 1 : -1),
+            };
+        }
+        const radius = Math.max(120, (rock.maxPolyRadius || 60) + this.nav.radius() + 55);
+        const angle = this.minePlan.phase + (now - this.minePlan.at) * this.minePlan.rate;
+        // Rocks come in clusters: if the orbit slot lands inside a neighbour,
+        // walk around the ring until open ground. Pressing the hull into the
+        // neighbour was a steady source of fake "stuck" escapes.
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        const stride = this.minePlan.rate >= 0 ? 0.55 : -0.55;
+        for (let i = 0; i < 6; i++) {
+            const a = angle + i * stride;
+            const x = rock.wx + Math.cos(a) * radius, y = rock.wy + Math.sin(a) * radius;
+            if (!tg?.pointInRock || !tg.pointInRock(x, y)) return { x, y };
+        }
+        return { x: rock.wx + Math.cos(angle) * radius, y: rock.wy + Math.sin(angle) * radius };
     }
 
-    validCurrent() {
-        if (!this.current) return false;
-        if (this.current.kind === 'bank') {
-            return !!this.body.vaultDeposit || (this.body.carriedGems || 0) >= 15;
+    // Weapons are resolved separately from movement so a bot running loot
+    // home, pushing a banner or driving to a gem still shoots back at
+    // whatever is shooting it, exactly like a person would.
+    weapon(now) {
+        const body = this.body, goal = this.goal;
+        const forward = { x: Math.cos(this.nav.heading) * 120, y: Math.sin(this.nav.heading) * 120 };
+        if (this.isRammer()) {
+            const target = goal.kind === 'fight' && goal.target ? goal.target
+                : goal.kind === 'mine' && goal.rock ? { x: goal.rock.wx, y: goal.rock.wy } : null;
+            return { target: target ? { x: target.x - body.x, y: target.y - body.y } : forward, fire: false };
         }
-        if (this.current.kind === 'rob' || this.current.kind === 'combat') {
-            return this.current.target && this.visibleEnemy(this.current.target, (this.body.fov || 1200) * 1.35);
-        }
-        if (this.current.kind === 'defend') {
-            return !!this.current.point && (!this.current.target || this.visibleEnemy(this.current.target, (this.body.fov || 1200) * 1.35));
-        }
-        if (this.current.kind === 'mine') {
-            if (this.body._digWarsIgnoredRock === this.current.rock && Date.now() < (this.body._digWarsIgnoredRockUntil || 0)) return false;
-            return !!this.current.rock && this.current.rock.alive;
-        }
-        if (this.current.kind === 'travel') {
-            const p = this.current.point;
-            return !!p && Math.hypot(p.x - this.body.x, p.y - this.body.y) > 420;
-        }
-        if (this.current.kind === 'collect') return !!this.current.gem && this.current.gem.gemValue > 0;
-        if (this.current.kind === 'marker') return !!this.current.marker && this.current.marker.expiresAt > Date.now();
-        if (this.current.kind === 'objective') {
-            if (!this.current.point) return false;
-            if (this.current.structureKind === 'chamber') {
-                return this.current.point.team != null &&
-                    this.current.point.team !== TEAM_ROOM &&
-                    this.current.point.team !== this.body.team;
+        const enemy = this.view.enemy;
+        if (enemy && this.view.enemyDistance < this.weaponRange() && this.clearShot(enemy))
+            return { target: this.leadAim(enemy, now), fire: true };
+        if (goal.kind === 'fight' && goal.target && this.distanceTo(goal.target) < this.weaponRange())
+            return { target: this.leadAim(goal.target, now), fire: true };
+        if (goal.kind === 'defend' && goal.target)
+            return { target: this.leadAim(goal.target, now), fire: true };
+        if (goal.kind === 'objective' && goal.point)
+            return { target: this.aimVector(goal.point.x - body.x, goal.point.y - body.y, now), fire: true };
+        if (goal.kind === 'mine' && goal.rock && goal.rock.alive)
+            return { target: this.aimVector(goal.rock.wx - body.x, goal.rock.wy - body.y, now), fire: true };
+        return { target: forward, fire: false };
+    }
+
+    act(now) {
+        const body = this.body, goal = this.goal;
+        let destination = null, arrive = 60, contact = false;
+        switch (goal.kind) {
+            case 'survive':
+                // Circle the safe spot while healing instead of parking on
+                // it: a motionless tank reads as a broken bot and eats every
+                // stray shell.
+                destination = this.distanceTo(goal.point) < 240
+                    ? this.orbitPoint('sv', goal.point, 130, now)
+                    : goal.point;
+                arrive = 40;
+                break;
+            case 'bank': {
+                const vault = this.ownVault();
+                if (!vault) break;
+                if (body.vaultOnPad) {
+                    if (!body.vaultDeposit && (body.carriedGems || 0) >= 15)
+                        digWarsVault.depositFor(body, body.carriedGems);
+                    break;
+                }
+                destination = vault;
+                arrive = 28;
+                break;
             }
-            return true;
+            case 'fight':
+                destination = this.combatPoint(goal.target, now);
+                arrive = this.isRammer() ? 0 : 45;
+                contact = this.isRammer();
+                break;
+            case 'collect':
+                destination = goal.gem;
+                arrive = 0;
+                break;
+            case 'defend':
+                destination = goal.target && this.clearShot(goal.target)
+                    ? this.combatPoint(goal.target, now) : goal.point;
+                arrive = 70;
+                break;
+            case 'objective':
+                destination = this.structurePoint(goal.point, now);
+                arrive = this.isRammer() ? 0 : 36;
+                contact = this.isRammer();
+                break;
+            case 'mine':
+                if (!this.isRammer() && now - (this.aimCheckAt || 0) > 300) {
+                    this.aimCheckAt = now;
+                    const hit = this.firstRockAlong({ x: goal.rock.wx, y: goal.rock.wy });
+                    if (hit && hit !== goal.rock && hit.alive) {
+                        goal.rock = hit;
+                        this.mineHealth = hit.health;
+                        this.mineProgressAt = now;
+                        this.minePlan = null;
+                    }
+                }
+                destination = this.minePoint(goal.rock, now);
+                arrive = this.isRammer() ? 0 : 30;
+                contact = this.isRammer();
+                break;
+            case 'rally':
+                destination = goal.point;
+                arrive = 200;
+                break;
+            case 'explore':
+                destination = goal.point;
+                arrive = 150;
+                break;
         }
-        return true;
-    }
-
-    maybeOverride(now) {
-        if (this.overrideUntil && now >= this.overrideUntil) {
-            this.body.autoOverride = false;
-            this.overrideUntil = 0;
-        }
-        if (this.current?.kind !== 'objective' || this.overrideUntil || this.body.autoOverride) return;
-        const defs = (this.body.defs || []).join(' ').toLowerCase();
-        if ((this.body.turrets?.size || 0) > 0 && /overseer|director|overlord|manager|factory|spawner|carrier|cruiser/.test(defs) && ran.chance(0.05 + this.skillLevel() * 0.35)) {
-            this.overrideUntil = now + 700;
-            this.body.autoOverride = true;
-        }
-    }
-
-    output(now) {
-        const goal = this.current;
-        if (!goal) {
-            this.body._digWarsGoal = 'wander';
-            this.body._digWarsGoalLocked = false;
-            this.body._digWarsCollecting = false;
-            return {};
-        }
-        this.body._digWarsGoal = goal.kind;
-        this.body._digWarsCollecting = goal.kind === 'collect';
-        this.maybeOverride(now);
-
-        if (goal.kind === 'bank') {
-            this.body._digWarsCombatTarget = null;
-            const vault = this.ownVault();
-            if (!vault) return {};
-            if (this.body.vaultOnPad) {
-                if (!this.body.vaultDeposit && (this.body.carriedGems || 0) >= 15)
-                    digWarsVault.depositFor(this.body, this.body.carriedGems);
-                return { goal: { x: this.body.x, y: this.body.y } };
-            }
-            const movementGoal = this.steerGoal(vault, now, 'bank');
-            const recoil = this.recoilAim(now, movementGoal);
-            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : { goal: movementGoal };
-        }
-        if (goal.kind === 'survive') {
-            this.body._digWarsCombatTarget = null;
-            const vault = this.ownVault();
-            const retreatPoint = vault || goal.point;
-            return { goal: this.rockSafeGoal(this.steerGoal(retreatPoint, now, 'survive'), retreatPoint) };
-        }
-        if (goal.kind === 'defend') {
-            this.body._digWarsCombatTarget = goal.target || null;
-            const target = goal.target && this.visibleEnemy(goal.target, (this.body.fov || 1200) * 1.35)
-                ? goal.target : null;
-            const destination = target || goal.point;
-            const movementGoal = this.rockSafeGoal(
-                this.steerGoal(destination, now, `defend:${goal.point.id}`, !!target), destination
-            );
-            return {
-                goal: movementGoal,
-                target: target ? this.aimAt(target, now) : this.aimVector(destination.x - this.body.x, destination.y - this.body.y, now),
-                fire: true,
-                main: true,
-            };
-        }
-        if (goal.kind === 'objective') {
-            this.body._digWarsCombatTarget = null;
-            const desiredRange = this.desiredCombatRange();
-            const pushTarget = this.body._botPushTarget && (this.body._botPushTargetUntil || 0) > now
-                ? this.body._botPushTarget : goal.point;
-            const destination = this.isRammer()
-                ? pushTarget
-                : this.orbitGoal(pushTarget, desiredRange, now, `objective:${goal.point.id}`);
-            // Armed tanks keep drifting around the objective instead of
-            // parking on one pixel. Every bot has its own phase and orbit rate,
-            // while rammer tanks still take the direct contact lane.
-            const movementGoal = this.rockSafeGoal(
-                this.playfulGoal(this.steerGoal(destination, now, `objective:${goal.point.id}`, false, 28, true), now), destination
-            );
-            const showingOff = this.showoffUntil > now && this.body.botStyle !== 'normal';
-            // Recoil steering around an objective made tanks repeatedly reverse
-            // their hull while still technically making progress. Save recoil
-            // movement for actual combat; pushes use the stable orbit instead.
-            const recoil = null;
-            return recoil ? { goal: movementGoal, target: recoil, fire: true, main: true } : {
-                goal: movementGoal,
-                target: this.playfulAim(this.aimVector(pushTarget.x - this.body.x, pushTarget.y - this.body.y, now), now),
-                fire: !showingOff,
-                main: !showingOff,
-            };
-        }
-        if (goal.kind === 'marker') {
-            this.body._digWarsCombatTarget = null;
-            const movementGoal = this.rockSafeGoal(
-                this.steerGoal(goal.marker, now, `marker:${goal.marker.by}`, false, 70), goal.marker
-            );
-            return {
-                goal: movementGoal,
-                target: this.aimVector(goal.marker.x - this.body.x, goal.marker.y - this.body.y, now),
-                fire: false,
-                main: false,
-                alt: false,
-            };
-        }
-        if (goal.kind === 'collect') {
-            this.body._digWarsCombatTarget = null;
-            const movementGoal = this.rockSafeGoal(
-                this.steerGoal(goal.gem, now, `collect:${goal.gem.id}`, false, 20), goal.gem
-            );
-            return {
-                goal: movementGoal,
-                target: { x: goal.gem.x - this.body.x, y: goal.gem.y - this.body.y },
-                fire: false,
-                main: false,
-                alt: false,
-            };
-        }
-        if (goal.kind === 'rob' || goal.kind === 'combat') {
-            this.body._digWarsCombatTarget = goal.target;
-            const movementGoal = this.rockSafeGoal(
-                this.steerGoal(goal.target, now, `${goal.kind}:${this.rootOf(goal.target).id ?? goal.target.id}`, true), goal.target
-            );
-            const target = this.aimAt(goal.target, now);
-            return { goal: movementGoal, target, fire: true, main: true };
-        }
-        if (goal.kind === 'combat' && goal.target && !this.isRammer() && !this.clearShot(goal.target)) {
-            // Reposition instead of unloading into the chamber wall in front.
-            const t = goal.target;
-            const move = this.rockSafeGoal(this.engagePoint(t, this.desiredCombatRange()), t);
-            return { goal: move, fire: false, main: false, alt: false };
-        }
-        if (goal.kind === 'travel') {
-            this.body._digWarsCombatTarget = null;
-            const p = goal.point;
-            // Crossing the map is not a firefight. Holding fire here also stops
-            // bots shooting at nothing while they relocate.
-            return {
-                goal: this.rockSafeGoal(this.steerGoal(p, now, 'travel'), p),
-                fire: false, main: false, alt: false,
-            };
-        }
-        if (goal.kind === 'mine') {
-            this.body._digWarsCombatTarget = null;
-            this.body._digWarsMineRock = goal.rock;
-            // Only true rammers should physically enter the rock line. Armed
-            // tanks use a slowly moving firing lane, which makes them feel
-            // alive without ever steering their hull into the rock.
-            const rockPoint = { x: goal.rock.wx, y: goal.rock.wy };
-            // Contact is arrival for a rammer. Measuring to the rock CENTRE
-            // with a 25 unit threshold can never be satisfied, because the hull
-            // collides long before that, so it replanned forever and rocked
-            // back and forth against the face.
-            const contact = Math.max(this.body.realSize || this.body.size || 12, 12) +
-                (goal.rock.r || 40) + 18;
-            const movementGoal = this.isRammer()
-                ? this.steerGoal(rockPoint, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, contact, true)
-                : this.rockSafeGoal(this.mineFiringPoint(goal.rock, now), rockPoint);
-            if (this.isRammer()) {
-                // A rammer breaks terrain through contact, never through an
-                // imaginary ranged attack while it is still approaching.
-                return { goal: movementGoal, fire: false, main: false, alt: false };
-            }
-            const target = this.aimVector(goal.rock.wx - this.body.x, goal.rock.wy - this.body.y, now);
-            return { goal: movementGoal, target, fire: true, main: true };
-        }
-        return {};
+        const movement = destination ? this.nav.steer(destination, arrive, now, contact) : null;
+        const weapon = this.weapon(now);
+        return {
+            goal: movement ? { x: movement.x, y: movement.y } : { x: body.x, y: body.y },
+            power: movement ? (movement.power ?? 1) : 1,
+            target: weapon.target,
+            fire: weapon.fire,
+            // main must stay false: every auto-turret IO treats input.main as
+            // "the pilot is aiming, follow their cursor". Bots fire nearly all
+            // the time (mining), so main:true meant auto tanks never once used
+            // their autos as autos.
+            main: false,
+            alt: false,
+        };
     }
 
     think(input) {
-        const b = this.body, now = Date.now();
-        if (!b.isBot || b.type !== 'tank') return {};
-        // An earlier unstick escape is deliberately preserved for this tick.
-        if (input.goal != null) return {};
-
-        const healthRatio = b.health.max ? b.health.amount / b.health.max : 1;
-        const retreatThreshold = b.botTemperament === 'aggressive' ? 0.28
-            : b.botTemperament === 'passive' ? 0.62 : 0.46;
-        // Retreat decisions happen before mining or objective decisions. The
-        // tank still gets personality, but it does not throw itself into a
-        // hopeless fight or flee blindly through the rock.
-        const nearbyThreat = this.findEnemy(() => true, b.fov || 1200);
-        if (healthRatio < 0.2 + this.skillLevel() * 0.1 ||
-            (nearbyThreat && healthRatio < retreatThreshold)) {
-            if (!this.current || this.current.kind !== 'survive') {
-                const threat = this.findEnemy(() => true, b.fov || 1200);
-                const vault = this.ownVault();
-                this.choose('survive', { point: vault || {
-                    x: b.x - ((threat ? threat.x : b.x + 1) - b.x),
-                    y: b.y - ((threat ? threat.y : b.y + 1) - b.y),
-                } }, now, true);
-            }
-            return this.output(now);
+        const body = this.body, now = Date.now();
+        if (!body.isBot || body.type !== 'tank') return {};
+        // A replying bot stops for a beat so chat reads as a real
+        // interruption instead of text appearing while it keeps farming.
+        if (body._chatPending || (body._chatPauseUntil || 0) > now) {
+            this.nav.samples.length = 0;
+            return { goal: { x: body.x, y: body.y }, target: { x: 0, y: 0 }, fire: false, main: false, alt: false };
         }
-
-        const cap = b.gemCap || 4000;
-        this.bankThreshold ??= cap * (0.55 + Math.random() * 0.35);
-        const carryingPressure = healthRatio < 0.45;
-        const bankUnderPressure = !carryingPressure || ran.chance(this.advancedChance());
-        if ((b.carriedGems || 0) >= this.bankThreshold && this.current?.kind !== 'bank' && bankUnderPressure)
-            this.choose('bank', {}, now, true);
-
-        if (this.current && !this.validCurrent()) {
-            if (this.current.kind === 'mine' && this.current.rock && !this.current.rock.alive)
-                this.nextRockAt = now + 900 + Math.random() * 900;
-            this.current = null;
-        }
-        if (this.current?.kind === 'bank' && (b.carriedGems || 0) < 15 && !b.vaultDeposit) this.current = null;
-
-        // Once a bot has committed to a visible player, keep that fight as the
-        // whole job until the target dies, escapes, or the bot must survive.
-        // Re-check the numbers, though: a second attacker turning up makes a
-        // lone bot disengage instead of suiciding into a 2v1.
-        if (this.current?.kind === 'combat' && this.validCurrent()) {
-            if (this.shouldRetreatFrom(this.current.target)) {
-                const retreatPoint = this.ownVault() || {
-                    x: b.x - (this.current.target.x - b.x),
-                    y: b.y - (this.current.target.y - b.y),
-                };
-                this.choose('survive', { point: retreatPoint }, now, true);
-            }
-            return this.output(now);
-        }
-
-        // Robbery is allowed to interrupt mining, but a committed robbery is
-        // not retargeted every frame. Objectives similarly outrank mining,
-        // while every selected goal still gets its short human-like hold time.
+        // Auto turrets pick their own targets unless the tank overrides them,
+        // and a bot has no reason to ever take that control away from them.
+        body.autoOverride = false;
         this.sense(now);
-        if (this.cachedPlayer) {
-            if (this.shouldRetreatFrom(this.cachedPlayer)) {
-                const retreatPoint = this.ownVault() || {
-                    x: b.x - (this.cachedPlayer.x - b.x),
-                    y: b.y - (this.cachedPlayer.y - b.y),
-                };
-                this.choose('survive', { point: retreatPoint }, now, true);
-                return this.output(now);
-            }
-            // Human players are never a background objective. Snap the job to
-            // the player immediately, even if the bot was banking or pushing.
-            if (this.current?.kind !== 'combat' || this.current.target.id !== this.cachedPlayer.id)
-                this.choose('combat', { target: this.cachedPlayer }, now, true);
-            return this.output(now);
-        }
-        // A nearby enemy bot is already part of the fight. Do not let an
-        // outpost-defense assignment make the tank ignore it.
-        if (this.cachedImmediateThreat) {
-            const threat = this.cachedImmediateThreat;
-            if (this.shouldRetreatFrom(threat)) {
-                const retreatPoint = this.ownVault() || {
-                    x: b.x - (threat.x - b.x),
-                    y: b.y - (threat.y - b.y),
-                };
-                this.choose('survive', { point: retreatPoint }, now, true);
-                return this.output(now);
-            }
-            if (this.current?.kind !== 'combat' || this.current.target.id !== threat.id)
-                this.choose('combat', { target: threat }, now, true);
-            return this.output(now);
-        }
-
-        const shouldCollect = this.cachedGem &&
-            (this.current?.kind !== 'bank' || (this.body._lastKillAt || 0) > now - 5000);
-        if (shouldCollect) {
-            if (this.current?.kind !== 'collect' || this.current.gem.id !== this.cachedGem.id)
-                this.choose('collect', { gem: this.cachedGem }, now, true);
-            return this.output(now);
-        }
-
-        // Team danger pings are a secondary call for help: they beat mining,
-        // wandering, and outpost pushing, but never beat a real enemy in view
-        // or a bot carrying out immediate loot collection.
-        if (this.cachedMarkerHelp && this.current?.kind !== 'bank') {
-            if (this.current?.kind !== 'marker' || this.current.marker.by !== this.cachedMarkerHelp.by)
-                this.choose('marker', { marker: this.cachedMarkerHelp }, now, true);
-            return this.output(now);
-        }
-
-        const defense = this.current?.kind === 'defend'
-            ? (this.validCurrent() ? this.current : null)
-            : this.cachedDefense;
-        if (defense && this.current?.kind !== 'bank') {
-            const defenseKey = `defend:${defense.point.id}`;
-            const ready = this.current?.kind === 'defend' || this.canReactTo(defenseKey, now);
-            if (ready) {
-                if (this.current?.kind !== 'defend' || now >= this.goalUntil)
-                    this.choose('defend', { point: defense.point, target: defense.target }, now, true);
-                return this.output(now);
-            }
-            if (this.current?.kind === 'defend') return this.output(now);
-        }
-
-        const carryingTarget = this.current?.kind === 'rob'
-            ? (this.validCurrent() ? this.current.target : null)
-            : this.cachedRobber;
-        if (carryingTarget && this.current?.kind !== 'bank') {
-            const targetKey = `rob:${this.rootOf(carryingTarget).id ?? carryingTarget.id}`;
-            const ready = this.current?.kind === 'rob' || this.canReactTo(targetKey, now);
-            if (ready && (this.current?.kind !== 'rob' || now >= this.goalUntil))
-                this.choose('rob', { target: carryingTarget }, now, true);
-            else if (ready) return this.output(now);
-        } else {
-            const combatTarget = this.current?.kind === 'combat'
-                ? (this.validCurrent() ? this.current.target : null)
-                : this.cachedCombat;
-            if (combatTarget && this.current?.kind !== 'bank') {
-                if (this.shouldRetreatFrom(combatTarget)) {
-                    const retreatPoint = this.ownVault() || {
-                        x: b.x - (combatTarget.x - b.x),
-                        y: b.y - (combatTarget.y - b.y),
-                    };
-                    this.choose('survive', { point: retreatPoint }, now, true);
-                    return this.output(now);
-                }
-                const targetKey = `combat:${this.rootOf(combatTarget).id ?? combatTarget.id}`;
-                const ready = this.current?.kind === 'combat' || this.canReactTo(targetKey, now);
-                if (ready && (this.current?.kind !== 'combat' || now >= this.goalUntil))
-                    this.choose('combat', { target: combatTarget }, now, true);
-                else if (ready) return this.output(now);
-            } else {
-                // The director outranks objectives. Every bot otherwise locks
-                // onto a structure and holds it forever, which is why nine
-                // bots could be alive and busy while the player met nobody.
-                const pull = this.body._botDirectorPoint;
-                const busy = ['rob', 'bank', 'combat', 'defend', 'survive'].includes(this.current?.kind);
-                if (!busy && pull && now < (this.body._botDirectorUntil || 0) &&
-                    Math.hypot(pull.x - b.x, pull.y - b.y) > 520) {
-                    if (this.current?.kind !== 'travel') this.choose('travel', { point: pull }, now, true);
-                    return this.output(now);
-                }
-                const objectiveHeld = ['rob', 'bank', 'combat', 'defend'].includes(this.current?.kind) ||
-                    (this.current?.kind === 'objective' && now < this.goalUntil);
-                const objective = objectiveHeld ? null : this.cachedObjective;
-                const objectiveKey = objective && `${objective.kind}:${objective.point.id}`;
-                if (objective && (this.current?.kind === 'objective' || this.canReactTo(objectiveKey, now)))
-                    this.choose('objective', { point: objective.point, structureKind: objective.kind }, now, true);
-                else if (this.current && now < this.goalUntil && this.validCurrent()) {
-                    return this.output(now);
-                } else {
-                    // The director may want this bot somewhere else entirely.
-                    // Without this an idle bot mines its home corner forever,
-                    // and on a 6300x6300 map the player meets nobody.
-                    const pull = this.body._botDirectorPoint;
-                    const pullLive = pull && now < (this.body._botDirectorUntil || 0) &&
-                        Math.hypot(pull.x - this.body.x, pull.y - this.body.y) > 520;
-                    if (pullLive && this.current?.kind !== 'travel') {
-                        this.choose('travel', { point: pull }, now, true);
-                    } else {
-                        const rock = this.nearestRock();
-                        if (rock) this.choose('mine', { rock }, now);
-                        else this.current = null;
-                    }
-                }
-            }
-        }
-        return this.output(now);
+        this.decide(now);
+        if (!this.goal) return {};
+        body._digWarsGoal = this.goal.kind;
+        return this.act(now);
     }
 }
 
-// Dig Wars: gunless tanks can press into the rockline when they have no
-// player command or living target. Armed tanks aim from where they are, so
-// even body-damage builds do not drive into walls. No-ops without terrain.
-// acceptsFromTop = false so a real target or a player order always wins.
+// Dig Wars: a player-controlled tank whose only weapon is an auto turret
+// still needs a way to break rock, and rammers press into the rockline when
+// idle. Bots never reach this: their own goal controller owns mining.
 class io_minesRocks extends IO {
     constructor(body) {
         super(body);
@@ -2623,9 +2307,8 @@ class io_minesRocks extends IO {
         this.nextRockAt = 0;
     }
     think(input) {
-        if (this.body.type !== 'tank') return {};
+        if (this.body.type !== 'tank' || this.body.isBot) return {};
         if (input.main || input.alt || input.target != null) return {};
-        if (this.body._digWarsGoal && this.body._digWarsGoal !== 'mine') return {};
         if (this.body.master.autoOverride) return {};
         const tg = global.gameManager && global.gameManager.terrainGrid;
         if (!tg || !tg._voronoiMap) return {};
@@ -2648,6 +2331,12 @@ class io_minesRocks extends IO {
             power: 1,
         };
     }
+}
+
+// Kept for the bot controller chain: the goal controller owns unsticking now,
+// so this only exists so older CONTROLLERS lists stay valid.
+class io_unstick extends IO {
+    think() { return {}; }
 }
 
 let ioTypes = {
@@ -2691,4 +2380,4 @@ let ioTypes = {
     minesRocks: io_minesRocks,
 };
 
-module.exports = { ioTypes, IO };
+module.exports = { ioTypes, IO, inEnemyBase };

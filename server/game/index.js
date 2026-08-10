@@ -6,6 +6,7 @@ const vault = require('./terrain/vault.js');
 const outposts = require('./terrain/outposts.js');
 const coreChambers = require('./terrain/coreChambers.js');
 const { REGROW: TG_REGROW } = require('./terrain/terrainGrid.js');
+const { inEnemyBase } = require('../miscFiles/controllers.js');
 const { chamberRingHit, chamberFaceRadius, chamberNormal } = coreChambers;
 
 // A natural mirror bounce: the ring reflects a shot off the face it struck,
@@ -891,6 +892,8 @@ class gameHandler {
             const x = host.x + Math.cos(angle) * dist;
             const y = host.y + Math.sin(angle) * dist;
             if (Math.abs(x) > halfW - 260 || Math.abs(y) > halfH - 260) continue;
+            // The enemy base tile kills on entry; a bot must never wake up there.
+            if (inEnemyBase(team, x, y)) continue;
             const tg = global.gameManager.terrainGrid;
             if (tg?.pointInRock && tg.pointInRock(x, y)) continue;
             return { x, y };
@@ -903,7 +906,7 @@ class gameHandler {
         let botName = existingName || Config.bot_name_prefix + nameKey;
         let o = new Entity(loc);
         o.define(Config.spawn_class);
-        o.define({ CONTROLLERS: ["unstick", "digWarsGoals", "minesRocks", "nearestDifferentMaster"] }, false, false, false);
+        o.define({ CONTROLLERS: ["digWarsGoals"] }, false, false, false);
         o.refreshBodyAttributes();
         o.isBot = true;
         // Bots should not be put to sleep by view-based activation. Their AI
@@ -952,6 +955,13 @@ class gameHandler {
             if (attacker) {
                 o._lastDamageSource = attacker;
                 o._lastDamageAt = Date.now();
+                // Tell the team. Nearby teammates rally to this marker, which
+                // is how a skirmish grows into a fight instead of staying a
+                // series of unrelated 1v1s.
+                if (Date.now() - (o._lastMarkerAt || 0) > 8000) {
+                    o._lastMarkerAt = Date.now();
+                    this.addEnemyMarker(o.team, attacker.x, attacker.y, o.id);
+                }
             }
         });
         o.on('kill', ({ entity } = {}) => {
@@ -1124,14 +1134,14 @@ class gameHandler {
 
     botChatActivity(bot) {
         switch (bot._digWarsGoal) {
-            case 'objective': return 'pushing or attacking an outpost';
+            case 'objective': return 'attacking an enemy outpost or core chamber';
             case 'defend': return 'defending a friendly outpost';
-            case 'combat':
-            case 'rob': return 'fighting another player';
+            case 'fight': return 'fighting another player';
+            case 'collect': return 'picking up loose gems';
             case 'mine': return 'shooting a rock for gems';
             case 'bank': return 'taking gems back to the vault';
             case 'survive': return 'trying to stay alive';
-            case 'marker': return 'heading to a teammate danger marker';
+            case 'explore': return 'moving across the map';
             default: return 'roaming around the map';
         }
     }
@@ -1286,14 +1296,20 @@ class gameHandler {
             const goal = bot._digWarsGoal || 'wander';
             stats.goalSeconds[goal] = (stats.goalSeconds[goal] || 0) + dt;
             stats.gemsMined = bot.gemsMined || 0;
+            stats.rocksMined = bot.rocksMined || 0;
+            stats.carried = Math.round(bot.carriedGems || 0);
+            stats.role = bot._botRole || '';
             stats.gemsBanked = bot.botBanked || 0;
             stats.statPoints = bot.botStatTotal || bot.skill.raw.reduce((sum, value) => sum + value, 0);
             stats.statLayout = bot.skill.raw.slice();
             stats.stuckEvents = bot._unstickCount || 0;
             stats.kills = bot.killCount ? bot.killCount.solo | 0 : 0;
             const moved = Math.hypot(bot.x - stats.lastX, bot.y - stats.lastY);
-            const intentionallyMining = goal === 'mine' && bot.grindTouchUntil > now;
-            if (!intentionallyMining && moved < Math.max(0.5, (bot.size || 1) * 0.05)) {
+            // Holding a firing position on a rock, a banner or a vault pad is
+            // a decision, not a freeze. Only unexplained stillness counts.
+            const deliberate = bot.control?.fire || bot.grindTouchUntil > now ||
+                (goal === 'bank' && bot.vaultOnPad);
+            if (!deliberate && moved < Math.max(0.5, (bot.size || 1) * 0.05)) {
                 stats.stationarySeconds += dt;
                 if (stats.stationarySeconds > 3 && !stats.stationaryReported) {
                     stats.stationaryOver3s++;

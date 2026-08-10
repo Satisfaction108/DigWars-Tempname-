@@ -591,15 +591,13 @@ for (let i = 0; i < 2; i++) {
 // Technical
 Class.bot = {
     FACING_TYPE: 'looseToTarget',
+    // digWarsGoals is authoritative: it decides movement, aim and fire every
+    // tick. Nothing below it may retarget the hull, or the two layers fight
+    // each other and the tank twitches. Turrets keep their own controllers.
     CONTROLLERS: [
-        "unstick",
         "digWarsGoals",
-        "minesRocks",
-        "nearestDifferentMaster",
         "mapAltToFire",
-        "fleeAtLowHealth",
-        ["mapFireToAlt", {onlyIfHasAltFireGun: true}],
-        ["wanderAroundMap", {replicatePlayerMovement: true, lookAtGoal: true}]
+        ["mapFireToAlt", {onlyIfHasAltFireGun: true}]
     ],
     AI: {IGNORE_SHAPES: true}
 }
