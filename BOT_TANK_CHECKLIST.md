@@ -132,4 +132,3 @@ The class ID in backticks is included so the selection can be applied without am
   arms-race-only additions (Bonker, Battery, Blower, Death Star).
 - Mark unwanted tanks with `[x]`. The bot selector will be updated after you finish
   marking them.
-  

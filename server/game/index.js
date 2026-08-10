@@ -654,12 +654,22 @@ class gameHandler {
 
     configureBotStats(bot) {
         const rammer = !bot.guns || bot.guns.size === 0;
-        // Exactly 42 invested points. Armed tanks prioritize the stats that
-        // make their bullets feel deliberate; rammers spend that budget on
-        // body damage, health, mobility, and a little regen instead.
+        // A 42-point base. Armed tanks prioritize the stats that make their
+        // bullets feel deliberate; rammers spend that budget on body damage,
+        // health, mobility, and a little regen instead.
         const raw = rammer
             ? [0, 0, 0, 0, 0, 9, 9, 9, 6, 9]
             : [7, 8, 2, 8, 5, 0, 0, 5, 0, 7];
+        // High-skill bots invest deeper, up to ~14 extra points spread over
+        // the stats they already use. Without this, every bot fought like a
+        // half-built tank and a maxed player build shredded the whole lobby
+        // without ever being pressured.
+        let bonus = Math.round(util.clamp(bot.botSkill ?? 0.5, 0, 1) * 14);
+        for (let pass = 0; pass < 3 && bonus > 0; pass++) {
+            for (let i = 0; i < raw.length && bonus > 0; i++) {
+                if (raw[i] > 0 && raw[i] < 9) { raw[i]++; bonus--; }
+            }
+        }
         bot.skill.set(raw);
         bot.skill.points = 0;
         bot.skill.update();
@@ -706,9 +716,13 @@ class gameHandler {
                 squads.push(squad);
             }
             for (const squad of squads) {
+                // Chambers count as push targets too. Solo bots cannot
+                // out-damage a chamber's self-heal, so chambers only ever
+                // fall to a squad - which is exactly the coordinated moment
+                // players enjoy fighting over.
                 const candidate = squad.find(bot =>
                     bot._digWarsGoal === 'objective' &&
-                    bot._digWarsObjectiveKind === 'outpost' &&
+                    (bot._digWarsObjectiveKind === 'outpost' || bot._digWarsObjectiveKind === 'chamber') &&
                     bot._digWarsObjectivePoint
                 );
                 const existing = squad.find(bot =>

@@ -222,6 +222,13 @@ class gameServer {
                 let server = global.servers[i];
                 if (server.loadedViaMainServer) global.servers[i] = this.getInfo(true);
             }
+            // Same heartbeat as the worker path below: keep the listed player
+            // number tracking bots, which join and leave without a socket.
+            setInterval(() => {
+                for (const server of global.servers) {
+                    if (server && server.gameManager === this) server.players = this.reportedPlayerCount();
+                }
+            }, 5000);
             console.log(global.servers.length == 1 ? "Your game server has successfully started." : "Game server " + this.name + " successfully booted up via main server (port " + this.port + ")");
             onServerLoaded();
             return;
@@ -236,6 +243,14 @@ class gameServer {
         this.parentPort.postMessage([false, this.getInfo()]);
 
         this.parentPort.postMessage(["doneLoading"]);
+
+        // The server list's player number is pushed, not polled, and used to
+        // move only when a human connected or left. Bots spawn and die on
+        // their own schedule, so heartbeat the count or the list shows 0 on
+        // a lobby full of them.
+        setInterval(() => {
+            try { this.parentPort.postMessage([true, this.reportedPlayerCount()]); } catch (e) { /* parent gone */ }
+        }, 5000);
     }
 
     start(softStart = false) {

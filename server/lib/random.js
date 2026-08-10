@@ -162,19 +162,57 @@ exports.chooseBotName = (() => {
         return a + (sep || '') + b;
     }
 
+    // ── human-flavored pools ──
+    // What actual lobbies look like: first names, moods, in-jokes - not a
+    // geology glossary.
+    const firstNames = [
+        'alex','sam','leo','max','ray','kai','finn','jay','ben','tom',
+        'noah','liam','luca','theo','ezra','milo','remy','quinn','ash',
+        'emma','mia','zoe','ivy','lily','nora','ruby','june','skye','wren',
+        'dan','nick','luke','jake','ryan','cole','eli','owen','seth','joel',
+        'kayden','jaxon','mason','logan','carter','austin','tyler','dylan',
+    ];
+    const moods = [
+        'sleepy','angry','silent','shiny','crazy','lucky','sneaky','salty',
+        'spicy','lazy','turbo','mega','mini','dark','neon','pro','sus',
+        'ghosty','soggy','crusty','feral','chill','sweaty','goofy','silly',
+        'evil','tiny','giga','average','unlucky','anonymous','random',
+    ];
+    const phrases = [
+        'touchgrass','dontshootme','imjustmining','wheremygems','justvibing',
+        'nolifer','whyamihere','imlost','pressw','holdmyore','freegems',
+        'notavirus','yourlocalminer','gemgoblin','rockenjoyer','oreo',
+        'taxevader','certifiedminer','sirdigsalot','gemme','mrbeast2',
+        'peakgaming','ratioed','carriedbyteam','solowinner','afkfarmer',
+        'literallyme','themedic','baitmaster','rockbottom','diggydiggy',
+    ];
+
     function generate() {
         const r = Math.random();
-        // 45% simple word
-        if (r < 0.45) return maybeDigits(pick(words));
-        // 25% two words joined
-        if (r < 0.70) return maybeDigits(join(chance(0.25) ? '_' : ''));
-        // 15% leet
-        if (r < 0.85) return toLeet(pick(words));
-        // 10% clan tagged
+        // 22% a first name, sometimes capitalized or numbered: "Milo", "sam234"
+        if (r < 0.22) {
+            let n = pick(firstNames);
+            if (chance(0.4)) n = n[0].toUpperCase() + n.slice(1);
+            return maybeDigits(n);
+        }
+        // 20% mood + word: "sleepywolf", "salty_miner", "turbofox"
+        if (r < 0.42) {
+            const sep = chance(0.2) ? '_' : '';
+            return maybeDigits(pick(moods) + sep + pick(words));
+        }
+        // 15% an in-joke phrase: "touchgrass", "wheremygems"
+        if (r < 0.57) return maybeDigits(pick(phrases));
+        // 13% simple word
+        if (r < 0.70) return maybeDigits(pick(words));
+        // 12% two words joined
+        if (r < 0.82) return maybeDigits(join(chance(0.25) ? '_' : ''));
+        // 8% leet
+        if (r < 0.90) return toLeet(chance(0.5) ? pick(moods) + pick(words) : pick(words));
+        // 5% clan tagged
         if (r < 0.95) {
             const tag = pick(clanTags);
             const fmt = Math.random();
-            const w = pick(words);
+            const w = chance(0.4) ? pick(firstNames) : pick(words);
             if (fmt < 0.5) return '[' + tag + '] ' + w;
             return tag + ' | ' + w;
         }
