@@ -8,6 +8,7 @@ package-lock.json
 
 # secrets - never commit real values
 deepseekapikey.txt
+nvidiaapikey.txt
 server/.env
 .env
 .env.local

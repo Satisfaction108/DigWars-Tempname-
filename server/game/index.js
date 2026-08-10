@@ -936,10 +936,16 @@ class gameHandler {
         }
         if (addressed && message.split(/\s+/).length <= 4) {
             if (message.split(/\s+/).length === 1) return 'yeah?';
-            if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup|hyd)\b/.test(message)) return 'yo';
+            if (/^(hi|hello|hiya)\b/.test(message)) return 'hey';
+            if (/^(hey|heyy)\b/.test(message)) return 'yo';
+            if (/^(wsp|wassup|sup)\b/.test(message)) return 'wsp';
+            if (/^(yo|hyd)\b/.test(message)) return 'yo';
             return null;
         }
-        if (/^(hi|hey|hello|yo|sup|heyy|hiya|wsp|wassup|hyd)\b/.test(message)) return 'yo';
+        if (/^(hi|hello|hiya)\b/.test(message)) return 'hey';
+        if (/^(hey|heyy)\b/.test(message)) return 'yo';
+        if (/^(wsp|wassup|sup)\b/.test(message)) return 'wsp';
+        if (/^(yo|hyd)\b/.test(message)) return 'yo';
         if (/^(thanks|thx|ty)\b/.test(message)) return 'np';
         if (/^(bye|cya|later)\b/.test(message)) return 'later';
         // Unknown messages are safer as silence than an irrelevant agreement.
@@ -1002,8 +1008,9 @@ class gameHandler {
         const fallback = this.botChatReply(bot, rawMessage);
         const now = Date.now();
         // Every ordinary player message that reaches a nearby bot is sent to
-        // DeepSeek, including short messages such as just the bot's name.
-        // The local reply is only a provider-failure fallback.
+        // the configured NVIDIA NIM chat model, including short messages such
+        // as just the bot's name. The local reply is only a provider-failure
+        // fallback.
         if (!Config.bot_chat_ai_enabled || typeof fetch !== 'function') return fallback;
 
         bot._chatHistory ??= [];
@@ -1012,7 +1019,10 @@ class gameHandler {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), Config.bot_chat_timeout_ms);
         try {
-            const headers = { 'content-type': 'application/json' };
+            const headers = {
+                'content-type': 'application/json',
+                accept: 'application/json',
+            };
             if (Config.bot_chat_api_key) headers.authorization = `Bearer ${Config.bot_chat_api_key}`;
             const response = await fetch(Config.bot_chat_api_url, {
                 method: 'POST',
@@ -1079,7 +1089,7 @@ class gameHandler {
         bot._chatPendingCount = (bot._chatPendingCount || 0) + 1;
         bot._chatPending = true;
         bot._chatPauseUntil = Date.now() + 5000;
-        bot._nextChatAt = Date.now() + 9000 + Math.random() * 7000;
+        bot._nextChatAt = Date.now() + 5000 + Math.random() * 3500;
         setTimeout(async () => {
             try {
                 const reply = await this.aiBotChatReply(bot, text);

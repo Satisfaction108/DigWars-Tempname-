@@ -8,9 +8,12 @@ const publicHost = (
 ).replace(/^https?:\/\//, "");
 
 let localBotChatKey = "";
-try {
-    localBotChatKey = fs.readFileSync(path.join(__dirname, "../deepseekapikey.txt"), "utf8").trim();
-} catch { }
+for (const keyFile of ["../nvidiaapikey.txt", "../deepseekapikey.txt"]) {
+    if (localBotChatKey) break;
+    try {
+        localBotChatKey = fs.readFileSync(path.join(__dirname, keyFile), "utf8").trim();
+    } catch { }
+}
 
 module.exports = {
 
@@ -121,12 +124,12 @@ module.exports = {
     bot_soak_mode: process.env.BOT_SOAK_MODE === "true",
     bot_soak_report_path: process.env.BOT_SOAK_REPORT || "",
     bot_soak_duration_ms: Math.max(0, (parseInt(process.env.BOT_SOAK_SECONDS, 10) || 0) * 1000),
-    // Merge Gateway is the default chat provider. Set BOT_CHAT_API_URL and
-    // BOT_CHAT_MODEL to use another OpenAI-compatible endpoint; the offline
-    // fallback keeps bots conversational when the provider is unavailable.
+    // NVIDIA NIM's hosted OpenAI-compatible endpoint is the default provider.
+    // The 8B instruct model keeps chat inexpensive while still handling short
+    // casual conversations well; both values remain overridable for testing.
     bot_chat_ai_enabled: process.env.BOT_CHAT_AI !== "false",
-    bot_chat_api_url: process.env.BOT_CHAT_API_URL || "https://api-gateway.merge.dev/v1/openai/chat/completions",
-    bot_chat_model: process.env.BOT_CHAT_MODEL || "deepseek/deepseek-v4-flash",
+    bot_chat_api_url: process.env.BOT_CHAT_API_URL || "https://integrate.api.nvidia.com/v1/chat/completions",
+    bot_chat_model: process.env.BOT_CHAT_MODEL || "meta/llama-3.1-8b-instruct",
     bot_chat_api_key: process.env.BOT_CHAT_API_KEY || localBotChatKey,
     bot_chat_timeout_ms: Math.max(800, parseInt(process.env.BOT_CHAT_TIMEOUT_MS, 10) || 4500),
 
