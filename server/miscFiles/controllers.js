@@ -1496,6 +1496,35 @@ const digWarsVault = require('../game/terrain/vault.js');
 const digWarsOutposts = require('../game/terrain/outposts.js');
 const digWarsChambers = require('../game/terrain/coreChambers.js');
 
+// Shared per-tick view of the world for bot AI.
+//
+// Every bot used to walk targetableEntities several times per sense, and
+// findNearbyGem walked ALL entities, bullets included. Nine bots doing that
+// seven times a second over 180 entities dominated the server tick. The set of
+// tanks and gems is identical for every bot, so it is built once and reused.
+const botScan = { at: 0, tanks: [], gems: [] };
+function botWorldScan() {
+    const now = Date.now();
+    if (now - botScan.at < 110) return botScan;
+    botScan.at = now;
+    const tanks = [], gems = [];
+    const targetable = global.targetableEntities;
+    if (targetable) {
+        for (const entity of targetable.values()) {
+            const type = entity.type;
+            if (type === 'tank' || type === 'miniboss' || type === 'crasher') tanks.push(entity);
+        }
+    }
+    if (global.entities) {
+        for (const entity of global.entities.values()) {
+            if (entity.isGemPickup && entity.gemValue > 0 && !entity.isDead?.()) gems.push(entity);
+        }
+    }
+    botScan.tanks = tanks;
+    botScan.gems = gems;
+    return botScan;
+}
+
 class io_digWarsGoals extends IO {
     constructor(body) {
         super(body);
@@ -1544,14 +1573,22 @@ class io_digWarsGoals extends IO {
         return 400 - this.skillLevel() * 310;
     }
 
+    // One pending slot meant an objective check would overwrite a pending
+    // combat reaction every tick, so the delay never elapsed and bots walked
+    // past players while pushing a structure. Each subject now waits its own
+    // turn, and stale entries are swept so this cannot grow without bound.
     canReactTo(key, now) {
-        if (this.pendingReactionKey !== key) {
-            this.pendingReactionKey = key;
-            this.pendingReactionUntil = now + this.reactionDelay();
+        this.reactions ??= new Map();
+        const due = this.reactions.get(key);
+        if (due === undefined) {
+            this.reactions.set(key, now + this.reactionDelay());
+            if (this.reactions.size > 24) {
+                for (const [k, t] of this.reactions) if (t < now - 8000) this.reactions.delete(k);
+            }
             return false;
         }
-        if (now < this.pendingReactionUntil) return false;
-        this.pendingReactionKey = null;
+        if (now < due) return false;
+        this.reactions.delete(key);
         return true;
     }
 
@@ -1585,10 +1622,7 @@ class io_digWarsGoals extends IO {
 
     combatNumbers(range = 760) {
         const enemies = new Set(), allies = new Set();
-        const entities = global.targetableEntities;
-        if (!entities) return { enemies, allies };
-        for (const entity of entities.values()) {
-            if (!['tank', 'miniboss', 'crasher'].includes(entity.type)) continue;
+        for (const entity of botWorldScan().tanks) {
             const root = this.rootOf(entity);
             if (!root || root === this.body || !root.health || root.health.amount <= 0) continue;
             if (Math.hypot(root.x - this.body.x, root.y - this.body.y) > range) continue;
@@ -1638,21 +1672,73 @@ class io_digWarsGoals extends IO {
         return dx * dx + dy * dy <= range * range;
     }
 
+    // Is there anything solid between us and them? Bots used to sit behind a
+    // chamber ring or an outpost banner emptying their magazine into it. A
+    // rammer does not care, it is going to drive through whatever is there.
+    clearShot(entity) {
+        if (this.isRammer()) return true;
+        const b = this.body;
+        const dx = entity.x - b.x, dy = entity.y - b.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 1) return true;
+        this.losCache ??= new Map();
+        const key = entity.id ?? `${Math.round(entity.x)}:${Math.round(entity.y)}`;
+        const now = Date.now();
+        const hit = this.losCache.get(key);
+        if (hit && now < hit.until) return hit.ok;
+
+        const ok = this.segmentClear(b.x, b.y, entity.x, entity.y, dist);
+        if (this.losCache.size > 32) this.losCache.clear();
+        this.losCache.set(key, { ok, until: now + 260 });
+        return ok;
+    }
+
+    segmentClear(x0, y0, x1, y1, dist) {
+        const tg = global.gameManager && global.gameManager.terrainGrid;
+        const steps = Math.min(14, Math.max(4, Math.round(dist / 90)));
+        const pad = Math.max(this.body.realSize || this.body.size || 10, 10) * 0.5;
+        let chambers = [], outposts = [];
+        try {
+            chambers = digWarsChambers.getChambers() || [];
+            outposts = digWarsOutposts.getOutposts() || [];
+        } catch (e) { }
+        for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+            if (tg?.pointInRock && tg.pointInRock(x, y)) return false;
+            for (const c of chambers) {
+                if (!c.entity || c.entity.isDead?.()) continue;
+                if (Math.hypot(x - c.x, y - c.y) < (c.r || 160) + pad) return false;
+            }
+            for (const o of outposts) {
+                const banner = o.banner;
+                if (!banner || banner.isDead?.()) continue;
+                if (Math.hypot(x - banner.x, y - banner.y) < (banner.realSize || banner.size || 30) + pad) return false;
+            }
+        }
+        return true;
+    }
+
     findEnemy(predicate, range = this.body.fov || 1200) {
         const candidates = [];
-        const entities = global.targetableEntities;
-        if (!entities) return null;
-        for (const entity of entities.values()) {
-            if (!['tank', 'miniboss', 'crasher'].includes(entity.type)) continue;
+        for (const entity of botWorldScan().tanks) {
             if (!this.visibleEnemy(entity, range) || !predicate(entity, this.rootOf(entity))) continue;
             candidates.push(entity);
         }
-        return candidates.length ? candidates.sort((a, b) => {
+        if (!candidates.length) return null;
+        candidates.sort((a, b) => {
             const ar = this.rootOf(a), br = this.rootOf(b);
             const av = predicate(a, ar) === true ? (ar.carriedGems || 0) : 0;
             const bv = predicate(b, br) === true ? (br.carriedGems || 0) : 0;
             return (this.distanceTo(a) - av * 0.08) - (this.distanceTo(b) - bv * 0.08);
-        })[0] : null;
+        });
+        // Line of sight is the expensive test, so it runs on the shortlist
+        // rather than on every entity on the map. Prefer someone we can
+        // actually hit; fall back to the nearest so bots still advance on a
+        // target that is merely behind cover rather than freezing.
+        for (let i = 0; i < Math.min(candidates.length, 3); i++)
+            if (this.clearShot(candidates[i])) return candidates[i];
+        return candidates[0];
     }
 
     findRobTarget() {
@@ -1697,10 +1783,13 @@ class io_digWarsGoals extends IO {
         if ((this.body.carriedGems || 0) >= (this.body.gemCap || 4000)) return null;
         const now = Date.now();
         let best = null, bestScore = Infinity;
-        for (const entity of global.entities.values()) {
-            if (!entity.isGemPickup || !(entity.gemValue > 0) || entity.isDead?.()) continue;
+        for (const entity of botWorldScan().gems) {
             const distance = this.distanceTo(entity);
             if (distance > 850) continue;
+            // Chamber loot carries the owning team in chamberBias, and that
+            // team is physically repelled from it. Chasing your own chamber's
+            // gems is a guaranteed wasted trip.
+            if (entity.chamberBias && entity.chamberBias === this.body.team) continue;
             const ownMine = entity.gemSourceId === this.body.id;
             const recentKillLoot = (this.body._collectLootUntil || 0) > now && entity.gemSourceId === undefined;
             if (!ownMine && !recentKillLoot && distance > 260) continue;
@@ -1721,12 +1810,9 @@ class io_digWarsGoals extends IO {
     }
 
     findEnemyNear(point, range) {
-        const entities = global.targetableEntities;
-        if (!entities) return null;
         const maxFromBot = (this.body.fov || 1200) * 1.35;
         let best = null, bestDistance = Infinity;
-        for (const entity of entities.values()) {
-            if (!['tank', 'miniboss', 'crasher'].includes(entity.type)) continue;
+        for (const entity of botWorldScan().tanks) {
             if (!this.enemy(entity) || !entity.health || entity.health.amount <= 0) continue;
             if (entity.invuln || this.rootOf(entity).invuln) continue;
             const fromBot = this.distanceTo(entity);
@@ -1739,9 +1825,7 @@ class io_digWarsGoals extends IO {
 
     findPlayerNearObjective() {
         const players = [];
-        const entities = global.targetableEntities;
-        if (!entities) return null;
-        for (const entity of entities.values()) {
+        for (const entity of botWorldScan().tanks) {
             const player = this.rootOf(entity);
             if (entity !== player || !player.isPlayer || player.team === this.body.team || player.isDead?.()) continue;
             if (!player.health || player.health.amount <= 0 || player.invuln) continue;
@@ -1960,7 +2044,13 @@ class io_digWarsGoals extends IO {
             : Infinity;
         if (!this.movementPlan || this.movementPlan.key !== key || now >= this.movementPlan.until || planDistance < Math.max(28, b.size * 2)) {
             const skill = this.skillLevel();
-            const side = ran.chance(0.5) ? 1 : -1;
+            // A fresh random side on every replan makes a bot pressed against
+            // its target wobble left, then right, then left. Hold the side for
+            // as long as the waypoint key does.
+            this.steerSides ??= new Map();
+            if (this.steerSides.size > 12) this.steerSides.clear();
+            if (!this.steerSides.has(key)) this.steerSides.set(key, ran.chance(0.5) ? 1 : -1);
+            const side = this.steerSides.get(key);
             let angle = base;
             if (combat) {
                 const desired = this.desiredCombatRange();
@@ -2151,6 +2241,10 @@ class io_digWarsGoals extends IO {
             if (this.body._digWarsIgnoredRock === this.current.rock && Date.now() < (this.body._digWarsIgnoredRockUntil || 0)) return false;
             return !!this.current.rock && this.current.rock.alive;
         }
+        if (this.current.kind === 'travel') {
+            const p = this.current.point;
+            return !!p && Math.hypot(p.x - this.body.x, p.y - this.body.y) > 420;
+        }
         if (this.current.kind === 'collect') return !!this.current.gem && this.current.gem.gemValue > 0;
         if (this.current.kind === 'marker') return !!this.current.marker && this.current.marker.expiresAt > Date.now();
         if (this.current.kind === 'objective') {
@@ -2284,6 +2378,22 @@ class io_digWarsGoals extends IO {
             const target = this.aimAt(goal.target, now);
             return { goal: movementGoal, target, fire: true, main: true };
         }
+        if (goal.kind === 'combat' && goal.target && !this.isRammer() && !this.clearShot(goal.target)) {
+            // Reposition instead of unloading into the chamber wall in front.
+            const t = goal.target;
+            const move = this.rockSafeGoal(this.engagePoint(t, this.desiredCombatRange()), t);
+            return { goal: move, fire: false, main: false, alt: false };
+        }
+        if (goal.kind === 'travel') {
+            this.body._digWarsCombatTarget = null;
+            const p = goal.point;
+            // Crossing the map is not a firefight. Holding fire here also stops
+            // bots shooting at nothing while they relocate.
+            return {
+                goal: this.rockSafeGoal(this.steerGoal(p, now, 'travel'), p),
+                fire: false, main: false, alt: false,
+            };
+        }
         if (goal.kind === 'mine') {
             this.body._digWarsCombatTarget = null;
             this.body._digWarsMineRock = goal.rock;
@@ -2291,8 +2401,14 @@ class io_digWarsGoals extends IO {
             // tanks use a slowly moving firing lane, which makes them feel
             // alive without ever steering their hull into the rock.
             const rockPoint = { x: goal.rock.wx, y: goal.rock.wy };
+            // Contact is arrival for a rammer. Measuring to the rock CENTRE
+            // with a 25 unit threshold can never be satisfied, because the hull
+            // collides long before that, so it replanned forever and rocked
+            // back and forth against the face.
+            const contact = Math.max(this.body.realSize || this.body.size || 12, 12) +
+                (goal.rock.r || 40) + 18;
             const movementGoal = this.isRammer()
-                ? this.steerGoal(rockPoint, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, 25)
+                ? this.steerGoal(rockPoint, now, `mine:${goal.rock.k ?? goal.rock.wx}`, false, contact, true)
                 : this.rockSafeGoal(this.mineFiringPoint(goal.rock, now), rockPoint);
             if (this.isRammer()) {
                 // A rammer breaks terrain through contact, never through an
@@ -2455,6 +2571,16 @@ class io_digWarsGoals extends IO {
                     this.choose('combat', { target: combatTarget }, now, true);
                 else if (ready) return this.output(now);
             } else {
+                // The director outranks objectives. Every bot otherwise locks
+                // onto a structure and holds it forever, which is why nine
+                // bots could be alive and busy while the player met nobody.
+                const pull = this.body._botDirectorPoint;
+                const busy = ['rob', 'bank', 'combat', 'defend', 'survive'].includes(this.current?.kind);
+                if (!busy && pull && now < (this.body._botDirectorUntil || 0) &&
+                    Math.hypot(pull.x - b.x, pull.y - b.y) > 520) {
+                    if (this.current?.kind !== 'travel') this.choose('travel', { point: pull }, now, true);
+                    return this.output(now);
+                }
                 const objectiveHeld = ['rob', 'bank', 'combat', 'defend'].includes(this.current?.kind) ||
                     (this.current?.kind === 'objective' && now < this.goalUntil);
                 const objective = objectiveHeld ? null : this.cachedObjective;
@@ -2464,9 +2590,19 @@ class io_digWarsGoals extends IO {
                 else if (this.current && now < this.goalUntil && this.validCurrent()) {
                     return this.output(now);
                 } else {
-                    const rock = this.nearestRock();
-                    if (rock) this.choose('mine', { rock }, now);
-                    else this.current = null;
+                    // The director may want this bot somewhere else entirely.
+                    // Without this an idle bot mines its home corner forever,
+                    // and on a 6300x6300 map the player meets nobody.
+                    const pull = this.body._botDirectorPoint;
+                    const pullLive = pull && now < (this.body._botDirectorUntil || 0) &&
+                        Math.hypot(pull.x - this.body.x, pull.y - this.body.y) > 520;
+                    if (pullLive && this.current?.kind !== 'travel') {
+                        this.choose('travel', { point: pull }, now, true);
+                    } else {
+                        const rock = this.nearestRock();
+                        if (rock) this.choose('mine', { rock }, now);
+                        else this.current = null;
+                    }
                 }
             }
         }

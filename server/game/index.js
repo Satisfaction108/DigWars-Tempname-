@@ -673,13 +673,38 @@ class gameHandler {
         const byTeam = new Map();
         for (const bot of this.bots) {
             if (!bot || bot.isDead() || bot.isGhost || bot.team == null) continue;
+            // A bot the director sent toward a player must not also be drafted
+            // into an outpost push on the far side of the map. The two systems
+            // were pulling the same bots in opposite directions and encounters
+            // dropped by roughly half.
+            if ((bot._botDirectorUntil || 0) > now) {
+                bot._botPushTarget = null;
+                bot._botPushTargetUntil = 0;
+                continue;
+            }
             if (!byTeam.has(bot.team)) byTeam.set(bot.team, []);
             byTeam.get(bot.team).push(bot);
         }
         for (const members of byTeam.values()) {
-            members.sort((a, b) => a.id - b.id);
-            for (let start = 0; start < members.length; start += 3) {
-                const squad = members.slice(start, start + 3);
+            // Squads were sliced out of an id-sorted list, so "teammates" were
+            // often on opposite sides of the map and could never actually push
+            // together. Group by proximity instead: take whoever is left, then
+            // pull in its two nearest unassigned teammates.
+            const pool = members.slice();
+            const squads = [];
+            while (pool.length) {
+                const lead = pool.shift();
+                pool.sort((a, b) =>
+                    Math.hypot(a.x - lead.x, a.y - lead.y) - Math.hypot(b.x - lead.x, b.y - lead.y));
+                const squad = [lead];
+                // only recruit people close enough to genuinely fight alongside
+                while (squad.length < 3 && pool.length &&
+                       Math.hypot(pool[0].x - lead.x, pool[0].y - lead.y) < 2200) {
+                    squad.push(pool.shift());
+                }
+                squads.push(squad);
+            }
+            for (const squad of squads) {
                 const candidate = squad.find(bot =>
                     bot._digWarsGoal === 'objective' &&
                     bot._digWarsObjectiveKind === 'outpost' &&
@@ -772,6 +797,7 @@ class gameHandler {
 
     quickMaintainLoop = () => {
         this.coordinateBotPushes();
+        this.directorTick();
         for (let i = 0; i < this.bots.length; i++) {
             let o = this.bots[i];
             if (!o.botStatsFixed) {
@@ -792,11 +818,84 @@ class gameHandler {
             limit = 20, 
             loc;
             do {
-                loc = getSpawnableArea(team, global.gameManager);
+                loc = this.botSpawnLocation(team);
             } while (limit-- && dirtyCheck(loc, 50, global.gameManager))
 
             this.spawnBots(loc, team);
         }
+    }
+
+    // Keeps the world feeling inhabited.
+    //
+    // Bots roam and mine perfectly well on their own, but the map is 6300x6300
+    // and a player sees roughly a 618 unit radius, about 3 percent of it. Left
+    // alone they diffuse and the player meets nobody, which reads as a dead
+    // server even though everything is running. This nudges a few of the
+    // nearest idle bots toward whoever is playing, so encounters actually
+    // happen. It never teleports and never targets the player directly: it
+    // sets a destination in their region and lets the bot drive there.
+    directorTick() {
+        const humans = (this.socketManagerPlayers?.() || [])
+            .filter(b => b && !b.isDead?.() && !b.isGhost);
+        const now = Date.now();
+        if (!humans.length) return;
+
+        const live = this.bots.filter(b => b && !b.isDead() && !b.isGhost);
+        if (!live.length) return;
+
+        const NEAR = 1500, WANT = 3;
+        for (const host of humans) {
+            const near = live.filter(b => Math.hypot(b.x - host.x, b.y - host.y) <= NEAR);
+            if (near.length >= WANT) continue;
+
+            const candidates = live
+                .filter(b => !near.includes(b) && now >= (b._botDirectorUntil || 0))
+                .sort((a, b) =>
+                    Math.hypot(a.x - host.x, a.y - host.y) - Math.hypot(b.x - host.x, b.y - host.y));
+
+            for (const bot of candidates.slice(0, WANT - near.length)) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 420 + Math.random() * 520;
+                bot._botDirectorPoint = {
+                    x: host.x + Math.cos(angle) * dist,
+                    y: host.y + Math.sin(angle) * dist,
+                };
+                // long enough to actually walk there, then they are free again
+                bot._botDirectorUntil = now + 22000;
+            }
+        }
+    }
+
+    socketManagerPlayers() {
+        return (global.gameManager.socketManager?.players || [])
+            .map(p => p && p.body)
+            .filter(b => b && b.isPlayer);
+    }
+
+    // Where a bot should enter the world. Most arrive within walking distance
+    // of somebody, just outside view so they drive in rather than pop in. Some
+    // still spawn anywhere so the rest of the map keeps living.
+    botSpawnLocation(team) {
+        const fallback = () => getSpawnableArea(team, global.gameManager);
+        const humans = (global.gameManager.socketManager?.players || [])
+            .map(p => p && p.body)
+            .filter(b => b && !b.isDead?.() && !b.isGhost && b.isPlayer);
+        if (!humans.length || Math.random() < 0.25) return fallback();
+
+        const host = ran.choose(humans);
+        const room = global.gameManager.room;
+        const halfW = (room?.width || 6300) / 2, halfH = (room?.height || 6300) / 2;
+        for (let attempt = 0; attempt < 14; attempt++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 850 + Math.random() * 1100;
+            const x = host.x + Math.cos(angle) * dist;
+            const y = host.y + Math.sin(angle) * dist;
+            if (Math.abs(x) > halfW - 260 || Math.abs(y) > halfH - 260) continue;
+            const tg = global.gameManager.terrainGrid;
+            if (tg?.pointInRock && tg.pointInRock(x, y)) continue;
+            return { x, y };
+        }
+        return fallback();
     }
 
     spawnBots(loc, team, existingName = null, lifecycle = null) {
@@ -938,7 +1037,7 @@ class gameHandler {
                         return;
                     }
                     const respawnTeam = o.team;
-                    const respawnLoc = getSpawnableArea(respawnTeam, global.gameManager);
+                    const respawnLoc = this.botSpawnLocation(respawnTeam);
                     this.spawnBots(respawnLoc, respawnTeam, botName, {
                         familyId: o.botFamilyId,
                         nameKey: o.botNameKey,
@@ -952,7 +1051,7 @@ class gameHandler {
                     this.pendingBotRespawns = Math.max(0, this.pendingBotRespawns - 1);
                     if (global.gameManager.arenaClosed || global.cannotRespawn) return;
                     const team = global.nextTagBotTeam || o.team;
-                    this.spawnBots(getSpawnableArea(team, global.gameManager), team);
+                    this.spawnBots(this.botSpawnLocation(team), team);
                 }, 6500 + Math.floor(Math.random() * 4500));
             }
         });
