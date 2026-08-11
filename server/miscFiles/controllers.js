@@ -1879,13 +1879,19 @@ class io_digWarsGoals extends IO {
             if (gem.chamberBias && gem.chamberBias === body.team) continue;
             if (gem.gemOwnerId !== undefined && gem.gemOwnerId !== body.id) continue;
             // A dead player's scattered gems stay theirs for a moment: the
-            // run back to reclaim your own loot is a comeback story, and a
-            // bot vulturing it before you arrive is pure spite.
-            if (gem.gemLootFromPlayer && now - (gem.gemBornAt || 0) < 15000) continue;
+            // run back to reclaim your own loot is a comeback story, and an
+            // unrelated bot vulturing it before you arrive is pure spite.
+            // The bot that made the kill gets to collect immediately.
+            const isKillerBot = body.isBot && gem.gemLootKillerIds?.includes(body.id);
+            if (gem.gemLootFromPlayer && !isKillerBot &&
+                now - (gem.gemBornAt || 0) < 15000) continue;
             const distance = this.distanceTo(gem);
             if (distance > 700) continue;
             if (this.gemSealedInChamber(gem)) continue;
-            const score = distance - (gem.gemSourceId === body.id ? 350 : 0) - Math.min(250, gem.gemValue * 0.4);
+            const killerPriority = isKillerBot && now < (body._collectLootUntil || 0) ? 1000 : 0;
+            const score = distance - killerPriority
+                - (gem.gemSourceId === body.id ? 350 : 0)
+                - Math.min(250, gem.gemValue * 0.4);
             if (score < bestScore) { bestScore = score; best = gem; }
         }
         return best;

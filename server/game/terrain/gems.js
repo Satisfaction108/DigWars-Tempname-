@@ -155,14 +155,21 @@ function initSatchel(body) {
             if (body.gemHoardProp) body.props.set(body.gemHoardProp.id, body.gemHoardProp);
             if (body.gemHoardFacetProp) body.props.set(body.gemHoardFacetProp.id, body.gemHoardFacetProp);
         });
-        body.on('dead', () => dropGemsOnDeath(body));
+        body.on('dead', ({ killers } = {}) => dropGemsOnDeath(body, killers));
     }
     updateSatchel(body);
     talkGems(body, 0);
 }
 
-function dropGemsOnDeath(body) {
+function dropGemsOnDeath(body, killers = []) {
     const carried = body.carriedGems | 0;
+    // Keep the bot killers attached to the loot they created. A player can
+    // still reclaim the drop, but the bot that earned it should not have to
+    // wait through the normal anti-vulture grace period.
+    const killerBotIds = killers
+        .map(killer => killer && killer.master ? killer.master : killer)
+        .filter(killer => killer && killer.isBot && killer.id !== undefined)
+        .map(killer => killer.id);
     
     const banked  = bankedFor(body);
     const bankLoss = Math.floor(banked * BANK_DEATH_LOSS);
@@ -203,9 +210,13 @@ function dropGemsOnDeath(body) {
         const gem = spawnGem(body.x, body.y, v, 'gemPickupLoot',
                  Math.max(6.5, Math.min(15, 4.5 + 1.1 * Math.sqrt(v))),
                  Math.cos(ang) * sp, Math.sin(ang) * sp);
-        // A player's death drop is reserved from BOTS for a grace window so
-        // the player can run back for it. Other humans may take it freely.
-        if (gem) gem.gemLootFromPlayer = !!body.socket;
+        // A player's death drop is reserved from unrelated bots for a grace
+        // window so the player can run back for it. The bot that made the
+        // kill gets an immediate claim and can collect its winnings.
+        if (gem) {
+            gem.gemLootFromPlayer = !!body.socket;
+            if (killerBotIds.length) gem.gemLootKillerIds = killerBotIds;
+        }
     }
 }
 
@@ -273,9 +284,12 @@ function tickGem(gem, tg, players) {
     for (const actor of players) {
         const body = actorBody(actor);
         if (!body || body.isDead() || body.isGhost) continue;
-        // Bots keep their hands off a dead player's loot during the reclaim
-        // window - no magnet, no pickup. Humans are unaffected.
-        if (body.isBot && gem.gemLootFromPlayer &&
+        // Unrelated bots keep their hands off a dead player's loot during
+        // the reclaim window. The bot that made the kill is explicitly
+        // allowed through so it can pick up the gems it earned.
+        const isKillerBot = body.isBot &&
+            gem.gemLootKillerIds?.includes(body.id);
+        if (body.isBot && gem.gemLootFromPlayer && !isKillerBot &&
             Date.now() - (gem.gemBornAt || 0) < 15000) continue;
         const dx = body.x - gem.x, dy = body.y - gem.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -323,7 +337,12 @@ function tickGem(gem, tg, players) {
         // Every "breaker gets a head start" variant ended the same way - a
         // gem fleeing from the player standing on it toward the bot that
         // mined it, which felt like the gem had no collision at all.
-        if (d < bestScore) { bestScore = d; bestD = d; best = body; }
+        const killerPriority = isKillerBot && Date.now() < (body._collectLootUntil || 0) ? 850 : 0;
+        if (d - killerPriority < bestScore) {
+            bestScore = d - killerPriority;
+            bestD = d;
+            best = body;
+        }
     }
 
     if (toucher) {
