@@ -1657,13 +1657,7 @@ class io_digWarsGoals extends IO {
 
     retreatAt() {
         const temperament = this.body.botTemperament || 'balanced';
-        let at = temperament === 'aggressive' ? 0.24 : temperament === 'passive' ? 0.55 : 0.38;
-        // Against a human, stand and fight a little longer - a bot that bolts
-        // the moment a duel turns slightly against it robs the player of the
-        // kill. But only a little: at 0.6 the bots read as suicidal, pressing
-        // hopeless fights on a sliver of health.
-        const attacker = this.body._lastDamageSource;
-        if (attacker?.isPlayer && Date.now() - (this.body._lastDamageAt || 0) < 4000) at *= 0.85;
+        let at = temperament === 'aggressive' ? 0.32 : temperament === 'passive' ? 0.55 : 0.42;
         // Against a visibly stronger tank the whole scale shifts: bailing at
         // 70 percent health from a maxed build is reading the fight right,
         // not cowardice. This is what stops bots walking back into a player
@@ -2168,6 +2162,18 @@ class io_digWarsGoals extends IO {
         // Never START a fight the numbers say we lose. Self-defense goes
         // through the attackedBy path, not here.
         if (this.threatRatio(target) > 1.2 || (this.fearUntil.get(target.id) || 0) > now) return false;
+        // Nor start one already wounded: heal up first, then pick the fight.
+        const health = this.body.health.max ? this.body.health.amount / this.body.health.max : 1;
+        if (health < 0.55) return false;
+        // Somebody parked in an outpost pocket with the walls between us is
+        // not a duel we can have - the objective system sieges the outpost
+        // itself; "fighting" them just hoses the scenery.
+        if (!this.clearShot(target)) {
+            for (const site of digWarsOutposts.getOutposts()) {
+                const dx = target.x - site.x, dy = target.y - site.y;
+                if (dx * dx + dy * dy < 300 * 300) return false;
+            }
+        }
         if (!target.isPlayer) return true;
         const attackedMe = this.body._lastDamageSource === target &&
             now - (this.body._lastDamageAt || 0) < 3000;
@@ -2211,7 +2217,9 @@ class io_digWarsGoals extends IO {
         const trap = this.trappedInChamber();
         if (trap) return { kind: 'objective', point: trap, structure: 'chamber', trapped: true };
 
-        if (health < 0.16 || (threatened && (health < this.retreatAt() || (outnumbered && health < 0.6) ||
+        // Below a quarter tank, disengage no matter what the temperament
+        // says - pressing a fight from there is just delivering the kill.
+        if (health < 0.25 || (threatened && (health < this.retreatAt() || (outnumbered && health < 0.6) ||
             (this.feared(view.enemy, now) && health < 0.75))))
             return { kind: 'survive', point: this.retreatPoint() };
         // Bank on threshold, and also just periodically: a bot wandering
@@ -2311,6 +2319,23 @@ class io_digWarsGoals extends IO {
                         for (const [id, until] of this.fearUntil) if (until < now) this.fearUntil.delete(id);
                     }
                     this.fearUntil.set(goal.target.id, now + 15000);
+                    return false;
+                }
+                // A target we cannot actually hit - hunkered inside an
+                // outpost pocket or behind a rock wall - is not a fight at
+                // all. Five straight blocked seconds means walk away instead
+                // of hosing the scenery, and remember them briefly so the
+                // bot does not re-lock the moment the goal re-rolls.
+                if (this.clearShot(goal.target)) {
+                    this.fightBlockedSince = 0;
+                } else if (!this.fightBlockedSince) {
+                    this.fightBlockedSince = now;
+                } else if (now - this.fightBlockedSince > 5000) {
+                    this.fightBlockedSince = 0;
+                    if (this.playerBreakUntil.size > 8) {
+                        for (const [id, until] of this.playerBreakUntil) if (until < now) this.playerBreakUntil.delete(id);
+                    }
+                    this.playerBreakUntil.set(goal.target.id, now + 20000);
                     return false;
                 }
                 if (goal.target.isPlayer && now - this.goalStartedAt > 12000 &&
@@ -2419,6 +2444,7 @@ class io_digWarsGoals extends IO {
         }
         this.goal = candidate;
         this.goalStartedAt = now;
+        this.fightBlockedSince = 0;
         if (candidate.kind === 'mine') {
             this.mineHealth = candidate.rock.health;
             this.mineProgressAt = now;
@@ -2490,6 +2516,12 @@ class io_digWarsGoals extends IO {
         let range = this.desiredRange();
         if (this.threatRatio(target) > 1.15)
             range = Math.min(this.weaponRange() * 0.9, range * 1.45);
+        // Kite while hurt: the lower the tank, the wider the standoff. A bot
+        // at half health circling at knife range was the single biggest "they
+        // just walk up and die" complaint.
+        const health = this.body.health.max ? this.body.health.amount / this.body.health.max : 1;
+        if (health < 0.65)
+            range = Math.min(this.weaponRange() * 0.95, range * (1 + (0.65 - health) * 1.6));
         // Strafe hard, and flip direction at human-ish random intervals so
         // the opponent's aim lead keeps getting broken. The old leisurely
         // orbit was visually stationary to anyone actually aiming.
@@ -2583,8 +2615,18 @@ class io_digWarsGoals extends IO {
         // watching enemies drive past, which looked completely broken.
         if (enemy && this.view.enemyDistance < this.weaponRange() && this.clearShot(enemy))
             return { target: this.leadAim(enemy, now), fire: this.triggerHeld(now) };
-        if (goal.kind === 'fight' && goal.target && this.distanceTo(goal.target) < this.weaponRange())
-            return { target: this.leadAim(goal.target, now), fire: this.triggerHeld(now) };
+        if (goal.kind === 'fight' && goal.target && this.distanceTo(goal.target) < this.weaponRange()) {
+            // Only shoot AT the target when the shells can reach them. A
+            // player parked inside an outpost pocket used to soak an eternal
+            // "attack" that was really just paint on the walls. If a rock is
+            // what blocks the line, dig through it - that is an attack that
+            // actually progresses.
+            if (this.clearShot(goal.target))
+                return { target: this.leadAim(goal.target, now), fire: this.triggerHeld(now) };
+            const rock = this.firstRockAlong(goal.target);
+            if (rock && rock.alive)
+                return { target: this.aimVector(rock.wx - body.x, rock.wy - body.y, now), fire: true };
+        }
         if (goal.kind === 'defend' && goal.target)
             return { target: this.leadAim(goal.target, now), fire: this.triggerHeld(now) };
         // Trapped inside a ring: fire outward at the wall, not at the center

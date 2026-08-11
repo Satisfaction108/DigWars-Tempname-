@@ -633,8 +633,25 @@ class gameHandler {
                 totals[bot.team] += (bot.botBanked || 0) + (bot.carriedGems || 0);
         }
         if (Math.abs(totals[TEAM_BLUE] - totals[TEAM_RED]) >= 100)
-            return totals[TEAM_BLUE] < totals[TEAM_RED] ? TEAM_BLUE : TEAM_RED;
-        return getWeakestTeam(global.gameManager);
+            return this.botBalancedTeam(totals[TEAM_BLUE] < totals[TEAM_RED] ? TEAM_BLUE : TEAM_RED);
+        return this.botBalancedTeam(getWeakestTeam(global.gameManager));
+    }
+
+    botTeamCount(team) {
+        let count = 0;
+        for (const bot of this.bots) if (bot && !bot.isDead() && bot.team === team) count++;
+        return count;
+    }
+
+    // Per-team ceiling on bots. Whatever picked the team - gem balance,
+    // weakest-team, or a respawning bot keeping its old side - a full team
+    // hands the slot to the other side instead of stacking past the cap.
+    botBalancedTeam(preferred) {
+        if (preferred !== TEAM_BLUE && preferred !== TEAM_RED) return preferred;
+        const cap = Config.bot_team_cap || Infinity;
+        if (this.botTeamCount(preferred) < cap) return preferred;
+        const other = preferred === TEAM_BLUE ? TEAM_RED : TEAM_BLUE;
+        return this.botTeamCount(other) < cap ? other : preferred;
     }
 
     addEnemyMarker(team, x, y, by) {
@@ -783,6 +800,25 @@ class gameHandler {
         }
     }
 
+    // Relative pick weights per class key (lowercase). Anything not listed
+    // rolls at weight 1. Stronger meta tanks get higher weights so lobbies
+    // skew toward good builds; tier 1-2 branches that lead to those tanks
+    // are boosted too, otherwise the final-tier weights never get a chance
+    // to matter. This shapes odds only - the max-2-per-tank rule below is
+    // what actually stops a lobby from filling with copies.
+    static BOT_TANK_WEIGHTS = {
+        // tier 1 branches
+        twin: 3, machinegun: 3, flankguard: 3, pounder: 3, sniper: 2,
+        // tier 2 branches
+        tripleshot: 4, gunner: 3, minigun: 3, sprayer: 3, triangle: 4,
+        hexatank: 3, destroyer: 4, assassin: 3, hunter: 3, launcher: 2,
+        // tier 3 finals
+        pentashot: 6, spreadshot: 6, triplet: 6, octotank: 6, streamliner: 6,
+        annihilator: 6, fighter: 6, booster: 6, predator: 5, ranger: 5,
+        hybrid: 4, autogunner: 4, cyclone: 4, tripletwin: 4, gunnertrapper: 4,
+        redistributor: 4, conqueror: 3, skimmer: 3, sidewinder: 3,
+    };
+
     botUpgradeIndex(bot) {
         if (!bot.upgrades?.length) return null;
         const options = bot.upgrades.map((upgrade, index) => ({ upgrade, index }));
@@ -816,7 +852,32 @@ class gameHandler {
             !rammer.test(textFor(option)) &&
             !weak.test(textFor(option))
         );
-        return usable.length ? ran.choose(usable).index : null;
+        if (!usable.length) return null;
+        // Lobby variety: at most two living bots may be the same tank at
+        // once. Drop any option that would create a third copy - unless
+        // that removes every option, in which case a duplicate beats a
+        // bot stuck refusing to upgrade.
+        const classCounts = new Map();
+        for (const other of this.bots) {
+            if (!other || other === bot || other.isDead?.()) continue;
+            const key = String(other.defs?.[0] || '').toLowerCase();
+            if (key) classCounts.set(key, (classCounts.get(key) || 0) + 1);
+        }
+        const keysFor = option => String(option.upgrade.index).toLowerCase().split('-');
+        const uncrowded = usable.filter(option =>
+            keysFor(option).every(key => (classCounts.get(key) || 0) < 2));
+        const pool = uncrowded.length ? uncrowded : usable;
+        // Weighted pick so stronger tanks show up more often than filler.
+        const weightFor = option => Math.max(...keysFor(option).map(key =>
+            this.constructor.BOT_TANK_WEIGHTS[key] || 1));
+        let total = 0;
+        for (const option of pool) total += weightFor(option);
+        let roll = Math.random() * total;
+        for (const option of pool) {
+            roll -= weightFor(option);
+            if (roll <= 0) return option.index;
+        }
+        return pool[pool.length - 1].index;
     }
 
     quickMaintainLoop = () => {
@@ -1114,7 +1175,7 @@ class gameHandler {
                         ran.releaseBotName(o.botNameKey);
                         return;
                     }
-                    const respawnTeam = o.team;
+                    const respawnTeam = this.botBalancedTeam(o.team);
                     const respawnLoc = this.botSpawnLocation(respawnTeam);
                     this.spawnBots(respawnLoc, respawnTeam, botName, {
                         familyId: o.botFamilyId,
@@ -1128,7 +1189,7 @@ class gameHandler {
                 setTimeout(() => {
                     this.pendingBotRespawns = Math.max(0, this.pendingBotRespawns - 1);
                     if (global.gameManager.arenaClosed || global.cannotRespawn) return;
-                    const team = global.nextTagBotTeam || o.team;
+                    const team = this.botBalancedTeam(global.nextTagBotTeam || o.team);
                     this.spawnBots(this.botSpawnLocation(team), team);
                 }, 6500 + Math.floor(Math.random() * 4500));
             }
