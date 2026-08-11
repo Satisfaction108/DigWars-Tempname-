@@ -1630,7 +1630,7 @@ class io_digWarsGoals extends IO {
         // gems entirely.
         this.role = ran.chance(0.45) ? 'miner' : ran.chance(0.62) ? 'raider' : 'guard';
         body._botRole = this.role;
-        this.objectiveReach = this.role === 'raider' ? 4200 : this.role === 'guard' ? 1600 : 2400;
+        this.objectiveReach = this.role === 'raider' ? 4800 : this.role === 'guard' ? 2000 : 2800;
         this.orbit = null;
         this.minePlan = null;
         this.aimError = 0;
@@ -1710,7 +1710,9 @@ class io_digWarsGoals extends IO {
         let want = 170;
         if (/sniper|assassin|ranger|marksman|stalker|rifle|predator|hunter|deadeye/.test(defs)) want = 330;
         else if (/destroyer|artillery|mortar|launcher|ordnance|annihilator|hybrid/.test(defs)) want = 250;
-        return Math.min(want, this.weaponRange() * 0.8);
+        // Floor at 140: trap layers and other stubby-range builds computed a
+        // standoff so small they strolled hull-to-hull into enemies and died.
+        return Math.max(140, Math.min(want, this.weaponRange() * 0.8));
     }
 
     engageRange() {
@@ -1983,7 +1985,10 @@ class io_digWarsGoals extends IO {
             .filter(b => b && b.isPlayer && !b.isDead?.() && !b.isGhost);
         const unclaimed = rock => !humans.some(h =>
             (h.x - rock.wx) * (h.x - rock.wx) + (h.y - rock.wy) * (h.y - rock.wy) < 260 * 260);
-        const usable = rock => rock.alive && (this.rockBlacklist.get(rock) || 0) < now && unclaimed(rock);
+        // Rocks on a base apron are off the menu entirely: pacing the spawn
+        // wall chewing boulders is the least alive a bot can look.
+        const usable = rock => rock.alive && (this.rockBlacklist.get(rock) || 0) < now &&
+            unclaimed(rock) && baseTileOwner(rock.wx, rock.wy) === undefined;
         // Ore is worth walking for. Plain rock is legitimate work too (it
         // clears paths and keeps hands busy), but only when it is right
         // there - nobody treks across the map for a worthless boulder.
@@ -2244,9 +2249,20 @@ class io_digWarsGoals extends IO {
                     // more than nine seconds of driving away.
                     const besieging = this.distanceTo(goal.point) <
                         this.structureClearance(goal.point) + Math.max(320, this.weaponRange());
+                    // Alone, a dry siege is abandoned quickly. With teammates
+                    // on the same target the squad's combined fire CAN beat a
+                    // chamber's self-heal, so hold the line much longer -
+                    // giving up at 9s is why no chamber ever actually fell.
+                    let squadAttackers = 0;
+                    for (const tank of botWorldScan().tanks) {
+                        if (tank !== body && tank.isBot && tank.team === body.team &&
+                            tank._digWarsObjectivePoint === goal.point &&
+                            Math.hypot(tank.x - body.x, tank.y - body.y) < 1100) squadAttackers++;
+                    }
+                    const patience = squadAttackers > 0 ? 25000 : 9000;
                     if (!besieging) {
                         this.objProgressAt = now;
-                    } else if (now - (this.objProgressAt || this.goalStartedAt) > 9000) {
+                    } else if (now - (this.objProgressAt || this.goalStartedAt) > patience) {
                         this.objectiveBlacklist.set(goal.point, now + 30000);
                         return false;
                     }
@@ -2439,11 +2455,11 @@ class io_digWarsGoals extends IO {
             return { target: target ? { x: target.x - body.x, y: target.y - body.y } : forward, fire: false };
         }
         const enemy = this.view.enemy;
-        // Opportunistic fire obeys the same etiquette as starting a fight:
-        // no free potshots at somebody under mercy or freshly released from
-        // a chase. Return fire is always allowed via canInitiateFight.
-        if (enemy && this.view.enemyDistance < this.weaponRange() && this.clearShot(enemy) &&
-            (goal.kind === 'fight' && goal.target === enemy || this.canInitiateFight(enemy, now)))
+        // Any enemy inside weapon range gets shot at, full stop. Etiquette
+        // (mercy, dogpile caps, chase break-offs) governs whether a bot
+        // PURSUES somebody - gating the trigger on it left bots silently
+        // watching enemies drive past, which looked completely broken.
+        if (enemy && this.view.enemyDistance < this.weaponRange() && this.clearShot(enemy))
             return { target: this.leadAim(enemy, now), fire: this.triggerHeld(now) };
         if (goal.kind === 'fight' && goal.target && this.distanceTo(goal.target) < this.weaponRange())
             return { target: this.leadAim(goal.target, now), fire: this.triggerHeld(now) };
@@ -2466,6 +2482,20 @@ class io_digWarsGoals extends IO {
             this.distanceTo({ x: goal.rock.wx, y: goal.rock.wy }) - (goal.rock.maxPolyRadius || 60) <
                 this.weaponRange() * 0.9)
             return { target: this.aimVector(goal.rock.wx - body.x, goal.rock.wy - body.y, now), fire: true };
+        // Traveling with nothing to shoot: chew through whatever rock sits in
+        // the way ahead. This is what digs bots out of the rock mazes around
+        // chambers, and a tank clearing its own path reads as purposeful
+        // where a tank silently weaving between boulders read as lost.
+        if (now - (this.travelRockAt || 0) > 250) {
+            this.travelRockAt = now;
+            const probe = Math.min(this.weaponRange() * 0.85, 420);
+            this.travelRock = this.firstRockAlong({
+                x: body.x + Math.cos(this.nav.heading) * probe,
+                y: body.y + Math.sin(this.nav.heading) * probe,
+            });
+        }
+        if (this.travelRock && this.travelRock.alive)
+            return { target: this.aimVector(this.travelRock.wx - body.x, this.travelRock.wy - body.y, now), fire: true };
         return { target: forward, fire: false };
     }
 

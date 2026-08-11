@@ -1008,10 +1008,14 @@ class gameHandler {
             // being farmed by machines.
             if (victim?.isPlayer && victim.socket) {
                 const s = victim.socket, now = Date.now();
-                s.botDeathStreak = now - (s.botDeathLastAt || 0) < 150_000 ? (s.botDeathStreak || 0) + 1 : 1;
+                s.botDeathStreak = now - (s.botDeathLastAt || 0) < 90_000 ? (s.botDeathStreak || 0) + 1 : 1;
                 s.botDeathLastAt = now;
-                if (s.botDeathStreak >= 2)
-                    s.botMercyUntil = now + Math.min(90_000, (s.botDeathStreak - 1) * 35_000);
+                // Mercy is a soft touch for someone genuinely spiraling, not
+                // a switch that turns the lobby passive. At two deaths it was
+                // firing constantly and bots around an active fighter went
+                // inert, which read as "the bots do nothing".
+                if (s.botDeathStreak >= 4)
+                    s.botMercyUntil = now + 30_000;
                 o._victoryEmoteUntil = now + 1300;
             }
         });
