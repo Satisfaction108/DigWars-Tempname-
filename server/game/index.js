@@ -654,12 +654,21 @@ class gameHandler {
 
     configureBotStats(bot) {
         const rammer = !bot.guns || bot.guns.size === 0;
-        // A 42-point base. Armed tanks prioritize the stats that make their
-        // bullets feel deliberate; rammers spend that budget on body damage,
-        // health, mobility, and a little regen instead.
-        const raw = rammer
-            ? [0, 0, 0, 0, 0, 9, 9, 9, 6, 9]
-            : [7, 8, 2, 8, 5, 0, 0, 5, 0, 7];
+        const defs = (bot.defs || []).join(' ').toLowerCase();
+        // A 42-point base - the same budget a level-45 player has - shaped
+        // like the builds players actually win with, per class archetype.
+        // Order: [rld, pen, str, dam, spd, shi, atk, hlt, rgn, mob].
+        // The old one-size spread put bullet health at 2, so any max-pen
+        // player build deleted bot bullets on contact and every trade was
+        // lost before it started.
+        let raw;
+        if (rammer) raw = [0, 0, 0, 0, 0, 9, 9, 9, 6, 9];
+        else if (/sniper|assassin|ranger|marksman|stalker|rifle|predator|hunter|deadeye|sidewinder/.test(defs))
+            raw = [6, 9, 4, 9, 7, 0, 0, 3, 0, 4];
+        else if (/destroyer|artillery|mortar|launcher|ordnance|annihilator|hybrid/.test(defs))
+            raw = [6, 9, 8, 9, 2, 0, 0, 4, 0, 4];
+        else
+            raw = [9, 8, 6, 9, 3, 0, 0, 3, 0, 4];
         // High-skill bots invest deeper, up to ~14 extra points spread over
         // the stats they already use. Without this, every bot fought like a
         // half-built tank and a maxed player build shredded the whole lobby
@@ -823,6 +832,10 @@ class gameHandler {
             const upgradeIndex = o.botStatsFixed ? this.botUpgradeIndex(o) : ran.irandomRange(0, o.upgrades.length);
             if (o.leftoverUpgrades && upgradeIndex !== null && o.upgrade(upgradeIndex)) {
                 o.leftoverUpgrades--;
+                // Re-shape the build for the class the bot just became:
+                // a stat spread chosen at spawn (as a basic tank) is wrong
+                // for the sniper or destroyer it upgrades into.
+                if (o.botStatsFixed) this.configureBotStats(o);
             }
         }
         

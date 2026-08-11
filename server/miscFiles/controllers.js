@@ -1644,6 +1644,10 @@ class io_digWarsGoals extends IO {
         this.losCache = new Map();
         this.rangeAt = 0;
         this.range = 0;
+        this.threatCache = new Map();
+        // Enemies who beat this bot in a recent trade, or whose build is
+        // simply out of its league. Fights with them are refused.
+        this.fearUntil = new Map();
     }
 
     // ── personality ──────────────────────────────────────────────────────
@@ -1660,7 +1664,45 @@ class io_digWarsGoals extends IO {
         // hopeless fights on a sliver of health.
         const attacker = this.body._lastDamageSource;
         if (attacker?.isPlayer && Date.now() - (this.body._lastDamageAt || 0) < 4000) at *= 0.85;
+        // Against a visibly stronger tank the whole scale shifts: bailing at
+        // 70 percent health from a maxed build is reading the fight right,
+        // not cowardice. This is what stops bots walking back into a player
+        // who has already beaten them twice.
+        const threat = this.view?.enemy;
+        if (threat && this.view.enemyDistance < 1000) {
+            const ratio = this.threatRatio(threat);
+            if (ratio > 1.2) at = Math.max(at, Math.min(0.75, 0.4 + (ratio - 1.2) * 0.3));
+        }
         return at;
+    }
+
+    // Public-information guess at how a straight trade with this enemy goes:
+    // build size (bullet stats plus some body damage) times the health still
+    // in the tank. Above 1 means they probably win it. Cached because this
+    // steers several decisions per tick.
+    threatRatio(enemy) {
+        if (!enemy) return 0;
+        const now = Date.now();
+        const cached = this.threatCache.get(enemy.id);
+        if (cached && now < cached.until) return cached.ratio;
+        const offense = e => {
+            const raw = e.skill?.raw;
+            if (!raw) return 18;
+            return Math.max(6, raw[0] + raw[1] + raw[2] + raw[3] + raw[6] * 0.8);
+        };
+        const pool = e => Math.max(1, (e.health?.amount || 1) + (e.shield?.amount || 0));
+        const ratio = (offense(enemy) * pool(enemy)) / (offense(this.body) * pool(this.body));
+        if (this.threatCache.size > 16) this.threatCache.clear();
+        this.threatCache.set(enemy.id, { ratio, until: now + 1000 });
+        return ratio;
+    }
+
+    // An enemy this bot should not be trading with right now: either the
+    // numbers say so, or a recent fight against them already proved it.
+    feared(enemy, now) {
+        if (!enemy) return false;
+        if ((this.fearUntil.get(enemy.id) || 0) > now) return true;
+        return this.threatRatio(enemy) > 1.45;
     }
 
     isRammer() {
@@ -1789,7 +1831,10 @@ class io_digWarsGoals extends IO {
         // fire rather than an aimbot finishing the job.
         let skill = this.skill();
         if (entity.isPlayer && (entity.socket?.botMercyUntil || 0) > now) skill *= 0.45;
-        const lead = speed > 0 ? util.clamp(distance / speed, 0, 0.7) * (0.5 + skill * 0.5) : 0.2;
+        // The lead cap used to sit at 0.7s, which meant every shot past
+        // medium range undershot a moving target by design - the "shooting
+        // and missing" look in long-range duels.
+        const lead = speed > 0 ? util.clamp(distance / speed, 0, 1.2) * (0.5 + skill * 0.5) : 0.2;
         return this.aimVector(dx + (entity.velocity?.x || 0) * lead,
                               dy + (entity.velocity?.y || 0) * lead, now, skill);
     }
@@ -2083,15 +2128,46 @@ class io_digWarsGoals extends IO {
     retreatPoint() {
         const body = this.body, threat = this.view.enemy;
         const vault = this.ownVault();
-        if (vault) return { x: vault.x, y: vault.y };
-        if (!threat) return { x: body.x, y: body.y };
-        return { x: body.x - (threat.x - body.x), y: body.y - (threat.y - body.y) };
+        if (!threat) return vault ? { x: vault.x, y: vault.y } : { x: body.x, y: body.y };
+        const away = Math.hypot(body.x - threat.x, body.y - threat.y) || 1;
+        const ax = (body.x - threat.x) / away, ay = (body.y - threat.y) / away;
+        if (vault) {
+            const toVault = Math.hypot(vault.x - body.x, vault.y - body.y) || 1;
+            // Only run home when home is actually away from the shooter.
+            // Sprinting THROUGH the enemy to reach the vault was most of
+            // "bots can't run away".
+            if (((vault.x - body.x) / toVault) * ax + ((vault.y - body.y) / toVault) * ay > -0.2)
+                return { x: vault.x, y: vault.y };
+        }
+        return this.safePoint(body.x + ax * 1000, body.y + ay * 1000);
+    }
+
+    // Serpentine: aim at a point ahead on the way to `point`, displaced side
+    // to side. A straight-line runner is target practice for a max bullet
+    // speed build; the weave is the difference between escaping and dying
+    // tired. Higher-skill bots weave faster and wider.
+    weavePoint(point, now, intensity = 1) {
+        const body = this.body;
+        const dx = point.x - body.x, dy = point.y - body.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < 160) return point;
+        const skill = this.skill();
+        const side = Math.sin(now / (200 + 90 * (1 - skill)) + (body.id % 12) * 0.9) *
+            (70 + 110 * intensity) * (0.55 + skill * 0.45);
+        const ahead = Math.min(distance, 380);
+        return {
+            x: body.x + (dx / distance) * ahead - (dy / distance) * side,
+            y: body.y + (dy / distance) * ahead + (dx / distance) * side,
+        };
     }
 
     // Etiquette for starting fights with humans. None of this applies when
     // the human shot first - self-defense is always allowed - and none of it
     // applies to bot-vs-bot fights.
     canInitiateFight(target, now) {
+        // Never START a fight the numbers say we lose. Self-defense goes
+        // through the attackedBy path, not here.
+        if (this.threatRatio(target) > 1.2 || (this.fearUntil.get(target.id) || 0) > now) return false;
         if (!target.isPlayer) return true;
         const attackedMe = this.body._lastDamageSource === target &&
             now - (this.body._lastDamageAt || 0) < 3000;
@@ -2135,7 +2211,8 @@ class io_digWarsGoals extends IO {
         const trap = this.trappedInChamber();
         if (trap) return { kind: 'objective', point: trap, structure: 'chamber', trapped: true };
 
-        if (health < 0.16 || (threatened && (health < this.retreatAt() || (outnumbered && health < 0.6))))
+        if (health < 0.16 || (threatened && (health < this.retreatAt() || (outnumbered && health < 0.6) ||
+            (this.feared(view.enemy, now) && health < 0.75))))
             return { kind: 'survive', point: this.retreatPoint() };
         // Bank on threshold, and also just periodically: a bot wandering
         // around with an hour of unbanked loot never showed anyone what the
@@ -2153,7 +2230,11 @@ class io_digWarsGoals extends IO {
             !inEnemyBase(body.team, body._lastDamageSource.x, body._lastDamageSource.y) &&
             this.distanceTo(body._lastDamageSource) < this.engageRange() * 1.2
             ? body._lastDamageSource : null;
-        if (attackedBy && !(outnumbered && health < 0.55))
+        // Fighting back is still off the table against somebody who already
+        // proved they win the trade - keep to the errand (the weapon layer
+        // returns fire regardless) until health drops into survive range.
+        if (attackedBy && !(outnumbered && health < 0.55) &&
+            !(this.feared(attackedBy, now) && health < 0.85))
             return { kind: 'fight', target: attackedBy };
         if (view.gem)
             return { kind: 'collect', gem: view.gem };
@@ -2214,6 +2295,24 @@ class io_digWarsGoals extends IO {
                 // A losing 1v2 is a fight to leave, not to finish.
                 if (this.view.enemies > this.view.allies + 1 &&
                     (body.health.max ? body.health.amount / body.health.max : 1) < 0.55) return false;
+                // Score the trade while it runs: if our health is draining
+                // much faster than theirs, this duel is already decided.
+                // Leave, and remember them - re-engaging the same tank three
+                // seconds later was the "it knows it's too weak but keeps
+                // coming" loop.
+                const myHp = body.health.max ? body.health.amount / body.health.max : 1;
+                const theirHp = goal.target.health?.max
+                    ? goal.target.health.amount / goal.target.health.max : 1;
+                const myLoss = (this.fightMyHp ?? myHp) - myHp;
+                const theirLoss = (this.fightTheirHp ?? theirHp) - theirHp;
+                if (now - this.goalStartedAt > 2000 && myHp < 0.7 &&
+                    myLoss > 0.2 && myLoss > theirLoss * 1.5) {
+                    if (this.fearUntil.size > 12) {
+                        for (const [id, until] of this.fearUntil) if (until < now) this.fearUntil.delete(id);
+                    }
+                    this.fearUntil.set(goal.target.id, now + 15000);
+                    return false;
+                }
                 if (goal.target.isPlayer && now - this.goalStartedAt > 12000 &&
                     !(body._lastDamageSource === goal.target && now - (body._lastDamageAt || 0) < 3000)) {
                     if (this.playerBreakUntil.size > 8) {
@@ -2324,6 +2423,11 @@ class io_digWarsGoals extends IO {
             this.mineHealth = candidate.rock.health;
             this.mineProgressAt = now;
         }
+        if (candidate.kind === 'fight') {
+            const target = candidate.target;
+            this.fightMyHp = this.body.health.max ? this.body.health.amount / this.body.health.max : 1;
+            this.fightTheirHp = target?.health?.max ? target.health.amount / target.health.max : 1;
+        }
         if (candidate.kind === 'objective') {
             this.objHealth = candidate.structure === 'chamber'
                 ? candidate.point.entity?.health?.amount
@@ -2350,13 +2454,13 @@ class io_digWarsGoals extends IO {
         return Math.max(target.r || 95, banner ? (banner.realSize || banner.size || 40) + 25 : 60);
     }
 
-    orbitPoint(key, target, radius, now, spread = 0) {
+    orbitPoint(key, target, radius, now, spread = 0, rateScale = 1) {
         if (!this.orbit || this.orbit.key !== key) {
             this.orbit = {
                 key,
                 at: now,
                 phase: Math.atan2(this.body.y - target.y, this.body.x - target.x) + ran.gauss(0, 0.25),
-                rate: (0.00025 + Math.random() * 0.0004) * (ran.chance(0.5) ? 1 : -1),
+                rate: (0.00025 + Math.random() * 0.0004) * rateScale * (ran.chance(0.5) ? 1 : -1),
             };
         }
         // The radius breathes a few percent so orbiting tanks drift in and
@@ -2376,14 +2480,26 @@ class io_digWarsGoals extends IO {
     }
 
     combatPoint(target, now) {
-        if (this.isRammer()) return target;
+        // Rammers weave in on the approach - a straight charge into a gun
+        // line is exactly the shot every build is tuned to land.
+        if (this.isRammer())
+            return this.distanceTo(target) > 260 ? this.weavePoint(target, now, 0.8) : target;
         // Respect a clearly stronger tank: stand off wider instead of
         // strolling into a maxed build's effective range. This is most of
         // what "being good against upgraded tanks" means for a bot.
         let range = this.desiredRange();
-        if ((target.dangerValue || 0) > (this.body.dangerValue || 1) * 1.25)
+        if (this.threatRatio(target) > 1.15)
             range = Math.min(this.weaponRange() * 0.9, range * 1.45);
-        return this.orbitPoint(`f${target.id}`, target, range, now);
+        // Strafe hard, and flip direction at human-ish random intervals so
+        // the opponent's aim lead keeps getting broken. The old leisurely
+        // orbit was visually stationary to anyone actually aiming.
+        if (now > (this.strafeFlipAt || 0)) {
+            this.strafeFlipAt = now + 650 + Math.random() * 1200;
+            if (this.orbit && ran.chance(0.55)) this.orbit.rate = -this.orbit.rate;
+        }
+        const point = this.orbitPoint(`f${target.id}`, target, range, now, 0, 3);
+        // A long approach into a gun fight is done as a weave, not a bee-line.
+        return this.distanceTo(target) > range * 1.6 ? this.weavePoint(point, now, 0.9) : point;
     }
 
     structurePoint(target, now) {
@@ -2512,10 +2628,14 @@ class io_digWarsGoals extends IO {
             case 'survive':
                 // Circle the safe spot while healing instead of parking on
                 // it: a motionless tank reads as a broken bot and eats every
-                // stray shell.
+                // stray shell. On the way out, weave while the shooter still
+                // has line on us - fleeing in a straight line just moved the
+                // dying somewhere else.
                 destination = this.distanceTo(goal.point) < 280
                     ? this.orbitPoint('sv', goal.point, 180, now)
-                    : goal.point;
+                    : this.view.enemy && this.view.enemyDistance < 1100
+                        ? this.weavePoint(goal.point, now, 1)
+                        : goal.point;
                 arrive = 40;
                 break;
             case 'bank': {
