@@ -1134,6 +1134,10 @@ function enterStep(i, review) {
     // that says nothing is locked down rather than inheriting the last one's
     // permissions - that is what stops a learner dumping stat points during
     // the mining lesson or evolving into a tank the script cannot handle.
+    // Mirrored on window so the HUD can hide controls the step has locked
+    // (a visible bar whose clicks are refused reads as a broken game).
+    window.dwTutAllow = s.allow || "";
+    window.dwTutUi = typeof s.ui === "string" ? s.ui : "";
     tut("allow", s.allow || "");
     if (s.onEnter) { try { s.onEnter(); } catch (e) { } }
     if (s.acquire) state.target = s.acquire();
@@ -2048,6 +2052,13 @@ function finish() {
     } catch (e) { }
     sendTutorialFlag(false);
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch (e) { }
+    // Training over - hand them back to the menu, where the Play button now
+    // leads to the real game (the completion flag just set means home.js no
+    // longer reroutes it here). Lingering alone in a spent plot teaches
+    // nothing and quietly hogs one of the few slots.
+    if (global.tutorialMode) {
+        setTimeout(() => { try { location.reload(); } catch (e) { } }, 4200);
+    }
     state.running = false;
     state.phase = "finished";
     state.target = null;

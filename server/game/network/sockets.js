@@ -361,6 +361,9 @@ class socketManager {
                 if (m.length !== 1) { socket.kick("Ill-sized vault deposit."); return 1; }
                 if (typeof m[0] !== "number" || !isFinite(m[0])) { socket.kick("Weird vault deposit."); return 1; }
                 const vBody = socket.player && socket.player.body;
+                // Tutorial: banking is its own lesson; other steps refuse it.
+                if (Config.tutorial && vBody &&
+                    !require('../tutorialSession.js').allows(vBody, 'bank')) return;
                 if (vBody && vBody.outpostOnPad) require('../terrain/outposts.js').requestDeposit(socket, m[0]);
                 else require('../terrain/vault.js').requestDeposit(socket, m[0]);
             } break;
@@ -1300,6 +1303,14 @@ class socketManager {
             const session = require('../tutorialSession.js');
             session.claimPlot(socket);
             tutorialHome = session.spawnPointFor(socket);
+            if (!tutorialHome) {
+                // Every plot is occupied. Spawning anyway would place them by
+                // the normal rules - inside another learner's plot.
+                socket.talk("m", Config.popup_message_duration ?? 10000,
+                    "The training ground is full right now - please try again in a minute.");
+                socket.kick("Tutorial full.");
+                return;
+            }
             if (tutorialHome) {
                 player.team = TEAM_BLUE;
                 loc = tutorialHome;

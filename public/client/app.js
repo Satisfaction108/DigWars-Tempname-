@@ -4316,6 +4316,16 @@ import * as tutorial from './tutorial.js';
     }
 
     function drawSkillBars(spacing, alcoveSize) {
+        // Tutorial: the stat bars show only when the lesson either lets you
+        // spend (allow includes stats) or is literally pointing at them (the
+        // "find your points" step highlights the bar without unlocking it).
+        // Otherwise they stay hidden - a bar that takes clicks the server
+        // refuses would read as broken rather than locked.
+        if (global.tutorialMode) {
+            const allow = window.dwTutAllow || "";
+            const ui = window.dwTutUi || "";
+            if (!allow.includes("stats") && !ui.startsWith("skill") && !ui.startsWith("stat")) return;
+        }
 
         if (global.mobile) return drawMobileSkillUpgrades(spacing, alcoveSize);
         statMenu.set(0 + (global.died || global.statHover || (global.canSkill && !gui.skills.every(skill => skill.cap === skill.amount))));
@@ -5713,7 +5723,10 @@ import * as tutorial from './tutorial.js';
                 buttonX = initialX + (rowWidth + len - initialX) / 2,
                 buttonY = initialY + height + internalSpacing - 5;
 
-            drawButton(buttonX, buttonY, m, h, 1, "rect", msg, textScale - 3.3, false, false, false, true, "skipUpgrades", clickableRatio, 0);
+            // Tutorial: declining is not a choice a lesson offers - and the
+            // decline only clears the menu locally, so the evolve step would
+            // stall on an empty box the server never repopulates.
+            if (!global.tutorialMode) drawButton(buttonX, buttonY, m, h, 1, "rect", msg, textScale - 3.3, false, false, false, true, "skipUpgrades", clickableRatio, 0);
 
             if (gui.dailyTank && gui.dailyTank.tank) {
                 let image = util.requestEntityImage(gui.dailyTank.tank, gui.color);

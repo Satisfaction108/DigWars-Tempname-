@@ -72,6 +72,11 @@
             .then(function (r) { return r.json(); })
             .then(function (sv) {
                 if (!sv || !sv.ip) throw new Error('tutorial server unavailable');
+                if (sv.players >= sv.maxPlayers) {
+                    if (btn) { btn.disabled = false; }
+                    alert('All training grounds are in use right now - please try again in a minute.');
+                    return;
+                }
                 var g = window.global;
                 if (!g || !g.startGame) throw new Error('client not ready');
                 // The host routes only one port to the domain, and two game
