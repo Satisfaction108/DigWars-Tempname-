@@ -57,10 +57,15 @@ module.exports = {
             // button, which connects to this id directly. One room split into
             // isolated learner plots (see game/terrain/tutorialPlots.js), so
             // the cap is the number of plots, not a balance choice.
-            share_client_server: process.env.SINGLE_PROCESS === "true",
+            // NEVER share the main process. Only one server may do that (see
+            // "Only one server can be loaded via through the main server" in
+            // server.js) and that slot belongs to the live game - claiming it
+            // here takes the whole site down. The tutorial always runs as its
+            // own worker on its own port.
+            share_client_server: false,
 
             host: publicHost || 'localhost:3101',
-            port: process.env.SINGLE_PROCESS === "true" ? (parseInt(process.env.PORT) || 3000) : 3101,
+            port: 3101,
             id: 'tut',
 
             region: "Tutorial",
