@@ -492,6 +492,7 @@ const ALL_STEPS = [
     // ── points and stats ───────────────────────────────────────────────
     {
         id: "points",
+        allow: "",
         label: "Find your points",
         title: "YOU HAVE POINTS TO SPEND",
         hint: () => `Bottom-left, above the bars: the x${gui.points || 42} is how many stat points you have left. You spawn with all of them - spend them or you fight at half strength.`,
@@ -501,6 +502,7 @@ const ALL_STEPS = [
     },
     {
         id: "stats",
+        allow: "stats",
         expand: true,          // replaced at chain-build time by one step per stat
         label: "Spend your stat points",
         hint: () => "Put your points into the bars.",
@@ -511,13 +513,17 @@ const ALL_STEPS = [
     // ── first build + first kill ───────────────────────────────────────
     {
         id: "evolveBullet",
+        allow: "upgrade",
         label: "Become a Penta Shot",
-        hint: () => "Time to pick a real tank. We have narrowed the menu to one: take the Penta Shot - five barrels, easy to aim, forgiving to learn on.",
+        // The menu is pinned to one choice per tier - the next rung of the
+        // Twin - Triple Shot - Penta Shot ladder - so "pick the highlighted
+        // class" is never ambiguous and never empty.
+        hint: () => "Tanks evolve in steps. We have set the menu to one choice at a time: keep picking it - Twin, then Triple Shot, then Penta Shot.",
         ui: "upgrades",
-        onEnter: () => tut("lock", "Penta Shot"),
+        onEnter: () => tut("lock", "Twin,Triple Shot,Penta Shot"),
         settle: 900,
-        progress: () => (gui.upgrades || []).length ? 0 : 1,
-        done: () => state.evolveCount > 0 && !(gui.upgrades || []).length,
+        progress: () => clamp(state.evolveCount / 3, 0, 1),
+        done: () => state.evolveCount >= 3 && !(gui.upgrades || []).length,
     },
     {
         id: "dummy",
@@ -602,6 +608,7 @@ const ALL_STEPS = [
     },
     {
         id: "bank",
+        allow: "bank",
         label: "Bank your gems",
         hint: () => "Carried gems drop when you die - banked gems are yours forever. Park on your vault pad to bank them.",
         acquire: () => {
@@ -618,23 +625,19 @@ const ALL_STEPS = [
 
     // ── the other tank families ────────────────────────────────────────
     {
-        id: "evolveDrone",
-        label: "Try a drone tank",
-        hint: () => "Bullet tanks are only one family. Take the Director - it commands drones instead of firing bullets.",
-        ui: "upgrades",
-        onEnter: () => { state.evolveMark = state.evolveCount; tut("lock", "Director"); },
-        settle: 900,
-        progress: () => (gui.upgrades || []).length ? 0 : 1,
-        done: () => state.evolveCount > state.evolveMark && !(gui.upgrades || []).length,
-    },
-    {
         id: "drones",
         label: "Command your drones",
-        hint: () => "Drones follow your cursor instead of flying straight. Hold the left mouse button to send them at something, release to call them home.",
-        onEnter: () => tut("unlock"),
+        title: "A DIFFERENT KIND OF TANK",
+        // A Penta Shot cannot evolve into Director - the tree does not cross
+        // branches - so the server morphs the tank outright for this lesson.
+        // The lock is set to a name that matches nothing so Director's own
+        // upgrade menu stays hidden while they play with the drones.
+        hint: () => "We just turned you into a Director - a drone tank. It fires nothing: instead, drones follow your cursor. Hold the left mouse button to send them out, release to call them home.",
+        onEnter: () => { tut("morph", "director"); tut("lock", "none"); },
+        onDone: () => { tut("morph", "pentaShot"); tut("unlock"); },
         target: () => ({ kind: "self" }),
-        progress: () => clamp((T() - state.stepAt) / 7000, 0, 1),
-        done: () => T() - state.stepAt > 7000,
+        progress: () => clamp((T() - state.stepAt) / 9000, 0, 1),
+        done: () => T() - state.stepAt > 9000,
     },
     {
         id: "families",
@@ -647,6 +650,7 @@ const ALL_STEPS = [
     // ── the map ────────────────────────────────────────────────────────
     {
         id: "outpost",
+        allow: "bank",
         label: "Take the outpost",
         hint: () => "Outposts are capture points. Bank gems on the pad to claim one - it then heals your team and lets you respawn there.",
         acquire: () => {
@@ -699,6 +703,7 @@ const ALL_STEPS = [
     },
     {
         id: "done",
+        allow: "stats,upgrade,bank",
         title: "GOOD LUCK, MINER",
         subtitle: () => "Mine deep, bank often, and stay off their base.",
         card: true,
@@ -1098,7 +1103,12 @@ function buildChain() {
     const out = [];
     for (const st of ALL_STEPS) {
         if (st.omit && st.omit()) continue;
-        if (st.expand) { out.push(...statSteps()); continue; }
+        if (st.expand) {
+            // The generated per-stat objectives inherit the placeholder's
+            // permissions - they are the steps that actually spend points.
+            for (const gen of statSteps()) out.push({ allow: st.allow, ...gen });
+            continue;
+        }
         out.push(st);
     }
     STEPS = out;
@@ -1120,6 +1130,11 @@ function enterStep(i, review) {
     if (!s) return finish();
     // Lessons that need the server to stage something (spawn a target, pin the
     // class menu, chip our health) do it here, once, on arrival.
+    // Tell the server what this step permits. Sent for EVERY step, so a step
+    // that says nothing is locked down rather than inheriting the last one's
+    // permissions - that is what stops a learner dumping stat points during
+    // the mining lesson or evolving into a tank the script cannot handle.
+    tut("allow", s.allow || "");
     if (s.onEnter) { try { s.onEnter(); } catch (e) { } }
     if (s.acquire) state.target = s.acquire();
     // Remember whether this objective was ALREADY satisfied the moment we

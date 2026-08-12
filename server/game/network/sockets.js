@@ -490,6 +490,24 @@ class socketManager {
                 }
 
                 if (player.body != null) {
+                    if (Config.tutorial) {
+                        const tut = require('../tutorialSession.js');
+                        // Only the step that teaches evolving may evolve.
+                        if (!tut.allows(player.body, 'upgrade')) return;
+                        // While a path lock is active the client's indexes are
+                        // meaningless: it clicks position N of the FILTERED
+                        // menu, but upgrade() indexes the raw list - the same
+                        // click could land on a hidden tank. There is exactly
+                        // one legal choice under a lock, so take that one,
+                        // found in the raw list, and ignore the indexes.
+                        if (player.body._tutorialLock) {
+                            const b = player.body;
+                            const idx = b.upgrades.findIndex(u =>
+                                b.skill.level >= u.level && tut.upgradeAllowed(b, u));
+                            if (idx >= 0) b.upgrade(idx, 0);
+                            return;
+                        }
+                    }
                     player.body.upgrade(upgrade, branchId);
                 }
             } break;
@@ -499,6 +517,12 @@ class socketManager {
                     socket.kick("Ill-sized skill request.");
                     return 1;
                 }
+                // Tutorial: stat points are only spendable during the stat
+                // lessons. Gated here rather than in the UI because 1-0 and M
+                // go straight to the socket without touching the bars.
+                if (Config.tutorial && player.body &&
+                    !require('../tutorialSession.js').allows(player.body, 'stats')) return;
+
                 let number = m[0],
                     max = m[1],
                     stat = ["atk", "hlt", "spd", "str", "pen", "dam", "rld", "mob", "rgn", "shi"][number];
@@ -587,15 +611,21 @@ class socketManager {
                     // client cannot derive these: it knows the room, but not
                     // how the room was divided into plots.
                     case "hello": {
+                        const plotsMod = require('../terrain/tutorialPlots.js');
                         const pt = (k) => {
                             const p = tut.plotPoint(plot, k);
                             return { x: Math.round(p.x), y: Math.round(p.y) };
                         };
+                        const centre = plotsMod.plotCenter(plot);
+                        // Same payload as the spawn-time TUTI - this one is a
+                        // re-request and must not overwrite fields away.
                         socket.talk("TUTI", JSON.stringify({
                             plot,
                             base: pt('base'),
                             spawn: pt('spawn'),
                             rocks: pt('rocks'),
+                            cx: Math.round(centre.x), cy: Math.round(centre.y),
+                            size: plotsMod.PLOT_SIZE,
                         }));
                     } break;
 
@@ -614,6 +644,13 @@ class socketManager {
                         break;
                     case "unlock": tut.unlockUpgrades(body); break;
 
+                    // Turn the learner's tank into a specific class (drone
+                    // lesson). Allowlisted inside morph().
+                    case "morph":
+                        if (typeof m[1] !== "string") return;
+                        tut.morph(body, m[1]);
+                        break;
+
                     // Chip the learner's health so the HP bar visibly moves and
                     // regeneration can be demonstrated. Never lethal: it clamps
                     // to a fraction of max rather than dealing damage.
@@ -622,6 +659,12 @@ class socketManager {
                             body.health.amount = Math.min(
                                 body.health.amount, body.health.max * 0.35);
                         }
+                        break;
+
+                    // Declare what the current step permits. Anything not
+                    // listed is refused at the socket until the next step.
+                    case "allow":
+                        tut.setAllowed(body, typeof m[1] === "string" ? m[1] : "");
                         break;
 
                     // Clear the plot's scripted bots (leaving a lesson, replay).
@@ -1011,12 +1054,17 @@ class socketManager {
 
         let upgrades = [];
         let skippedUpgrades = [0];
+        // Tutorial: if the current step does not teach evolving, the menu is
+        // not merely inert - it is absent. Showing clickable tanks whose
+        // clicks are refused reads as a broken game, not a locked lesson.
+        const tutGate = Config.tutorial ? require('../tutorialSession.js') : null;
+        const tutHideMenu = tutGate && !tutGate.allows(b, 'upgrade');
         for (let i = 0; i < b.upgrades.length; i++) {
             let upgrade = b.upgrades[i];
-            // Tutorial: a lesson can pin the menu to one tank so the learner
-            // ends up on the build the next lesson is written for.
-            if (Config.tutorial &&
-                !require('../tutorialSession.js').upgradeAllowed(b, upgrade)) continue;
+            if (tutHideMenu) continue;
+            // A lesson can also pin the menu to one tank so the learner ends
+            // up on the build the next lesson is written for.
+            if (tutGate && !tutGate.upgradeAllowed(b, upgrade)) continue;
             if (b.skill.level >= b.upgrades[i].level) {
                 upgrades.push(upgrade.branch.toString() + "_" + upgrade.branchLabel + "_" + upgrade.index);
             } else {
@@ -1264,9 +1312,14 @@ class socketManager {
                     return { x: Math.round(q.x), y: Math.round(q.y) };
                 };
                 try {
+                    const plotsMod = require('../terrain/tutorialPlots.js');
+                    const centre = plotsMod.plotCenter(plotIdx);
                     socket.talk("TUTI", JSON.stringify({
                         plot: plotIdx, base: pt('base'),
                         spawn: pt('spawn'), rocks: pt('rocks'),
+                        // Frame for the full map: the learner's plot only.
+                        cx: Math.round(centre.x), cy: Math.round(centre.y),
+                        size: plotsMod.PLOT_SIZE,
                     }));
                 } catch (e) { }
             }
@@ -1305,6 +1358,9 @@ class socketManager {
         body.protect();
         body.isPlayer = true;
         body.define(Config.spawn_class);
+        // Tutorial: learners are invisible to each other, and a leaderboard
+        // listing strangers' names punches a hole in that. Nobody scores here.
+        if (Config.tutorial) body.settings.leaderboardable = false;
         if (Class.menu_tanks) {
             let string = Class.menu_tanks.UPGRADES_TIER_0[0];
             if (string !== "basic") {

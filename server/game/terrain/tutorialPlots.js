@@ -23,7 +23,12 @@ const SUBCELLS = 8;        // terrain cells per tile, matches mapGen.SUBCELLS
 // 2000 units each way, so plots below ~4000 across would leak. 12 tiles
 // (5040) keeps a comfortable margin. The grid is what shrinks the world.
 const PLOT_TILES = 12;     // 12 * 420 = 5040 world units per plot
-const PLOT_COLS = 3;       // 3 x 2 = 6 concurrent learners
+// A SQUARE grid on purpose: it makes the room a whole number of plots on both
+// axes, so the in-game full map can lock to exactly one plot with a single
+// zoom factor (room / plot) and show the learner their training ground and
+// nothing else. A 3x2 grid needs different zooms per axis and bleeds the
+// neighbouring plots into view.
+const PLOT_COLS = 2;       // 2 x 2 = 4 concurrent learners
 const PLOT_ROWS = 2;
 
 const PLOT_SIZE = PLOT_TILES * TILE;
@@ -34,7 +39,8 @@ const ROOM_TILES_Y = PLOT_ROWS * PLOT_TILES;
 // fractions of PLOT_SIZE so retuning PLOT_TILES doesn't scatter the furniture.
 const LAYOUT = {
     spawn:   { x: -0.34, y:  0.00 },
-    rocks:   { x:  0.02, y:  0.00, rx: 0.20, ry: 0.26 }, // rock patch + radii
+    // A modest patch - a training ground with some rocks, not a mining field.
+    rocks:   { x:  0.02, y:  0.00, rx: 0.15, ry: 0.18 }, // rock patch + radii
     vault:   { x: -0.40, y: -0.30 },
     outpost: { x:  0.34, y: -0.28 },
     chamber: { x:  0.34, y:  0.30 },
@@ -180,7 +186,47 @@ function seedOres(grid) {
     }
 }
 
+// The enemy base block in world coordinates, plus a keep-out margin.
+//
+// The base lesson has to teach that touching a base deletes you - without ever
+// deleting anyone. Dying in a tutorial is confusing (the learner does not yet
+// know what killed them) and it drops their satchel, which the banking lesson
+// then depends on. So the base stays genuinely lethal, and we simply never let
+// them reach it: the barrier below stops the tank at the edge on EVERY step,
+// not just the one that mentions bases.
+const BASE_KEEPOUT = 90;
+
+function baseRect(index) {
+    const c = plotCenter(index);
+    const originX = c.x - PLOT_SIZE / 2;
+    const originY = c.y - PLOT_SIZE / 2;
+    return {
+        x0: originX + BASE_TILES.x0 * TILE - BASE_KEEPOUT,
+        y0: originY + BASE_TILES.y0 * TILE - BASE_KEEPOUT,
+        x1: originX + (BASE_TILES.x1 + 1) * TILE + BASE_KEEPOUT,
+        y1: originY + (BASE_TILES.y1 + 1) * TILE + BASE_KEEPOUT,
+    };
+}
+
+// Push a body back out of its plot's base block by the shortest axis, so
+// sliding along the edge still feels like a wall rather than a trap.
+function keepOutOfBase(body, index) {
+    const r = baseRect(index);
+    if (body.x <= r.x0 || body.x >= r.x1 || body.y <= r.y0 || body.y >= r.y1) return false;
+
+    const dLeft = body.x - r.x0, dRight = r.x1 - body.x;
+    const dTop = body.y - r.y0, dBottom = r.y1 - body.y;
+    const min = Math.min(dLeft, dRight, dTop, dBottom);
+    if (min === dLeft) body.x = r.x0;
+    else if (min === dRight) body.x = r.x1;
+    else if (min === dTop) body.y = r.y0;
+    else body.y = r.y1;
+    if (body.velocity) { body.velocity.x *= 0.1; body.velocity.y *= 0.1; }
+    return true;
+}
+
 module.exports = {
+    BASE_KEEPOUT, baseRect, keepOutOfBase,
     TILE, PLOT_TILES, PLOT_COLS, PLOT_ROWS, PLOT_SIZE,
     ROOM_TILES_X, ROOM_TILES_Y, LAYOUT, BASE_TILES,
     plotCount, plotCenter, plotPoint, plotAt,

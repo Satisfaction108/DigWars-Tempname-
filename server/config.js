@@ -74,7 +74,7 @@ module.exports = {
 
             region: "Tutorial",
             gamemode: ['tutorial'],
-            player_cap: 6,   // one per plot - see tutorialPlots.plotCount()
+            player_cap: 4,   // one per plot - see tutorialPlots.plotCount()
 
             featured: false,
             unlisted: true,

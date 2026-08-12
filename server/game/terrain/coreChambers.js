@@ -139,6 +139,9 @@ function stateSnapshot() {
 }
 
 function announce(msg) {
+    // Tutorial: capture/destruction fanfare is noise while someone is being
+    // taught - every event on that server is a scripted lesson beat anyway.
+    if (Config.tutorial) return;
     global.gameManager.socketManager.broadcast(msg);
 }
 

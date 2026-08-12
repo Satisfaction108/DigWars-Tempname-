@@ -8,6 +8,7 @@ class Tutorial {
     loop() {
         session.tickReap();
         session.tickLeash();
+        session.tickBaseGuard();
     }
     reset() {}
     redefine(gm) { this.gameManager = gm; }

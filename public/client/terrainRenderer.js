@@ -1,3 +1,8 @@
+// NOTE: rock lattice size is Math.min(cols, 120) / 50 EVERYWHERE (here, the
+// GLSL uniform below, and server terrainGrid.js). The clamp keeps rocks the
+// same world size on maps wider than the live 15-tile one (the tutorial's
+// multi-plot room); an unclamped copy magnifies every rock. Keep all mirrors
+// identical.
 import { config } from "./config.js";
 import { global } from "./global.js";
 import { gameSound } from "./sound.js";
@@ -231,7 +236,7 @@ class TerrainRenderer {
     
     
     _trembleOf(k, nowMs) {
-        const rockSz = this._cols / 50.0;
+        const rockSz = Math.min(this._cols, 120) / 50.0;
         return [Math.sin(nowMs / 17 + (k % 13)) * 0.02 * rockSz,
                 Math.cos(nowMs / 23 + (k % 7))  * 0.02 * rockSz];
     }
@@ -396,7 +401,7 @@ class TerrainRenderer {
             const kk = k & 0xffff;
             for (let i = 0; i < 7; i++) {
                 const a = this._h(i, kk, 170) * Math.PI * 2;
-                const rr = (0.2 + this._h(i, kk, 171) * 0.4) * (this._cols / 50.0);
+                const rr = (0.2 + this._h(i, kk, 171) * 0.4) * (Math.min(this._cols, 120) / 50.0);
                 this._pebbles.push({
                     x: ax + Math.cos(a) * rr,
                     y: ay + Math.sin(a) * rr,
@@ -500,7 +505,7 @@ class TerrainRenderer {
         const cell = this._cellPolys.get(k);
         if (!cell) { this._sproutArt.set(k, null); return null; }
         const kk = k & 0xffff;
-        const rockSz = this._cols / 50.0;
+        const rockSz = Math.min(this._cols, 120) / 50.0;
         const gsalt = (this._gen.get(k) || 0) * GROW_GEN_STRIDE;
         const h = (i, s) => this._h(i, kk, (s + this._oreSalt + gsalt) | 0);
         const deposits = this._depositLayout(tier, cell.poly, cell.cx, cell.cy, rockSz, h);
@@ -589,7 +594,7 @@ class TerrainRenderer {
     _buildVoronoiDebugSegs() {
         if (this._debugVoronoiSegs) return this._debugVoronoiSegs;
         const cols = this._cols, rows = this._rows;
-        const rockSz = cols / 50.0;
+        const rockSz = Math.min(cols, 120) / 50.0;
         const h2  = (i, j) => this._vh2(i, j);
         const sol = (c, r) => this._solid(c, r);
 
@@ -794,7 +799,7 @@ class TerrainRenderer {
         const { cx, cy } = cell;
         const kk = k & 0xffff;
         const off = this._h(0, kk, 99);
-        const inset = 0.036 * (this._cols / 50.0);  // half the border stroke
+        const inset = 0.036 * (Math.min(this._cols, 120) / 50.0);  // half the border stroke
         const path = new Path2D();
         const used = new Set();
         const ekey = (a, b) => {
@@ -875,7 +880,7 @@ class TerrainRenderer {
         if (!cell) { this._pockCache.set(pk, null); return null; }
         const { poly } = cell;
         const kk = k & 0xffff;
-        const rockSz = this._cols / 50.0;
+        const rockSz = Math.min(this._cols, 120) / 50.0;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const q of poly) {
             if (q[0] < minX) minX = q[0];
@@ -904,7 +909,7 @@ class TerrainRenderer {
         let p = this._biteCache.get(k);
         if (p) return p;
         p = new Path2D();
-        const rockSz = this._cols / 50.0;
+        const rockSz = Math.min(this._cols, 120) / 50.0;
         for (const b of bites) {
             const m = 3 + (b.seed & 1);
             const base = (0.05 + this._h(0, b.seed, 140) * 0.05) * rockSz;
@@ -1003,7 +1008,7 @@ class TerrainRenderer {
         if (!cell) { this._veinCache.set(k, null); return null; }
         const { poly, cx, cy } = cell;
         const kk = k & 0xffff;
-        const rockSz = this._cols / 50.0;
+        const rockSz = Math.min(this._cols, 120) / 50.0;
         // Same salt-mixed closure the server builds in _buildDeposits. The
         
         
@@ -1046,7 +1051,7 @@ class TerrainRenderer {
 
     _buildVoronoiBoundary() {
         const cols = this._cols, rows = this._rows;
-        const rockSz = cols / 50.0;
+        const rockSz = Math.min(cols, 120) / 50.0;
         const h2 = (i, j) => this._vh2(i, j);
         const sol = (c, r) => this._solid(c, r);
 
@@ -2004,7 +2009,7 @@ class TerrainRenderer {
             gl.uniform2f(this._glOriginU, originX, originY);
             gl.uniform2f(this._glCellSzU, cellW,   cellH);
             gl.uniform1f(this._glShU,     screenH);
-            gl.uniform1f(this._glRockSzU, this._cols / 50.0);
+            gl.uniform1f(this._glRockSzU, Math.min(this._cols, 120) / 50.0);
             gl.drawArrays(gl.TRIANGLES, 0, 6);
 
             
@@ -2065,7 +2070,7 @@ class TerrainRenderer {
             ctx.drawImage(rockImg, tlx, tly, tlw, tlh);
             ctx.restore();
 
-            const rockSz = this._cols / 50.0;
+            const rockSz = Math.min(this._cols, 120) / 50.0;
             ctx.save();
             ctx.globalAlpha = 1;
             ctx.lineJoin    = 'round';
@@ -2693,7 +2698,7 @@ class TerrainRenderer {
             const segs = this._buildVoronoiDebugSegs();
             ctx.save();
             ctx.strokeStyle = 'yellow';
-            ctx.lineWidth   = 0.12 * (this._cols / 50.0);
+            ctx.lineWidth   = 0.12 * (Math.min(this._cols, 120) / 50.0);
             ctx.lineCap     = 'butt';
             ctx.beginPath();
             for (const [ax, ay, bx, by] of segs) {
@@ -2703,7 +2708,7 @@ class TerrainRenderer {
             ctx.stroke();
             if (this._silClip) {
                 ctx.strokeStyle = 'cyan';
-                ctx.lineWidth   = 0.08 * (this._cols / 50.0);
+                ctx.lineWidth   = 0.08 * (Math.min(this._cols, 120) / 50.0);
                 ctx.stroke(this._silClip);
             }
             ctx.restore();

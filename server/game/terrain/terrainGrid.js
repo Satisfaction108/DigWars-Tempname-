@@ -482,7 +482,13 @@ class TerrainGrid {
     buildVoronoiColliders() {
         const { cols, rows, cellSize } = this;
         const halfW  = cols * cellSize / 2, halfH = rows * cellSize / 2;
-        const rockSz = cols / 50.0;
+        // Rock size is lattice-derived: cols/50 lattice cells per rock. That
+        // made rocks GROW with map width - the tutorial's wide multi-plot room
+        // magnified every rock ~2.4x. Clamp at the live map's width (15 tiles
+        // = 120 cols) so rocks are the same world size on every map. Mirrored
+        // in public/client/terrainRenderer.js - the four voronoi
+        // implementations must stay identical (see AGENTS notes).
+        const rockSz = Math.min(cols, 120) / 50.0;
         const hash2 = (i, j) => this._hash2(i, j);
 
         const clip = (poly, mx, my, ndx, ndy) => {

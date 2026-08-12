@@ -4915,7 +4915,7 @@ import * as tutorial from './tutorial.js';
             c.fill(paths.dead);
             c.fillStyle = "#413c4c";
             c.fill(paths.alive);
-            const borderW = 0.09 * (tr._cols / 50.0) * (gw / tr._cols); 
+            const borderW = 0.09 * (Math.min(tr._cols, 120) / 50.0) * (gw / tr._cols); 
             if (borderW * s > 0.45) {
                 c.strokeStyle = "rgb(8,7,10)";
                 c.lineJoin = "round";
@@ -5061,6 +5061,10 @@ import * as tutorial from './tutorial.js';
         }
         for (const t of global.teammates) {
             if (t.id === gui.playerid) continue;
+            // Tutorial: every learner is on blue, but they are strangers in
+            // separate plots - a dot revealing someone else's position breaks
+            // the private-world illusion the plots exist to create.
+            if (global.tutorialMode) continue;
             // a friendly leader is marked by the crown ALONE - drawing the
             
             if (config.game.leaderIndicators && L && t.id === L.id &&
@@ -5226,11 +5230,23 @@ import * as tutorial from './tutorial.js';
         const panelW = gw * fit, panelH = gh * fit;
         const px0 = (sw - panelW) / 2, py0 = (sh - panelH) / 2;
         
-        bm.zoom = Math.max(1, Math.min(4, bm.zoom || 1));
+        // Tutorial: the room holds several learners' plots, but a learner
+        // should only ever see their own training ground. Lock the frame to
+        // their plot instead of showing a map of places they cannot go.
+        const tp = global.tutorialPlot;
+        if (tp && tp.size) {
+            bm.zoom = gw / tp.size;
+            bm.cx = tp.cx;
+            bm.cy = tp.cy;
+        } else {
+            bm.zoom = Math.max(1, Math.min(4, bm.zoom || 1));
+        }
         const span = gw / bm.zoom;
         const spanY = gh / bm.zoom;
-        bm.cx = Math.max(-gw / 2 + span / 2, Math.min(gw / 2 - span / 2, bm.cx || 0));
-        bm.cy = Math.max(-gh / 2 + spanY / 2, Math.min(gh / 2 - spanY / 2, bm.cy || 0));
+        if (!(tp && tp.size)) {
+            bm.cx = Math.max(-gw / 2 + span / 2, Math.min(gw / 2 - span / 2, bm.cx || 0));
+            bm.cy = Math.max(-gh / 2 + spanY / 2, Math.min(gh / 2 - spanY / 2, bm.cy || 0));
+        }
         const wx0 = bm.cx - span / 2, wy0 = bm.cy - spanY / 2;
         
         bm._panel = { x: px0, y: py0, w: panelW, h: panelH, s: panelW / span, wx0, wy0 };
@@ -6487,7 +6503,9 @@ import * as tutorial from './tutorial.js';
                 drawVaultUI();     
             }
             drawMinimapAndDebug(spacing, alcoveSize, global.GRAPHDATA, tick);
-            if (global.GUIStatus.renderLeaderboard) drawLeaderboard(spacing, alcoveSize, max);
+            // Tutorial: a leaderboard is competition furniture; the server
+            // sends an empty one there anyway (nobody is leaderboardable).
+            if (global.GUIStatus.renderLeaderboard && !global.tutorialMode) drawLeaderboard(spacing, alcoveSize, max);
             if (global.GUIStatus.renderUpgrades) drawAvailableUpgrades(spacing, alcoveSize);
             // leader arrow + enemy pings moved to drawTopIndicators(), which
             // runs at the very end of the frame - here they were being covered

@@ -83,6 +83,8 @@ function baseTarget(loc, name) {
     o.name = name;
     o.isBot = true;
     o.isTutorialBot = true;
+    // Practice targets are lesson props, not competitors.
+    o.settings.leaderboardable = false;
     // View-based activation would freeze these before the learner arrives.
     o.alwaysActive = true;
 
@@ -142,6 +144,31 @@ function spawnFighter(plotIndex) {
   } catch (e) { util.warn("tutorial: fighter spawn failed - " + (e && e.message)); return null; }
 }
 
+// ─── step gating ──────────────────────────────────────────────────────────
+//
+// A tutorial step teaches ONE thing, and a learner who wanders off to dump
+// stat points or evolve into something the next lesson is not written for
+// ends up in a state the script cannot recover from. So each step declares
+// what it permits, and everything else is refused at the socket - not merely
+// hidden in the UI, because the keyboard shortcuts bypass the UI entirely.
+//
+// Movement and firing are never gated: being unable to drive feels broken,
+// and every lesson is easier to follow while you can move.
+const CAPS = ['stats', 'upgrade', 'bank'];
+
+function setAllowed(body, csv) {
+    const list = String(csv || '').split(',').map(x => x.trim()).filter(Boolean);
+    body._tutorialAllow = new Set(list.filter(c => CAPS.includes(c)));
+}
+
+// Default-closed: if a step never declared its permissions, assume the strict
+// set. A missing declaration should not silently unlock the whole game.
+function allows(body, cap) {
+    if (!Config.tutorial) return true;
+    if (!body || !body._tutorialAllow) return false;
+    return body._tutorialAllow.has(cap);
+}
+
 // ─── forced upgrade path ──────────────────────────────────────────────────
 //
 // The tutorial teaches one build at a time: a bullet tank first, a drone tank
@@ -150,8 +177,14 @@ function spawnFighter(plotIndex) {
 
 const normalise = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-function lockUpgrades(body, className) {
-    body._tutorialLock = normalise(className);
+// The lock takes a comma-separated PATH, not a single tank: a target such as
+// Penta Shot sits several tiers up the tree (basic - Twin - Triple Shot -
+// Penta Shot), and a menu filtered to only the final tank shows NOTHING at
+// tier one - the learner stares at an empty upgrade box. Naming every rung
+// lets each tier offer exactly one choice: the next step along the path.
+function lockUpgrades(body, path) {
+    const names = String(path || '').split(',').map(normalise).filter(Boolean);
+    body._tutorialLock = names.length ? names : null;
 }
 
 function unlockUpgrades(body) {
@@ -161,16 +194,39 @@ function unlockUpgrades(body) {
 // Consulted by sockets.js while it builds the offered-upgrade list.
 function upgradeAllowed(body, upgrade) {
     if (!body || !body._tutorialLock) return true;
-    const want = body._tutorialLock;
     for (const c of (upgrade.class || [])) {
         if (!c) continue;
-        // Match on the display label ("Penta Shot") or the definition key,
-        // whichever the class object happens to carry.
-        if (normalise(c.LABEL) === want) return true;
-        if (normalise(c.NAME) === want) return true;
-        if (normalise(c.index) === want) return true;
+        // Entries here are usually raw definition KEYS ('twin', 'pentaShot')
+        // - entity.js pushes the unresolved strings - but resolve to the
+        // class object too and match its display label, so lessons can name
+        // tanks the way players see them ("Penta Shot").
+        if (typeof c === 'string') {
+            if (body._tutorialLock.includes(normalise(c))) return true;
+            const def = Class[c];
+            if (def && body._tutorialLock.includes(normalise(def.LABEL))) return true;
+            continue;
+        }
+        if (body._tutorialLock.includes(normalise(c.LABEL)) ||
+            body._tutorialLock.includes(normalise(c.NAME)) ||
+            body._tutorialLock.includes(normalise(c.index))) return true;
     }
     return false;
+}
+
+// Turn the learner's tank into a specific class outright. The drone lesson
+// needs this: by then they are a Penta Shot at the top of the bullet branch,
+// and the upgrade tree cannot reach Director from there - no menu filtering
+// can teach a drone tank to someone who already finished a different branch.
+// Allowlisted so the TUT packet can never morph anyone into an arbitrary tank.
+const MORPHS = ['director', 'pentaShot'];
+
+function morph(body, className) {
+    try {
+        const key = String(className || '').trim();
+        if (!MORPHS.includes(key) || !Class[key]) return;
+        body.define(key);
+        body.refreshBodyAttributes();
+    } catch (e) { util.warn("tutorial: morph failed - " + (e && e.message)); }
 }
 
 // Keep each practice bot near its home point.
@@ -204,6 +260,18 @@ function tickLeash() {
     }
 }
 
+// Hold every learner out of their plot's enemy base. Runs on the gamemode
+// loop, so it applies on every step - a learner who wanders into the base
+// during the mining lesson would die to something nothing has explained yet.
+function tickBaseGuard() {
+    for (let i = 0; i < owners.length; i++) {
+        const socket = owners[i];
+        const body = socket && socket.player && socket.player.body;
+        if (!body || body.isDead()) continue;
+        plots.keepOutOfBase(body, i);
+    }
+}
+
 // Drop plots whose owner vanished (disconnect, crash, tab close).
 function tickReap() {
     for (let i = 0; i < owners.length; i++) {
@@ -220,8 +288,9 @@ function tickReap() {
 module.exports = {
     claimPlot, releasePlot, plotOf, freePlots, spawnPointFor,
     spawnDummy, spawnFighter, clearBots,
-    lockUpgrades, unlockUpgrades, upgradeAllowed,
-    tickLeash, tickReap,
+    lockUpgrades, unlockUpgrades, upgradeAllowed, morph,
+    setAllowed, allows,
+    tickLeash, tickReap, tickBaseGuard,
     plotCount: plots.plotCount,
     plotPoint: plots.plotPoint,
 };
