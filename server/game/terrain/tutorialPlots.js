@@ -18,9 +18,13 @@ const { CELL, ORE } = require('./terrainGrid.js');
 
 const TILE = 420;          // world units per room tile (Config.map_tile_width)
 const SUBCELLS = 8;        // terrain cells per tile, matches mapGen.SUBCELLS
+// Plot size is bounded from BELOW by the view cull, not by taste: two
+// learners must never see each other, and the horizontal cull reaches about
+// 2000 units each way, so plots below ~4000 across would leak. 12 tiles
+// (5040) keeps a comfortable margin. The grid is what shrinks the world.
 const PLOT_TILES = 12;     // 12 * 420 = 5040 world units per plot
-const PLOT_COLS = 3;       // 3 x 3 = 9 concurrent learners
-const PLOT_ROWS = 3;
+const PLOT_COLS = 3;       // 3 x 2 = 6 concurrent learners
+const PLOT_ROWS = 2;
 
 const PLOT_SIZE = PLOT_TILES * TILE;
 const ROOM_TILES_X = PLOT_COLS * PLOT_TILES;
@@ -85,8 +89,8 @@ function plotAt(x, y) {
 // Terrain: empty everything, then grow one rock patch per plot.
 //
 // Clearing the map wholesale is a deliberate performance choice - a full-size
-// dig-wars map of rock across 9 plots would mean thousands of colliders and
-// regrow ticks for a world where only nine small patches are ever mined.
+// dig-wars map of rock across every plot would mean thousands of colliders and
+// regrow ticks for a world where only a handful of small patches are mined.
 function carveTerrain(grid) {
     for (let r = 0; r < grid.rows; r++) {
         for (let c = 0; c < grid.cols; c++) grid.set(c, r, CELL.EMPTY);

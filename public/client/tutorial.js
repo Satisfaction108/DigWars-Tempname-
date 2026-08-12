@@ -2049,11 +2049,14 @@ ensureSkip();
 let startedOnce = false;
 // Called every frame from app.js right after drawGUI() - screen-space pass.
 export function hook() {
-    // The tutorial only ever runs on the tutorial server, which the homepage
-    // Tutorial button connects to (it sets global.tutorialMode). On a live
-    // server this never fires, so nobody gets a lesson card mid-fight.
-    if (!startedOnce && global.tutorialMode && global.gameStart &&
-        !global.died && terr()) {
+    // Only ever run on the tutorial server. The proof is global.tutorialPlot,
+    // which arrives in a TUTI packet that ONLY the tutorial server sends -
+    // never the client-set tutorialMode flag on its own. If the tutorial
+    // server is unreachable the connection falls back to the live game, and
+    // trusting the client flag there would drop a beginner into a real match
+    // with lesson cards over it.
+    if (!startedOnce && global.tutorialMode && global.tutorialPlot &&
+        global.gameStart && !global.died && terr()) {
         startedOnce = true;
         open();
     }

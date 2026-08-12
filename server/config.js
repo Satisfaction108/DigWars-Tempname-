@@ -64,13 +64,17 @@ module.exports = {
             // own worker on its own port.
             share_client_server: false,
 
-            host: publicHost || 'localhost:3101',
+            // PUBLIC_HOST carries no port, so it must be appended here or the
+            // client dials the main domain - i.e. the live game - instead.
+            // NOTE: this only works once port 3101 is reachable from outside;
+            // by default the host proxies only the main port.
+            host: publicHost ? publicHost + ':3101' : 'localhost:3101',
             port: 3101,
             id: 'tut',
 
             region: "Tutorial",
             gamemode: ['tutorial'],
-            player_cap: 9,
+            player_cap: 6,   // one per plot - see tutorialPlots.plotCount()
 
             featured: false,
             unlisted: true,

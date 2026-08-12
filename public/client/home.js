@@ -76,7 +76,23 @@
                 if (!g || !g.startGame) throw new Error('client not ready');
                 g.serverAdd = sv.ip;      // already host:port
                 g.tutorialMode = true;    // read by client/tutorial.js
+                g.tutorialPlot = null;    // set only by the tutorial server
                 g.startGame();
+
+                // The tutorial server listens on its own port. If that port is
+                // not reachable from outside (a proxy that only forwards the
+                // main one), the socket quietly lands on the LIVE game instead
+                // - which would put a beginner in a real match. The tutorial
+                // server proves itself by sending TUTI; if that never arrives,
+                // bail out rather than let them play on believing otherwise.
+                setTimeout(function () {
+                    if (g.tutorialPlot) return;      // genuinely on the tutorial server
+                    if (!g.gameStart) return;        // never connected at all
+                    try { g.canvas.socket.close(); } catch (e) { }
+                    location.reload();
+                    alert('Could not reach the tutorial server, so you were not '
+                        + 'put into a live game. Please try again shortly.');
+                }, 12000);
             })
             .catch(function () {
                 if (btn) { btn.disabled = false; }

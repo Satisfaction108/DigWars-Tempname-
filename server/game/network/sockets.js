@@ -1255,6 +1255,20 @@ class socketManager {
             if (tutorialHome) {
                 player.team = TEAM_BLUE;
                 loc = tutorialHome;
+                // Announce the plot immediately. The client treats receiving
+                // this as proof it really is on the tutorial server - see the
+                // auto-start gate in public/client/tutorial.js.
+                const plotIdx = session.plotOf(socket);
+                const pt = (k) => {
+                    const q = session.plotPoint(plotIdx, k);
+                    return { x: Math.round(q.x), y: Math.round(q.y) };
+                };
+                try {
+                    socket.talk("TUTI", JSON.stringify({
+                        plot: plotIdx, base: pt('base'),
+                        spawn: pt('spawn'), rocks: pt('rocks'),
+                    }));
+                } catch (e) { }
             }
         }
 
