@@ -85,14 +85,10 @@ function spawnOreBurst(rock, breaker) {
         const gem = spawnGem(d.wx, d.wy, value, d.big ? bigCls : cls, size,
                              Math.cos(ang) * 1.5, Math.sin(ang) * 1.5);
         if (gem && breaker && breaker.id !== undefined) gem.gemSourceId = breaker.id;
-        // Reserve the drop for a player still working through the tutorial:
-        // being sniped by a passing veteran mid-lesson is a miserable first
-        // five minutes, and the tutorial explicitly asks them to collect THIS.
-        if (gem && breaker) {
-            let root = breaker, guard = 0;
-            while (root.master && root.master !== root && guard++ < 8) root = root.master;
-            if (root.inTutorial && root.id !== undefined) gem.gemOwnerId = root.id;
-        }
+        // (The old tutorial ran inside live matches and had to reserve its
+        // drops so a passing veteran could not vulture the one pickup a lesson
+        // asked for. The tutorial now runs on its own server in an isolated
+        // plot, where nobody else can reach the gems, so no reservation.)
     }
 }
 

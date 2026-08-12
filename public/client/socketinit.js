@@ -877,6 +877,10 @@ let incoming = async function(message, socket) {
                 global.chambers = m[8] ? JSON.parse(m[8]) : [];
                 if (window.terrainRenderer) window.terrainRenderer.init(cells, cols, rows, rockState, oreState, oreSalt);
             } break;
+            case 'TUTI': {
+                // Tutorial only: the landmarks of this learner's private plot.
+                try { global.tutorialPlot = JSON.parse(m[0]); } catch (e) { }
+            } break;
             case 'OP': {
                 
                 

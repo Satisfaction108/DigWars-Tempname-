@@ -10,6 +10,11 @@ let vaults = null;
 
 function getVaults() {
     if (vaults) return vaults;
+    // Tutorial: one pad per learner plot instead of the two team vaults.
+    if (Config.tutorial) {
+        vaults = require('./tutorialPlots.js').vaultSites();
+        return vaults;
+    }
     const room = global.gameManager.room;
     if (!room || !room.width) return [];
     const tileW = room.width / (room.xgrid || 15);

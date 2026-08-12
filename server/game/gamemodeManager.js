@@ -10,6 +10,7 @@ const { Outbreak } = require("./gamemodes/scripts/outbreak.js");
 const { ClanWars } = require("./gamemodes/scripts/clan_wars.js");
 const { GroupHandler } = require("./gamemodes/scripts/groups.js");
 const { DigWars } = require("./gamemodes/scripts/dig_wars.js");
+const { Tutorial } = require("./gamemodes/scripts/tutorial.js");
 
 class gamemodeManager {
     constructor() {
@@ -25,6 +26,7 @@ class gamemodeManager {
         this.gameClanwars = new ClanWars(global.gameManager);
         this.gameGroups = new GroupHandler(global.gameManager);
         this.gameDigWars = new DigWars(global.gameManager);
+        this.gameTutorial = new Tutorial(global.gameManager);
     }
 
     request(type) {
@@ -37,11 +39,13 @@ class gamemodeManager {
             if (Config.maze_type !== undefined && !Config.siege) this.gameMaze.generate();
             if (Config.outbreak) this.gameOutbreak.start();
             if (Config.dig_wars) this.gameDigWars.start();
+            if (Config.tutorial) this.gameTutorial.start();
         }
         if (type == "loop") {
             global.gameManager.lagLogger.set();
             if (Config.siege) this.gameSiege.loop();
             if (Config.mothership) this.gameMothership.loop();
+            if (Config.tutorial) this.gameTutorial.loop();
             global.gameManager.lagLogger.mark();
             if (global.gameManager.lagLogger.totalTime > 100) {
                 console.log("Gamemode loop is taking a long time!");
@@ -64,6 +68,7 @@ class gamemodeManager {
         if (Config.mothership) this.gameMothership.reset();
         if (Config.clan_wars) this.gameClanwars.reset();
         if (Config.dig_wars) this.gameDigWars.reset();
+        if (Config.tutorial) this.gameTutorial.reset();
     }
 
     redefine(theshit) {
@@ -75,6 +80,7 @@ class gamemodeManager {
         this.gameClanwars.redefine(theshit);
         this.gameGroups.redefine(theshit);
         this.gameDigWars.redefine(theshit);
+        this.gameTutorial.redefine(theshit);
     }
 }
 

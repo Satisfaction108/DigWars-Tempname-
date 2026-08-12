@@ -6605,23 +6605,15 @@ import * as tutorial from './tutorial.js';
         };
         document.body.appendChild(chatBtn);
 
-        const tutBtn = document.createElement("button");
-        tutBtn.id = "ingameTutorialBtn";
-        tutBtn.textContent = "?";
-        tutBtn.title = "How to play";
-        tutBtn.onclick = () => {
-            tutorial.replayTutorial();
-            tutBtn.blur();
-            const cv = document.getElementById("gameCanvas");
-            if (cv && global.gameStart) cv.focus();
-        };
-        document.body.appendChild(tutBtn);
+        // The in-game "?" replay button is gone on purpose: the tutorial now
+        // lives on its own server, so replaying it mid-match would mean
+        // yanking a player out of a live fight. It is reachable from the
+        // homepage Tutorial button instead.
 
         setInterval(() => {
             const show = (global.gameStart && !global.died && !global.disconnected) ? "flex" : "none";
             btn.style.display = show;
             chatBtn.style.display = show;
-            tutBtn.style.display = show;
         }, 250);
         
         const panel = document.getElementById("homeSettingsPanel");

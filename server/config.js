@@ -51,6 +51,31 @@ module.exports = {
                 bot_cap: process.env.BOT_CAP === undefined ? 12 : Math.min(12, Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0))
             }
         },
+        {
+            // TUTORIAL. Deliberately `unlisted` so it never appears on the
+            // region/server picker - the only way in is the homepage Tutorial
+            // button, which connects to this id directly. One room split into
+            // isolated learner plots (see game/terrain/tutorialPlots.js), so
+            // the cap is the number of plots, not a balance choice.
+            share_client_server: process.env.SINGLE_PROCESS === "true",
+
+            host: publicHost || 'localhost:3101',
+            port: process.env.SINGLE_PROCESS === "true" ? (parseInt(process.env.PORT) || 3000) : 3101,
+            id: 'tut',
+
+            region: "Tutorial",
+            gamemode: ['tutorial'],
+            player_cap: 9,
+
+            featured: false,
+            unlisted: true,
+            private: false,
+
+            properties: {
+                teams: 2,
+                bot_cap: 0
+            }
+        },
     ],
 
     allow_ACAO: false,

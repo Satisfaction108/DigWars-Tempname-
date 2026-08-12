@@ -264,6 +264,19 @@
     </div>
     <div id="homeChangelogOverlay"></div>
 
+    <!-- shown only on touch-primary devices (phones / tablets without a mouse) -->
+    <div id="mobileGate" hidden>
+        <div class="mg-card">
+            <svg class="mg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3.5" width="20" height="13" rx="1.8"/>
+                <path d="M8 20.5h8M12 16.5v4"/>
+            </svg>
+            <h2>Built for desktop</h2>
+            <p>Dig Wars needs a keyboard and mouse to play. A proper touch version is in the works &mdash; check back soon.</p>
+            <button type="button" id="mobileGateOverride">I have a keyboard and mouse &mdash; continue anyway</button>
+        </div>
+    </div>
+
     <div class="mainWrapper">
         <div id="startMenuWrapper">
             <div id="menuTabs" class="menuTabs" style="text-align: right;"></div>
@@ -309,6 +322,10 @@
                             <!-- play button, full width below both fields -->
                             <div class="startButtonHolder">
                                 <button id="startButton" tabindex="3"><b>Play</b></button>
+                                <button id="tutorialButton" tabindex="5" title="Learn the game on a private practice map">
+                                    <b>Tutorial</b>
+                                    <span class="tut-badge" id="tutorialBadge" hidden>Start here</span>
+                                </button>
                             </div>
 
                             <!-- credits, sleek -->

@@ -13,7 +13,110 @@
 
     applyTheme(localStorage.getItem(THEME_KEY) || 'dark'); // immediate, no flash
 
+    /* ── Mobile / tablet gate ──────────────────────────────────────────
+       Dig Wars needs keyboard + mouse, so we block touch-primary devices.
+       We can't ask the browser "is a real mouse plugged in?", so we go by
+       what the pointer *behaves* like:
+         - hover: hover   → the pointer can rest on things without clicking
+         - pointer: fine  → it can hit small targets (mouse/trackpad, not a finger)
+       Both are true on a laptop (even a touchscreen one) and false on a
+       phone or a bare iPad. iPadOS lies in its user agent (it claims to be
+       a Mac), so we lean on maxTouchPoints instead of the UA string.
+       Anyone the heuristic gets wrong can opt out, and we remember it. */
+    var GATE_KEY = 'digwarsDesktopOverride';
+
+    function isTouchOnlyDevice() {
+        if (localStorage.getItem(GATE_KEY) === '1') return false;
+        var precisePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+        var touchCapable = navigator.maxTouchPoints > 1 ||
+            /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent);
+        return touchCapable && !precisePointer;
+    }
+
+    function initMobileGate() {
+        var gate = document.getElementById('mobileGate');
+        if (!gate || !isTouchOnlyDevice()) return;
+
+        gate.hidden = false;
+        var override = document.getElementById('mobileGateOverride');
+        if (override) override.onclick = function () {
+            localStorage.setItem(GATE_KEY, '1');
+            gate.hidden = true;
+        };
+
+        // Attaching a mouse or trackpad later flips the media query — let them in.
+        var mq = window.matchMedia('(hover: hover) and (pointer: fine)');
+        var onChange = function (e) { if (e.matches) gate.hidden = true; };
+        if (mq.addEventListener) mq.addEventListener('change', onChange);
+        else if (mq.addListener) mq.addListener(onChange); // older Safari
+    }
+
+    /* ── Tutorial entry ────────────────────────────────────────────────
+       The tutorial lives on its own unlisted server (id "tut"), which is
+       deliberately absent from /getServers.json so it never appears on the
+       region picker. We ask for it by id instead, point the socket at it,
+       and start the game exactly as the Play button would.
+
+       The storage key is versioned: bumping _v2 re-runs the tutorial for
+       everyone who completed the old in-game one, which taught a different
+       (and much smaller) curriculum. */
+    var TUT_DONE_KEY = 'digwarsTutorialDone_v2';
+
+    function tutorialCompleted() {
+        return localStorage.getItem(TUT_DONE_KEY) === '1';
+    }
+
+    function launchTutorial(btn) {
+        if (btn) { btn.disabled = true; }
+        fetch('/getTutorialServer.json')
+            .then(function (r) { return r.json(); })
+            .then(function (sv) {
+                if (!sv || !sv.ip) throw new Error('tutorial server unavailable');
+                var g = window.global;
+                if (!g || !g.startGame) throw new Error('client not ready');
+                g.serverAdd = sv.ip;      // already host:port
+                g.tutorialMode = true;    // read by client/tutorial.js
+                g.startGame();
+            })
+            .catch(function () {
+                if (btn) { btn.disabled = false; }
+                alert('The tutorial server is not reachable right now. Please try again in a moment.');
+            });
+    }
+
+    function initTutorialEntry() {
+        var btn = document.getElementById('tutorialButton');
+        var badge = document.getElementById('tutorialBadge');
+        if (!btn) return;
+
+        // Clear the retired in-game tutorial's flags so nothing from the old
+        // system lingers in a returning player's browser.
+        ['digwarsTutorialDone', 'digwarsStatsTaught', 'digwarsKind',
+         'digwarsLessons', 'digwarsLessonsOff'].forEach(function (k) {
+            localStorage.removeItem(k);
+        });
+
+        if (badge && !tutorialCompleted()) badge.hidden = false;
+        btn.onclick = function () { launchTutorial(btn); };
+
+        // First-ever visit: Play routes into the tutorial once, so a brand-new
+        // player cannot walk into a live match without ever being taught.
+        var start = document.getElementById('startButton');
+        if (start && !tutorialCompleted()) {
+            start.addEventListener('click', function firstRun(e) {
+                if (tutorialCompleted()) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                start.removeEventListener('click', firstRun, true);
+                launchTutorial(btn);
+            }, true);
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
+        initMobileGate();
+        initTutorialEntry();
+
         applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 
         var tb = document.getElementById('themeToggleBtn');

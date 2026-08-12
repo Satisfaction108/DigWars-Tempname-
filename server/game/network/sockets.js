@@ -162,6 +162,9 @@ class socketManager {
 
         util.remove(global.gameManager.views, global.gameManager.views.indexOf(socket.view));
 
+        // Hand the learner's plot (and its scripted bots) back to the pool.
+        if (Config.tutorial) require('../tutorialSession.js').releasePlot(socket);
+
         util.remove(this.clients, this.clients.indexOf(socket));
         if (!global.gameManager.parentPort) {
             for (let i = 0; i < global.servers.length; i++) {
@@ -567,13 +570,63 @@ class socketManager {
                 }
             } break;
             case "TUT": {
-                // The tutorial lives entirely on the client, so it has to tell
-                // us when a player is in it: gems from a rock they broke are
-                // reserved for them so nobody can vulture the one pickup the
-                // tutorial is asking them to collect.
-                if (m.length !== 1 || typeof m[0] !== "number") return;
+                // Tutorial lesson commands. Only ever honoured on the tutorial
+                // server: on a live server this whole case is inert, so a
+                // crafted packet can't spawn bots or heal anyone.
+                if (!Config.tutorial) return;
                 if (player.body == null) return;
-                player.body.inTutorial = !!m[0];
+                if (!m.length || typeof m[0] !== "string") return;
+
+                const tut = require('../tutorialSession.js');
+                const plot = tut.plotOf(socket);
+                if (plot < 0) return;
+                const body = player.body;
+
+                switch (m[0]) {
+                    // Hand the client the landmarks of its own plot. The
+                    // client cannot derive these: it knows the room, but not
+                    // how the room was divided into plots.
+                    case "hello": {
+                        const pt = (k) => {
+                            const p = tut.plotPoint(plot, k);
+                            return { x: Math.round(p.x), y: Math.round(p.y) };
+                        };
+                        socket.talk("TUTI", JSON.stringify({
+                            plot,
+                            base: pt('base'),
+                            spawn: pt('spawn'),
+                            rocks: pt('rocks'),
+                        }));
+                    } break;
+
+                    // Spawn the stationary practice target.
+                    case "dummy": tut.spawnDummy(plot); break;
+
+                    // Spawn the first opponent that shoots back (botSkill 0.1).
+                    case "fighter": tut.spawnFighter(plot); break;
+
+                    // Restrict the class-upgrade menu to a single tank, so the
+                    // lesson can teach one specific build (penta shot, then a
+                    // drone tank) instead of whatever the learner clicks.
+                    case "lock":
+                        if (typeof m[1] !== "string") return;
+                        tut.lockUpgrades(body, m[1]);
+                        break;
+                    case "unlock": tut.unlockUpgrades(body); break;
+
+                    // Chip the learner's health so the HP bar visibly moves and
+                    // regeneration can be demonstrated. Never lethal: it clamps
+                    // to a fraction of max rather than dealing damage.
+                    case "hurt":
+                        if (body.health && body.health.max) {
+                            body.health.amount = Math.min(
+                                body.health.amount, body.health.max * 0.35);
+                        }
+                        break;
+
+                    // Clear the plot's scripted bots (leaving a lesson, replay).
+                    case "clear": tut.clearBots(plot); break;
+                }
             } break;
             case "EP": {
                 
@@ -960,6 +1013,10 @@ class socketManager {
         let skippedUpgrades = [0];
         for (let i = 0; i < b.upgrades.length; i++) {
             let upgrade = b.upgrades[i];
+            // Tutorial: a lesson can pin the menu to one tank so the learner
+            // ends up on the build the next lesson is written for.
+            if (Config.tutorial &&
+                !require('../tutorialSession.js').upgradeAllowed(b, upgrade)) continue;
             if (b.skill.level >= b.upgrades[i].level) {
                 upgrades.push(upgrade.branch.toString() + "_" + upgrade.branchLabel + "_" + upgrade.index);
             } else {
@@ -1186,10 +1243,25 @@ class socketManager {
         let { player, loc } = this.getSpawnLocation(socket.rememberedTeam, name);
         if (socket.player.loc && !global.spawnPoint && !Config.clan_wars) loc = socket.player.loc;
 
-        
-        
-        
-        if (!global.spawnPoint && !Config.clan_wars &&
+        // Tutorial: every learner owns a plot and always spawns in it, so the
+        // outpost/vault/rock patch a lesson points at are always their own.
+        // This also skips the forward-respawn logic below - a tutorial death
+        // should always put you back at your own plot's start, never on a pad.
+        let tutorialHome = null;
+        if (Config.tutorial) {
+            const session = require('../tutorialSession.js');
+            session.claimPlot(socket);
+            tutorialHome = session.spawnPointFor(socket);
+            if (tutorialHome) {
+                player.team = TEAM_BLUE;
+                loc = tutorialHome;
+            }
+        }
+
+
+
+
+        if (!tutorialHome && !global.spawnPoint && !Config.clan_wars &&
             global.gameManager.terrainGrid && socket.lastDeathX !== undefined) {
             const pads = require('../terrain/outposts.js').ownedBy(player.team);
             if (pads.length) {

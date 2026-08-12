@@ -137,6 +137,19 @@ server = http.createServer((req, res) => {
                 gameMode: server.gameMode,
             })));
         } break;
+        // The tutorial server is deliberately absent from /getServers.json so it
+        // never shows up on the region picker. The homepage Tutorial button
+        // asks for it here instead, by id.
+        case "/getTutorialServer.json": {
+            const tut = servers.find((s) => s && s.id === "tut");
+            readString = JSON.stringify(tut ? {
+                ip: tut.ip,
+                port: tut.port,
+                players: tut.players,
+                maxPlayers: tut.maxPlayers,
+                id: tut.id,
+            } : null);
+        } break;
         case "/getTotalPlayers": {
             let countPlayers = 0;
             servers.forEach((s) => {
@@ -245,7 +258,7 @@ server = http.createServer((req, res) => {
 });
 
 // Loads a game server
-function loadGameServer(loadViaMain = false, host, port, gamemode, region, webProperties, properties, isFeatured) {
+function loadGameServer(loadViaMain = false, host, port, gamemode, region, webProperties, properties, isFeatured, isUnlisted = false) {
     // Determine the new server index and initialize an empty object in the global servers array
     if (!loadViaMain) {
         let index = global.servers.length;
@@ -272,6 +285,10 @@ function loadGameServer(loadViaMain = false, host, port, gamemode, region, webPr
                 case false:
                     // Initial load: store server details
                     global.servers[index] = message.shift();
+                    // Unlisted servers (the tutorial) stay out of
+                    // /getServers.json, so the region picker never shows them.
+                    // They remain reachable directly by their id.
+                    global.servers[index].hidden = !!isUnlisted;
                     break;
                 case true:
                     // Update: change the server's player count
@@ -353,7 +370,8 @@ server.listen(Config.port, () => {
                 server.region,
                 { id: server.id, maxPlayers: server.player_cap },
                 server.properties,
-                server.featured
+                server.featured,
+                server.unlisted
             );
         })
     })

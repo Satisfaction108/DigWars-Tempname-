@@ -295,7 +295,18 @@ class gameServer {
                     seed: cfg.seed ?? 7,
                     extrusionChance: cfg.extrusion_chance ?? 0.40,
                 });
+                // Tutorial: replace the lane map with isolated learner plots.
+                // Carving has to land between generate() and buildContour(),
+                // because the colliders are built from the cell grid.
+                const tutorialPlots = Config.tutorial
+                    ? require('./game/terrain/tutorialPlots.js')
+                    : null;
+                if (tutorialPlots) tutorialPlots.carveTerrain(this.terrainGrid);
                 this.terrainGrid.buildContour();
+                if (tutorialPlots) {
+                    tutorialPlots.installSites(this.terrainGrid);
+                    tutorialPlots.seedOres(this.terrainGrid);
+                }
             }
 
             setTimeout(() => {
