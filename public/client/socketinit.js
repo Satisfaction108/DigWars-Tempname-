@@ -1413,7 +1413,12 @@ let incoming = async function(message, socket) {
 }
 const socketInit = () => {
     window.resizeEvent();
-    let socket = new WebSocket(protocols[location.protocol] + global.serverAdd);
+    // serverPath routes to a game server that is NOT the one on this port -
+    // today just the tutorial, which the main server proxies through. It is
+    // kept separate from serverAdd because serverAdd is also used to build
+    // plain http URLs (util.pullJSON), which a path/query would corrupt.
+    let socket = new WebSocket(
+        protocols[location.protocol] + global.serverAdd + (global.serverPath || ""));
 
     socket.binaryType = 'arraybuffer';
     socket.open = false;

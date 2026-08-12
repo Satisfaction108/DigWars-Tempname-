@@ -74,7 +74,12 @@
                 if (!sv || !sv.ip) throw new Error('tutorial server unavailable');
                 var g = window.global;
                 if (!g || !g.startGame) throw new Error('client not ready');
-                g.serverAdd = sv.ip;      // already host:port
+                // The host routes only one port to the domain, and two game
+                // servers cannot share one process, so the tutorial is reached
+                // through the main port: the main server proxies /tut to the
+                // tutorial worker. sv.proxyPath is what it listens for.
+                g.serverAdd = sv.proxyPath ? sv.mainHost : sv.ip;
+                g.serverPath = sv.proxyPath || "";
                 g.tutorialMode = true;    // read by client/tutorial.js
                 g.tutorialPlot = null;    // set only by the tutorial server
                 g.startGame();

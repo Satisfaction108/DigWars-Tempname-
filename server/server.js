@@ -5,6 +5,7 @@ console.log("Importing modules...\n");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const net = require("net");
 const url = require("url");
 const pjson = require('../package.json')
 
@@ -148,6 +149,11 @@ server = http.createServer((req, res) => {
                 players: tut.players,
                 maxPlayers: tut.maxPlayers,
                 id: tut.id,
+                // Reach the tutorial through THIS host on THIS port: the
+                // container routes only one port to the domain, so the
+                // tutorial worker's own port is not reachable from outside.
+                mainHost: Config.host,
+                proxyPath: TUTORIAL_PROXY_PATH,
             } : null);
         } break;
         case "/getTotalPlayers": {
@@ -378,7 +384,50 @@ server.listen(Config.port, () => {
 });
 
 // Upgrade HTTP connections to WebSocket connections if applicable
+// Tutorial WebSocket proxy.
+//
+// Two game servers cannot share one process (Config and global.gameManager are
+// process-wide), so the tutorial runs as its own worker on its own port. But
+// the container routes exactly one port to the domain, so that worker is
+// unreachable from outside. The fix is to forward the upgrade ourselves: a
+// socket arriving at <main host>/tut is spliced straight through to the
+// tutorial worker on loopback. No extra domain, no extra open port.
+const TUTORIAL_PROXY_PATH = "/tut";
+
+function tutorialPort() {
+    const tut = (Config.servers || []).find((s) => s && s.id === "tut");
+    return tut ? tut.port : null;
+}
+
+function proxyUpgradeToTutorial(req, socket, head) {
+    const port = tutorialPort();
+    if (!port) return socket.destroy();
+
+    const upstream = net.connect(port, "127.0.0.1", () => {
+        // Replay the handshake verbatim, minus the /tut prefix the worker
+        // knows nothing about, then let the two sockets talk directly.
+        const path = req.url.slice(TUTORIAL_PROXY_PATH.length) || "/";
+        let raw = `GET ${path} HTTP/1.1\r\n`;
+        for (let i = 0; i < req.rawHeaders.length; i += 2) {
+            raw += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+        }
+        upstream.write(raw + "\r\n");
+        if (head && head.length) upstream.write(head);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+    });
+
+    const bail = () => { try { upstream.destroy(); } catch (e) { } try { socket.destroy(); } catch (e) { } };
+    upstream.on("error", bail);
+    socket.on("error", bail);
+}
+
 server.on("upgrade", (req, socket, head) => {
+    const url = req.url || "";
+    if (url === TUTORIAL_PROXY_PATH || url.startsWith(TUTORIAL_PROXY_PATH + "/") ||
+        url.startsWith(TUTORIAL_PROXY_PATH + "?")) {
+        return proxyUpgradeToTutorial(req, socket, head);
+    }
     wsServer.handleUpgrade(req, socket, head, (ws) => {
         try {
             if (global.launchedOnMainServer) {
