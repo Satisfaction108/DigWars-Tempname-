@@ -1215,16 +1215,6 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 /* the controls have to clear the settings panel too */
 #dwTutSkipBar.above { z-index: 321; }
 
-/* Tutorial mode shows Back / Next / Skip; a lesson swaps in its own pair, so
-   the two sets never appear together. */
-.dwTutGotIt, .dwTutIgnore { display: none; }
-
-#dwTutSkipBar.lesson .dwTutSkipAll { display: none; }
-#dwTutSkipBar.lesson .dwTutGotIt,
-#dwTutSkipBar.lesson .dwTutIgnore { display: inline-block; }
-.dwTutGotIt { color: #78ffc8; background: rgba(10,11,15,.85); }
-.dwTutGotIt:hover { background: rgba(120,255,200,.16); color: #b6ffe2; }
-
 @media (max-width: 640px) {
     .dwTutSkipBtn { padding: 9px 16px; font-size: 12.5px; }
 }

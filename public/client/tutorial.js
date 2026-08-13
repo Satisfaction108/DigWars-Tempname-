@@ -214,23 +214,6 @@ function myMockup() {
         return global.mockups[i] || null;
     } catch (e) { return null; }
 }
-function archetype(m) {
-    if (!m) return null;
-    const sn = m.statnames || {};
-    const dam = String(sn.bullet_damage || "");
-    const rld = String(sn.reload || "");
-    const guns = (m.guns || []).length;
-    const auto = (m.turrets || []).some(t => !t.isProp && (t.guns || []).length > 0);
-    return {
-        name: m.name || "",
-        auto,
-        drone: /drone/i.test(dam) || /drone/i.test(rld),   // covers necromancers too
-        swarm: /swarm/i.test(dam),
-        trap: /trap/i.test(dam),
-        rammer: guns === 0 && !auto,
-    };
-}
-
 // The client is never told its team number outright, but gui.color arrives as
 // e.g. "blue 0 1 0 false", and vaults/outposts use -1 for blue, -2 for red.
 function myTeam() {
@@ -238,39 +221,6 @@ function myTeam() {
     if (c.indexOf("blue") === 0) return -1;
     if (c.indexOf("red") === 0) return -2;
     return 0;
-}
-// Roughly "is it on my screen": the visible world radius is half the viewport
-// divided by the camera scale.
-function viewRadius() {
-    const r = util.getRatio() || 1;
-    return (Math.max(SW(), SH()) / 2) / r * 1.05;
-}
-function nearAny(list, pick) {
-    const px = global.player.renderx, py = global.player.rendery, R = viewRadius();
-    for (const o of list || []) {
-        if (!pick(o)) continue;
-        if (Math.hypot(o.x - px, o.y - py) <= R) return true;
-    }
-    return false;
-}
-function seesTakeableOutpost() {
-    const mine = myTeam();
-    const st = global.outpostState || [];
-    return nearAny(global.outposts, o => {
-        const s2 = st.find(x => x.id === o.id);
-        const t = s2 ? s2.t : 0;
-        return !t || t !== mine;          // unclaimed, or held by the other side
-    });
-}
-function seesChamber() {
-    const mine = myTeam();
-    const px = global.player.renderx, py = global.player.rendery, R = viewRadius();
-    for (const ch of global.chambers || []) {
-        const d = Math.hypot(ch.x - px, ch.y - py);
-        if (ch.team !== mine) { if (d <= R) return true; }   // enemy: on sight
-        else if (d <= (ch.r || 160) * 2.2) return true;      // yours: on arrival
-    }
-    return false;
 }
 function keybindsTabOpen() {
     const t = document.querySelector('.sp-tab[data-tab="sp-keybinds"]');
@@ -309,24 +259,6 @@ function statName(i) {
 // Slot 6 is renamed per archetype and means something completely different
 // each time - a smasher's "Engine Acceleration" is not reload - so the blurb
 // keys off the displayed name rather than the slot.
-function tankKind(a) {
-    if (!a) return "tank";
-    if (a.rammer) return "rammer";
-    if (a.drone) return "drone tank";
-    if (a.swarm) return "swarm tank";
-    if (a.trap) return "trap tank";
-    if (a.auto) return "auto tank";
-    return "bullet tank";
-}
-function tankKindBlurb(a) {
-    if (!a) return "";
-    if (a.rammer) return "It has no guns at all, so you fight and mine by driving into things.";
-    if (a.drone) return "It fights with drones that fly out and chase whatever you point at.";
-    if (a.swarm) return "It fights with swarms that home in and keep hunting after you let go.";
-    if (a.trap) return "It lays traps that sit where you drop them rather than firing at range.";
-    if (a.auto) return "Its turret picks targets and fires on its own.";
-    return "It fires bullets straight from its barrels.";
-}
 function statWhy(i) {
     const base = (STAT_INFO.find(x => x.i === i) || {}).why || "";
     if (i !== 6) return base;
@@ -732,275 +664,6 @@ const ALL_STEPS = [
     },
 ];
 
-// ── tank lessons ───────────────────────────────────────────────────────
-// Short, one-off cards that fire the first time you actually pilot a tank
-// that has the thing being taught. They are deliberately NOT part of the main
-// chain: teaching drone control to a Twin pilot is noise, and a rammer needs
-// to hear something a gun tank never does. Each fires once per browser, ever,
-// whether or not the main tutorial is still running.
-// Stats are remembered by DISPLAYED NAME, not index. A smasher renames slot 6
-// to "Engine Acceleration" while a gun tank calls it "Reload" - same slot,
-// different thing to learn - so tracking names is what makes "you already know
-// Reload, here is Engine Acceleration" come out right.
-const STAT_TAUGHT = "digwarsStatsTaught";
-function statsTaught() {
-    try { return JSON.parse(localStorage.getItem(STAT_TAUGHT) || "[]") || []; }
-    catch (e) { return []; }
-}
-function markStatsTaught(names) {
-    try {
-        const t = statsTaught();
-        let add = false;
-        for (const n of names) if (n && !t.includes(n)) { t.push(n); add = true; }
-        if (add) localStorage.setItem(STAT_TAUGHT, JSON.stringify(t));
-    } catch (e) { }
-}
-// stats this tank can use that the player has never had explained
-function unseenStats() {
-    const t = statsTaught();
-    const out = [];
-    for (const si of STAT_INFO) {
-        if (!statUsable(si.i)) continue;
-        const n = statName(si.i);
-        if (!n) return [];             // names unknown: say nothing rather than guess
-        if (!t.includes(n)) out.push({ i: si.i, name: n, why: statWhy(si.i) });
-    }
-    return out;
-}
-
-// The archetype the player was last flying. Seeded when the tutorial ends,
-// because a Basic IS a bullet tank - finishing (or skipping) the tutorial
-// means they have already been shown bullet stats and do not need the card.
-const KIND_KEY = "digwarsKind";
-function storedKind() {
-    try { return localStorage.getItem(KIND_KEY); } catch (e) { return null; }
-}
-function setStoredKind(k) {
-    try { localStorage.setItem(KIND_KEY, k); } catch (e) { }
-}
-
-const LESSON_KEY = "digwarsLessons";
-const LESSON_MUTE = "digwarsLessonsOff";
-function lessonsMuted() {
-    try { return localStorage.getItem(LESSON_MUTE) === "1"; } catch (e) { return false; }
-}
-function muteLessons() {
-    try { localStorage.setItem(LESSON_MUTE, "1"); } catch (e) { }
-}
-function lessonsSeen() {
-    try { return JSON.parse(localStorage.getItem(LESSON_KEY) || "[]") || []; }
-    catch (e) { return []; }
-}
-function markLesson(id) {
-    try {
-        const seen = lessonsSeen();
-        if (!seen.includes(id)) { seen.push(id); localStorage.setItem(LESSON_KEY, JSON.stringify(seen)); }
-    } catch (e) { }
-}
-
-const LESSONS = [
-    {
-        id: "rammer",
-        when: a => a.rammer,
-        title: "Rammer",
-        body: () => `You have no guns - you ARE the weapon. Drive into rocks to grind them down, and into enemies to crush them. Pour points into ${statName(0)}: it is both your ramming damage and your mining speed.`,
-    },
-    {
-        id: "drone",
-        when: a => a.drone,
-        title: "Drone tank",
-        body: () => "Your drones fly on their own and chase what you point at. Press {{KEY_OVER_RIDE}} for AI override to seize direct control - they hold formation on your cursor instead of hunting by themselves.",
-    },
-    {
-        id: "auto",
-        when: a => a.auto,
-        title: "Auto turret",
-        body: () => "The turret on your hull picks its own targets and fires by itself. Hold left click or switch on {{KEY_AUTO_FIRE}} to make it shoot where you shoot, and press {{KEY_OVER_RIDE}} to override it and aim it yourself.",
-        bodyMobile: () => "The turret on your hull picks its own targets and fires by itself. Hold the right side of the screen or switch on Autofire to make it shoot where you aim, and tap Override to aim it yourself.",
-    },
-    {
-        id: "kindchange",
-        repeat: true,
-        // Only when the archetype genuinely changes, and only if the richer
-        // one-off card for that archetype has already been seen (or never
-        // existed, as with plain bullet tanks) - otherwise it just repeats it.
-        when: (a) => {
-            const k = tankKind(a);
-            const prev = storedKind();
-            if (!prev || prev === k) return false;
-            return !detailPending(a);
-        },
-        title: "New tank type",
-        capture: () => tankKind(archetype(myMockup())),
-        body: (k) => {
-            const a = archetype(myMockup());
-            return "This is a " + (k || tankKind(a)) + ". " + tankKindBlurb(a);
-        },
-    },
-    {
-        id: "newstats",
-        repeat: true,          // fires again whenever an evolution unlocks more
-        when: () => unseenStats().length > 0,
-        title: "New stats",
-        // Snapshot the list when the card fires: onShow marks them learned, so
-        // recomputing at draw time would render an empty list.
-        capture: () => unseenStats(),
-        onShow: (cap) => markStatsTaught((cap || []).map(x => x.name)),
-        // One card per stat so each gets read properly, walked with Next.
-        // Ignore tips still bails out of the whole run.
-        pages: (cap) => {
-            const list = cap || [];
-            return (list.map((x, i) => ({
-                title: list.length > 1 ? `New stat ${i + 1}/${list.length}` : "New stat",
-                body: `${x.name}. ${x.why}`,
-                ui: "stat:" + x.i,          // square the bar being described
-            })));
-        },
-        body: (cap) => {
-            const n = cap || [];
-            return n.length ? `${n[0].name}. ${n[0].why}` : "";
-        },
-    },
-    {
-        id: "outpost",
-        afterTutorial: true,
-        when: () => seesTakeableOutpost(),
-        title: "Outpost",
-        body: () => "That is a capturable outpost. Shoot it down to claim it for your team - it feeds you gems and map control while you hold it. A rammer cannot break one: ramming does nothing to a structure, so bring guns or a teammate who has them.",
-    },
-    {
-        id: "chamber",
-        afterTutorial: true,
-        when: () => seesChamber(),
-        title: "Core chamber",
-        body: () => "A core chamber is a team's treasury vault, packed with gems. Break the ring to spill what is inside - and defend your own, because the enemy wants yours just as badly. Like outposts, ramming will not dent it.",
-    },
-    {
-        id: "swarm",
-        when: a => a.swarm,
-        title: "Swarm tank",
-        body: () => "Your swarms home in on whatever you aim at and keep hunting after you let go. Press {{KEY_OVER_RIDE}} to override them and steer the flock yourself.",
-    },
-    {
-        id: "trap",
-        when: a => a.trap,
-        title: "Trap tank",
-        body: () => "You lay traps rather than fire at range. They sit where you drop them, block chokepoints and shred anything that runs into them - including rock, if you place them against it.",
-    },
-];
-
-const DETAIL_IDS = ["rammer", "drone", "auto", "swarm", "trap"];
-function detailPending(a) {
-    const seen = lessonsSeen();
-    for (const L of LESSONS) {
-        if (DETAIL_IDS.indexOf(L.id) < 0) continue;
-        if (seen.includes(L.id)) continue;
-        try { if (L.when(a)) return true; } catch (e) { }
-    }
-    return false;
-}
-
-let lesson = null;            // {def, at, gone}
-let tankSince = 0, tankWas = null;
-function pollLessons() {
-    const m = myMockup();
-    const a = archetype(m);
-    state.tank = a;           // debug aid, mirrors window.dwTut
-    state.myColor = gui.color;
-    // Nothing pops up on the training ground. The lesson cards were written
-    // for the live game, where they are the only teacher; here the objective
-    // chain already narrates every one of these beats, and a "New stat" card
-    // firing over the step that is currently ASKING for a stat point is
-    // exactly the interruption the tutorial exists to avoid. They resume as
-    // normal the moment the learner is on a real server.
-    // tutorialMode as well as tutorialPlot: the plot packet arrives a beat
-    // after the connection does, and that beat is long enough for a card to
-    // fire on top of the opening title.
-    if (global.tutorialPlot || global.tutorialMode) return;
-    if (lesson || !a || lessonsMuted()) return;
-    const key = String(gui.type) + "|" + a.name;
-    if (key !== tankWas) { tankWas = key; tankSince = T(); return; }
-    if (T() - tankSince < 700) return;
-    // first tank we have ever seen: record it without announcing anything
-    if (!storedKind()) { setStoredKind(tankKind(a)); return; }
-    const seen = lessonsSeen();
-    for (const L of LESSONS) {
-        if (seen.includes(L.id)) continue;
-        // Site lessons never interrupt the tutorial - if they walk past an
-        // outpost mid-chain it simply fires the next time they see one.
-        if ((L.afterTutorial || L.repeat) && state.running) continue;
-        if (!L.when(a)) continue;
-        const cap = L.capture ? L.capture() : null;
-        lesson = { def: L, at: T(), gone: 0, cap, page: 0,
-                   pages: L.pages ? L.pages(cap) : null };
-        state.lessonId = L.id;        // debug aid, mirrors window.dwTut
-        if (L.onShow) L.onShow(lesson.cap);
-        setStoredKind(tankKind(a));   // this archetype has now been introduced
-        if (!L.repeat) markLesson(L.id);
-        sfxObjective();
-        return;
-    }
-}
-function dismissLesson() {
-    if (!lesson || lesson.gone) return;
-    // step through a multi-page lesson before closing it
-    if (lesson.pages && lesson.page < lesson.pages.length - 1) {
-        lesson.page++;
-        lesson.at = T();
-        sfxAdvance();
-        return;
-    }
-    lesson.gone = T();
-}
-function lessonPagesLeft() {
-    return !!(lesson && lesson.pages && lesson.page < lesson.pages.length - 1);
-}
-
-// A lesson takes over the card slot while it shows, so there is never a second
-// tutorial competing with the objective for attention.
-function drawLesson(c) {
-    if (!lesson) return true;
-    const S = US();
-    const t = T() - lesson.at;
-    const a = smooth(t / 420) * (lesson.gone ? 1 - smooth((T() - lesson.gone) / 600) : 1);
-    if (lesson.gone && T() - lesson.gone > 700) { lesson = null; state.lessonId = null; return true; }
-    if (a <= 0) return false;
-
-    const pg = lesson.pages && lesson.pages[lesson.page];
-    if (pg && pg.ui) drawUiHighlight(c, pg.ui);
-    const raw = pg ? pg.body
-        : ((global.mobile && lesson.def.bodyMobile)
-            ? lesson.def.bodyMobile(lesson.cap) : lesson.def.body(lesson.cap));
-    const maxW = Math.min(SW() * (global.mobile ? 0.94 : 0.86), 470 * S);
-    const lines = layout(c, tokenize(raw), maxW - 36 * S, S);
-    const lineH = 21 * S, padX = 18 * S, padY = 14 * S, labelH = 26 * S;
-    const boxH = padY * 2 + labelH + lines.length * lineH + 10 * S;
-    const x = (SW() - maxW) / 2;
-    const y = (global.mobile ? SH() - boxH - 152 * S : 78 * S) + (1 - smooth(t / 420)) * -12;
-    const cx = SW() / 2;
-
-    c.save();
-    c.globalAlpha = a;
-    roundRect(c, x, y, maxW, boxH, 12 * S);
-    c.fillStyle = "rgba(10,11,15,.86)";
-    c.fill();
-    c.lineWidth = 1.5;
-    c.strokeStyle = `rgba(${MINT},.4)`;
-    c.stroke();
-    trackedText(c, String((pg && pg.title) || lesson.def.title).toUpperCase(), cx, y + padY + labelH / 2,
-                16 * S, `rgb(${MINT})`, 1.6 * S, a);
-    c.globalAlpha = a;
-    let ty = y + padY + labelH + 12 * S;
-    c.textBaseline = "middle";
-    for (const line of lines) { drawLine(c, line, cx, ty, S); ty += lineH; }
-    c.restore();
-
-    state.card = { y, h: boxH };
-    layoutSkip(global.mobile ? y - 36 * S : y + boxH);
-    return false;
-}
-
-// ── UI rects (live geometry straight from the game's own hit regions) ───
 function uiRect(kind) {
     const cl = global.clickables;
     if (!cl) return null;
@@ -1104,7 +767,6 @@ function statSteps() {
                 if (sk.amount >= sk.cap) return true;          // nothing to spend here
                 return sk.amount > (state.base.statAmt || 0);
             },
-            onDone: () => markStatsTaught([statName(si.i)]),
         });
     });
     // whatever is left over is theirs to place however they like
@@ -1830,8 +1492,7 @@ function drawObjective(c) {
 }
 
 // ── controls (DOM, so they are reliably clickable/tappable) ───────────
-let skipBar = null, skipAllEl = null,
-    gotItEl = null, ignoreEl = null;
+let skipBar = null, skipAllEl = null;
 function ensureSkip() {
     if (skipBar) return;
     skipBar = document.createElement("div");
@@ -1856,8 +1517,6 @@ function ensureSkip() {
     // which is exactly how someone finishes a tutorial having learned
     // nothing. "Skip tutorial" remains, as the one deliberate way out.
     skipAllEl = mk("dwTutSkipAll", "Skip tutorial", skipToEnd);
-    gotItEl   = mk("dwTutGotIt", "Got it", dismissLesson);
-    ignoreEl  = mk("dwTutIgnore", "Ignore tips", () => { muteLessons(); dismissLesson(); });
     document.body.appendChild(skipBar);
 }
 // ── DOM spotlight + card ──────────────────────────────────────────────
@@ -2001,12 +1660,6 @@ function showSkip(on) {
     if (!skipBar) return;
     skipBar.classList.toggle("show", !!on);
 }
-function showGotIt(on) {
-    if (!skipBar) return;
-    if (on) skipBar.classList.add("show");
-    skipBar.classList.toggle("lesson", !!on);
-    if (gotItEl) gotItEl.textContent = lessonPagesLeft() ? "Next \u203a" : "Got it";
-}
 // Back is meaningless on the very first objective, so it is not offered there.
 function refreshNav() { /* no manual navigation - see makeSkipBar */ }
 
@@ -2071,15 +1724,6 @@ function open() {
 }
 function finish() {
     hideDomStep();
-    // Whether they worked through the stat objectives, pressed Next past them
-    // or skipped outright, the tutorial has shown them this tank's stats. Not
-    // recording that meant a Basic run was followed by a redundant "this is a
-    // bullet tank" card explaining stats they had just been walked through.
-    try {
-        markStatsTaught(STAT_INFO.filter(si => statUsable(si.i)).map(si => statName(si.i)).filter(Boolean));
-        const a0 = archetype(myMockup());
-        if (a0) setStoredKind(tankKind(a0));
-    } catch (e) { }
     sendTutorialFlag(false);
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch (e) { }
     // Training over - hand them back to the menu, where the Play button now
@@ -2110,7 +1754,7 @@ export function hook() {
     // never the client-set tutorialMode flag on its own. If the tutorial
     // server is unreachable the connection falls back to the live game, and
     // trusting the client flag there would drop a beginner into a real match
-    // with lesson cards over it.
+    // with objective cards over it.
     if (!startedOnce && global.tutorialMode && global.tutorialPlot &&
         global.gameStart && !global.died && terr()) {
         startedOnce = true;
@@ -2118,36 +1762,15 @@ export function hook() {
     }
     if (global.died || global.disconnected) {
         // the death panel owns the screen; nothing of ours floats over it
-        showGotIt(false);
         showSkip(false);
         hideDomStep();
         return;
     }
 
-    // Lessons keep working for the life of the session, long after the main
-    // tutorial is done - that is the whole point of them.
-    if (global.gameStart && !global.showTree) pollLessons();
-    if (lesson && !lesson.gone && !lesson.pages && T() - lesson.at > 11000) dismissLesson();
-
     const c = ctxGui();
     if (!c) return;
 
-    if (lesson) {
-        hideDomStep();
-        c.save();
-        c.textBaseline = "middle";
-        const gone = drawLesson(c);
-        c.restore();
-        showGotIt(!gone);
-        // a lesson never shares the screen; the .lesson class already hides the
-        // skip buttons, so do NOT clear .show here or the bar disappears with it
-        if (!gone) return;
-    } else {
-        showGotIt(false);
-        if (!state.running) { showSkip(false); hideDomStep(); return; }
-    }
-
-    if (!state.running) { showSkip(false); return; }
+    if (!state.running) { showSkip(false); hideDomStep(); return; }
     if (T() - tutFlagAt > 3000) { tutFlagAt = T(); sendTutorialFlag(true); }
 
     update();
