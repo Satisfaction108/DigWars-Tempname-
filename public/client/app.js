@@ -659,6 +659,9 @@ import * as tutorial from './tutorial.js';
     ];
     window.dwCtx = ctx;
     window.dwCtxCtor = (i) => ctx[i];
+    // The tutorial's ore-tier card shows the real gem entities rather than
+    // approximations of them, which means it needs the game's own renderer.
+    // Assigned once drawEntity exists - see the bottom of this module.
     var c2 = document.createElement("canvas");
     var ctx2 = c2.getContext("2d");
     ctx2.imageSmoothingEnabled = false;
@@ -2253,6 +2256,9 @@ import * as tutorial from './tutorial.js';
             }
         }
     })();
+    // See the note by window.dwCtx: the tutorial draws real game entities on
+    // its ore-tier card, so it needs the renderer that draws everything else.
+    window.dwDrawEntity = drawEntity;
 
     const iconColorOrder = [10, 11, 12, 15, 13, 2, 14, 4, 5, 1, 0, 3];
     function getIconColor(colorIndex) {

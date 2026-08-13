@@ -270,6 +270,11 @@ function statWhy(i) {
     return base;
 }
 function statSkill(i) { return (gui.skills || [])[9 - i] || null; }
+// The digit the HUD prints beside a stat bar, and the key that spends a point
+// into it. app.js draws "[" + (ticker % 10) + "]" with ticker = i + 1, so the
+// tenth bar is labelled [0] rather than [10] - quote the same thing back at
+// the learner or the card is telling them to press a key that is not there.
+function statKey(i) { return String((i + 1) % 10); }
 function statUsable(i) {
     const sk = statSkill(i);
     return !!sk && sk.cap > 0;
@@ -314,6 +319,8 @@ const state = {
     evolveMark: 0,
     // world position of this plot's enemy base, learned from the room grid
     basePoint: null,
+    // What the satchel held when the mining chapter began - see the rock step.
+    rockBaseCarried: 0,
     // The one rock the mining objective is about. Chosen once, on arrival, and
     // never re-chosen: a marker that hops between rocks as you drive is a
     // marker you cannot follow.
@@ -396,6 +403,24 @@ function practiceBot(name) {
     return best;
 }
 const botAlive = (name) => !!practiceBot(name);
+
+// The nearest loose gem in our own arena. Gem pickups have no flag the client
+// can read, but their mockups carry the ore's name, which is the same list the
+// ore-tier card is built from.
+const GEM_NAMES = ["Copper", "Azurite", "Core Shard", "Emerald", "Dropped Gems"];
+function nearestGem() {
+    const px = global.player.renderx, py = global.player.rendery;
+    let best = null, bestD = Infinity;
+    for (const e of global.entities) {
+        if (!e || !e.index) continue;
+        const m = global.mockups[String(e.index).split("-")[0]];
+        if (!m || !GEM_NAMES.includes(m.name)) continue;
+        if (!inArena(e.x, e.y)) continue;
+        const d = Math.hypot(e.x - px, e.y - py);
+        if (d < bestD) { bestD = d; best = e; }
+    }
+    return best;
+}
 
 // How far the cursor has swung, in radians, since the step began. Used by the
 // aiming lesson: the point is that the barrel FOLLOWS the mouse, so we want to
@@ -525,11 +550,46 @@ const ALL_STEPS = [
         progress: () => clamp(state.evolveCount / 3, 0, 1),
         done: () => state.evolveCount >= 3 && !(gui.upgrades || []).length,
     },
+    // Health comes BEFORE the first fight, not after it. Being told what your
+    // health bar is once you have already won a fight without needing it is
+    // the wrong order; knowing what the bar is before anything shoots at you
+    // is the point of teaching it at all.
+    {
+        id: "health",
+        label: "Watch your health",
+        title: "YOUR HEALTH BAR",
+        hint: () => "We just took a chunk out of you. The bar under your tank is your *health*, and the thinner one behind it is your *shield*. *Both refill on their own* once you stop taking hits - watch them climb back. Backing off is usually better than pushing on.",
+        onEnter: () => { tut("unlock"); tut("hurt"); },
+        // Box the bar itself so there is no doubt which of the several bars on
+        // screen the card is talking about.
+        ui: "hp",
+        target: () => ({ kind: "self" }),
+        progress: () => clamp((T() - state.stepAt) / 5000, 0, 1),
+        // Five seconds of actually watching it, or Next for anyone who has
+        // seen enough. Regeneration is slow enough that waiting for a full bar
+        // is a wait, not a lesson.
+        next: true,
+        done: () => T() - state.stepAt > 5000,
+    },
+    {
+        id: "ready",
+        label: "First fight",
+        title: "READY?",
+        hint: () => "Next up is a target that cannot fight back - a chance to practise aiming and holding fire with nothing at stake. You are patched up. *Press Go when you want it.*",
+        // Nothing on a timer: the bot arrives when they say so, not while they
+        // are still reading. Go is the ONLY way out of this step.
+        onEnter: () => tut("heal"),
+        target: () => ({ kind: "self" }),
+        next: true,
+        nextLabel: "Go!",
+        onDone: () => { tut("heal"); tut("dummy"); },
+        done: () => false,
+        noTimeout: true,
+    },
     {
         id: "dummy",
         label: "Destroy the dummy",
-        hint: () => "Here is a target that cannot fight back. *Point your cursor at it and hold left click*.",
-        onEnter: () => { tut("unlock"); tut("dummy"); },
+        hint: () => "It cannot shoot back. *Point your cursor at it and hold left click*.",
         acquire: () => {
             const b = practiceBot("Dummy");
             return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
@@ -539,21 +599,6 @@ const ALL_STEPS = [
             return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
         },
         done: () => state.dummySeen && !botAlive("Dummy"),
-    },
-    {
-        id: "health",
-        label: "Watch your health",
-        title: "YOUR HEALTH BAR",
-        hint: () => "We just took a chunk out of you. The bar under your tank is your *health*, and the thinner one behind it is your *shield*. *Both refill on their own* once you stop taking hits - backing off is usually better than pushing on.",
-        onEnter: () => tut("hurt"),
-        // Box the bar itself so there is no doubt which of the several bars on
-        // screen the card is talking about.
-        ui: "hp",
-        target: () => ({ kind: "self" }),
-        // Wait for real regeneration rather than a timer: the lesson is the
-        // bar visibly climbing back up in front of them.
-        progress: () => clamp(state.hpFrac, 0, 1),
-        done: () => state.hpFrac > 0.97,
     },
     {
         id: "fighter",
@@ -590,6 +635,12 @@ const ALL_STEPS = [
         onEnter: () => {
             tut("goto", "rocks");
             state.lockedRock = null;
+            // What the satchel held BEFORE any of this. The collect objective
+            // measures against this rather than against its own arrival, so a
+            // learner who drove over the gems the instant the rock burst has
+            // already satisfied it - rather than being asked to go and collect
+            // gems that are in their pocket.
+            state.rockBaseCarried = global.gems.carried;
         },
         acquire: () => {
             if (state.lockedRock && rockAlive(terr(), state.lockedRock.k)) return state.lockedRock;
@@ -615,12 +666,23 @@ const ALL_STEPS = [
         id: "gems",
         label: "Collect the gems",
         hint: () => "*Drive over the loose gems* to scoop them up. They ride in your satchel until you bank them.",
-        acquire: () => state.lastBreak
-            ? { kind: "point", x: state.lastBreak.x, y: state.lastBreak.y }
-            : null,
-        progress: () => global.gems.cap
-            ? clamp(global.gems.carried / Math.max(1, global.gems.cap), 0, 1) : 0,
-        done: () => global.gems.carried > state.base.carried,
+        // Chase the real pickups, not the spot the rock died: they scatter on
+        // the burst, and a marker pinned to a patch of empty floor is worse
+        // than no marker.
+        acquire: () => {
+            const g = nearestGem();
+            if (g) return { kind: "point", id: g.id, x: g.x, y: g.y };
+            return state.lastBreak
+                ? { kind: "point", x: state.lastBreak.x, y: state.lastBreak.y }
+                : null;
+        },
+        revalidate: () => {
+            const g = nearestGem();
+            return g ? { kind: "point", id: g.id, x: g.x, y: g.y } : null;
+        },
+        progress: () => clamp(
+            (global.gems.carried - state.rockBaseCarried) / 15, 0, 1),
+        done: () => global.gems.carried > state.rockBaseCarried,
     },
     {
         id: "ores",
@@ -695,15 +757,14 @@ const ALL_STEPS = [
     },
     {
         id: "autoIntro",
-        label: "You are an Auto-3",
+        label: "You are an Auto-5",
         title: "AUTO TANKS",
         hint: () => "*Auto tanks carry turrets that pick their own targets and fire by themselves.* You can drive and let them work - which is why they are forgiving to learn on, and why they never quite hit as hard as aiming yourself.",
         onEnter: () => {
-            tut("morph", "auto3");
+            tut("morph", "auto5");
             tut("lock", "none");
             tut("cmd", "autofire", 0);
             tut("stats", "0,3,6,9,9,9,9,3,0,0");
-            tut("dummy");
         },
         target: () => ({ kind: "self" }),
         next: true,
@@ -712,7 +773,11 @@ const ALL_STEPS = [
     {
         id: "autoOverride",
         label: "Override the turrets",
-        hint: () => "*Press {{KEY_OVER_RIDE}}* and the turrets stop choosing for themselves - *they aim exactly where you point*. *Press it again* to hand them back.",
+        hint: () => "Here is something to point them at. *Press {{KEY_OVER_RIDE}}* and the turrets stop choosing for themselves - *they aim exactly where you point*. *Press it again* to hand them back.",
+        // The target arrives with the step that needs one. Spawning it during
+        // the intro left it standing around being shot by turrets nobody was
+        // controlling yet, and it was often dead before the lesson began.
+        onEnter: () => tut("dummy"),
         target: () => ({ kind: "self" }),
         progress: () => clamp(state.overrideCount / 2, 0, 1),
         done: () => state.overrideCount >= 2,
@@ -737,10 +802,11 @@ const ALL_STEPS = [
             tut("lock", "none");
             tut("cmd", "autofire", 0);
             tut("cmd", "autospin", 0);
-            // Its bullet stats are capped at zero, so set() hands those points
-            // straight back - which is exactly the point of the next step.
-            tut("stats", "9,9,0,0,0,0,0,9,0,0");
-            tut("points", 1);
+            // Every stat a Smasher can use goes to its cap EXCEPT engine
+            // acceleration, and exactly one point is left in hand for it. The
+            // server works out which stats those are and what they cap at, so
+            // this cannot drift if the class is ever retuned.
+            tut("fill", 6, 1);
         },
         target: () => ({ kind: "self" }),
         next: true,
@@ -748,7 +814,7 @@ const ALL_STEPS = [
     },
     {
         id: "rammerStat",
-        allow: "stats",
+        allow: "stats:6",
         label: () => statName(6) || "Engine Acceleration",
         hint: () => `Half your bars just went dark - a rammer has no bullets to improve, so those points came back. In their place is *${statName(6) || "Engine Acceleration"}*: *how hard you accelerate*, which is how fast you build up ramming speed. *Put a point into it.*`,
         ui: "stat:6",
@@ -817,6 +883,13 @@ const ALL_STEPS = [
         // busywork - half of it is plenty to have made the point.
         progress: () => clamp(global.gems.carried / 2000, 0, 1),
         done: () => global.gems.carried >= 2000,
+    },
+    {
+        id: "chamberHard",
+        title: "THAT WAS THE EASY VERSION",
+        subtitle: "A real chamber takes a team several minutes, under fire, with the other side arriving.",
+        card: true,
+        done: () => T() - state.stepAt > 4600,
     },
     {
         id: "chamberSides",
@@ -1006,8 +1079,14 @@ function statSteps() {
             group: "stats",
             groupPos: n + 1,
             groupLen: usable.length + 1,
+            // Exactly this bar, nothing else. Without the index the server
+            // opens the whole skill bar and a learner can pour every point
+            // into the first stat, skipping nine lessons in one keystroke.
+            allow: "stats:" + si.i,
             label: () => statName(si.i),
-            hint: () => statWhy(si.i) + "  Put a point into it.",
+            hint: () => statWhy(si.i) + (global.mobile
+                ? "  *Tap the bar* to put a point into it."
+                : `  *Press [[${statKey(si.i)}]]* - or click the bar - to *put a point into it*.`),
             ui: "stat:" + si.i,
             statIndex: si.i,
             progress: () => {
@@ -1521,32 +1600,50 @@ export function drawIndicators() {
 }
 
 // ── HUD pass ───────────────────────────────────────────────────────────
-// Hint text is tokenised so it can carry three things inline:
+// Hint text is tokenised so it can carry four things inline:
 //   {{KEY_X}}   a real keycap glyph for whatever that action is bound to
+//   [[1]]       a keycap for a literal key, where there is no binding to look
+//               up - the stat bars are numbered [1]..[0] by the HUD itself
 //   *emphasis*  the words that are the actual instruction, drawn bold and
 //               gold - a wall of even grey text hides the one clause that
 //               says what to press
 //   `x42`       a boxed literal, for naming a number that is also on screen
 //               somewhere ("the x42 above the bars") so the two read as the
 //               same object
-function tokenize(str) {
-    const out = [];
-    // One pass, three markers. Everything between markers is plain words.
-    const re = /\{\{(KEY_[A-Z0-9_]+)\}\}|\*([^*]+)\*|`([^`]+)`/g;
-    const plain = (chunk) => {
-        for (const w of chunk.split(/\s+/).filter(Boolean)) out.push({ t: "w", s: w });
-    };
+//
+// Markers nest: an instruction is nearly always "press THIS key", so the
+// keycaps have to survive being wrapped in emphasis. Scanning bold runs as
+// plain words is what printed a raw "{{KEY_AUTO_FIRE}}" on screen.
+const TOK_RE = /\{\{(KEY_[A-Z0-9_]+)\}\}|\[\[([^\]]+)\]\]|`([^`]+)`/g;
+
+// Everything except emphasis, which is handled by the caller so it can set the
+// weight of the words it produces.
+function tokenizeRun(str, weight, out) {
+    TOK_RE.lastIndex = 0;
     let last = 0, m;
-    while ((m = re.exec(str))) {
+    const plain = (chunk) => {
+        for (const w of chunk.split(/\s+/).filter(Boolean)) out.push({ t: weight, s: w });
+    };
+    while ((m = TOK_RE.exec(str))) {
         if (m.index > last) plain(str.slice(last, m.index));
-        if (m[1]) out.push({ t: "k", s: lbl(m[1]) });
-        else if (m[2]) {
-            // bold runs stay word-per-token so they still wrap normally
-            for (const w of m[2].split(/\s+/).filter(Boolean)) out.push({ t: "b", s: w });
-        } else out.push({ t: "v", s: m[3] });
+        if (m[1] !== undefined) out.push({ t: "k", s: lbl(m[1]) });
+        else if (m[2] !== undefined) out.push({ t: "k", s: m[2] });
+        else out.push({ t: "v", s: m[3] });
         last = m.index + m[0].length;
     }
     plain(str.slice(last));
+}
+
+function tokenize(str) {
+    const out = [];
+    const bold = /\*([^*]+)\*/g;
+    let last = 0, m;
+    while ((m = bold.exec(str))) {
+        if (m.index > last) tokenizeRun(str.slice(last, m.index), "w", out);
+        tokenizeRun(m[1], "b", out);
+        last = m.index + m[0].length;
+    }
+    tokenizeRun(str.slice(last), "w", out);
     return out;
 }
 
@@ -1563,25 +1660,39 @@ function measure(c, tok, S) {
     return c.measureText(tok.s).width;
 }
 
+// A comma or full stop that fell outside an emphasis run ("*like this*,") is
+// its own token, and spacing it like a word prints "like this ,". Punctuation
+// hugs whatever came before it instead.
+const HUGS_LEFT = /^[.,;:!?)\]]/;
+
 function layout(c, tokens, maxW, S) {
     const space = 4.5 * S;
     const lines = [];
     let cur = [], w = 0;
     for (const tok of tokens) {
         const tw = measure(c, tok, S);
-        if (cur.length && w + space + tw > maxW) { lines.push({ toks: cur, w }); cur = []; w = 0; }
-        if (cur.length) w += space;
-        cur.push({ tok, w: tw });
-        w += tw;
+        // Keycaps and boxed values are chrome, not glyphs: they always want
+        // their own breathing room even before a comma.
+        const glue = cur.length && tok.t !== "k" && tok.t !== "v" && HUGS_LEFT.test(tok.s);
+        const gap = cur.length && !glue ? space : 0;
+        if (cur.length && !glue && w + gap + tw > maxW) {
+            lines.push({ toks: cur, w });
+            cur = []; w = 0;
+            cur.push({ tok, w: tw, gap: 0 });
+            w += tw;
+            continue;
+        }
+        cur.push({ tok, w: tw, gap });
+        w += gap + tw;
     }
     if (cur.length) lines.push({ toks: cur, w });
     return lines;
 }
 
 function drawLine(c, line, cx, y, S) {
-    const space = 4.5 * S;
     let x = cx - line.w / 2;
     for (const it of line.toks) {
+        x += it.gap || 0;
         if (it.tok.t === "k") {
             const h = 19 * S;
             roundRect(c, x, y - h / 2, it.w, h, 5 * S);
@@ -1617,7 +1728,7 @@ function drawLine(c, line, cx, y, S) {
             c.textAlign = "left";
             c.fillText(it.tok.s, x, y);
         }
-        x += it.w + space;
+        x += it.w;
     }
 }
 
@@ -1644,65 +1755,91 @@ function trackedText(c, str, cx, y, size, color, track, alpha) {
     }
 }
 
-// The four ore tiers, drawn as the gems themselves rather than described in a
-// sentence. Colours and values mirror server/lib/definitions/groups/digwars.js
-// and terrain/coreChambers.js, so what the card shows is what drops.
+// The four ore tiers. Drawn as the ACTUAL gem entities - looked up in the
+// mockup table by the LABEL the server gives them and rendered with the game's
+// own drawEntity - so the card cannot drift away from what really drops. A
+// hand-drawn approximation is exactly the thing a learner then fails to
+// recognise in the world.
 const GEM_LEGEND = [
-    { name: "Copper",     color: "#c96f2e", glow: "#e8a05c", worth: "15",  r: 0.72 },
-    { name: "Azurite",    color: "#3b7ce0", glow: "#6fa3f2", worth: "30",  r: 0.85 },
-    { name: "Core Shard", color: "#b13ecf", glow: "#e08af5", worth: "150", r: 1.0 },
-    { name: "Emerald",    color: "#1fbf6b", glow: "#6ff5a8", worth: "500", r: 1.18 },
+    { label: "Copper",     worth: "15",  scale: 0.80 },
+    { label: "Azurite",    worth: "30",  scale: 0.92 },
+    { label: "Core Shard", worth: "150", scale: 1.06 },
+    { label: "Emerald",    worth: "500", scale: 1.22 },
 ];
+
+// Mockup index for a gem, by name. Indices are assigned as the server builds
+// its class table and are not stable across builds, so never hard-code them.
+const gemIndexCache = new Map();
+function gemIndex(label) {
+    if (gemIndexCache.has(label)) return gemIndexCache.get(label);
+    let found = null;
+    const mk = global.mockups || [];
+    for (const key of Object.keys(mk)) {
+        const m = mk[key];
+        if (m && m.name === label) { found = String(m.index != null ? m.index : key); break; }
+    }
+    if (found) gemIndexCache.set(label, found);
+    return found;
+}
 
 function drawGemLegend(c, cx, y, alpha) {
     const S = US();
-    const slot = Math.min(SW() * 0.21, 116 * S);
+    const draw = window.dwDrawEntity;
+    const slot = Math.min(SW() * 0.21, 122 * S);
     const n = GEM_LEGEND.length;
     let x = cx - (n - 1) * slot / 2;
-    const R = 17 * S;
+    const R = 21 * S;
     const wob = T() / 620;
-    c.save();
-    c.globalAlpha = alpha;
+
     for (let i = 0; i < n; i++) {
         const g = GEM_LEGEND[i];
-        const rr = R * g.r * (1 + 0.045 * Math.sin(wob + i));
-        // glow
-        const grad = c.createRadialGradient(x, y, 0, x, y, rr * 2.4);
-        grad.addColorStop(0, g.glow + "88");
-        grad.addColorStop(1, g.glow + "00");
-        c.fillStyle = grad;
-        c.beginPath(); c.arc(x, y, rr * 2.4, 0, Math.PI * 2); c.fill();
-        // the gem: the same slow-spinning diamond the pickups draw as
-        const rot = wob * 0.35 + i;
-        c.beginPath();
-        for (let k = 0; k < 4; k++) {
-            const a = rot + k * Math.PI / 2;
-            const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr * 1.18;
-            k ? c.lineTo(px, py) : c.moveTo(px, py);
-        }
-        c.closePath();
-        c.fillStyle = g.color;
-        c.fill();
-        c.lineWidth = 2 * S;
-        c.strokeStyle = "rgba(0,0,0,.55)";
-        c.stroke();
+        const rr = R * g.scale * (1 + 0.04 * Math.sin(wob + i));
 
+        let img = null;
+        const idx = gemIndex(g.label);
+        if (idx && draw) {
+            try { img = util.requestEntityImage(idx, "16 0 1 0 false"); } catch (e) { img = null; }
+        }
+        if (img && img.size) {
+            c.save();
+            c.globalAlpha = alpha;
+            // drawEntity signature mirrors the upgrade-menu call site:
+            // (baseColor, x, y, picture, ratio, alpha, scale, lineWidthMult,
+            //  rot, turretsObeyRot, assignedContext)
+            try {
+                draw(img.color, x, y, img, 1, alpha, (rr * 2) / img.size,
+                     1, wob * 0.4 + i, true, c);
+            } catch (e) { img = null; }
+            c.restore();
+        }
+        if (!img) {
+            // Mockups not in yet (or a renderer that refused): a plain dot
+            // holds the slot rather than dropping the row to three gems.
+            c.save();
+            c.globalAlpha = alpha * 0.5;
+            c.fillStyle = `rgba(${PALE},.5)`;
+            c.beginPath(); c.arc(x, y, rr * 0.6, 0, Math.PI * 2); c.fill();
+            c.restore();
+        }
+
+        c.save();
+        c.globalAlpha = alpha;
         c.font = `700 ${12 * S}px ${FONT}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.lineWidth = 3;
-        c.strokeStyle = "rgba(0,0,0,.65)";
-        c.strokeText(g.name, x, y + rr + 20 * S);
+        c.strokeStyle = "rgba(0,0,0,.7)";
+        c.strokeText(g.label, x, y + R * 1.35 + 18 * S);
         c.fillStyle = `rgba(${PALE},.95)`;
-        c.fillText(g.name, x, y + rr + 20 * S);
+        c.fillText(g.label, x, y + R * 1.35 + 18 * S);
 
         c.font = `800 ${11 * S}px ${FONT}`;
-        c.strokeText(g.worth, x, y + rr + 36 * S);
+        c.strokeText(g.worth, x, y + R * 1.35 + 34 * S);
         c.fillStyle = `rgba(${GOLD},.9)`;
-        c.fillText(g.worth, x, y + rr + 36 * S);
+        c.fillText(g.worth, x, y + R * 1.35 + 34 * S);
+        c.restore();
         x += slot;
     }
-    c.restore();
 }
 
 function drawTitleCard(c, s) {
@@ -1883,9 +2020,13 @@ function ensureSkip() {
 }
 // Show the Next control only for steps that asked for one, and only once the
 // step has been on screen long enough to have been read.
-function showNext(on) {
+function showNext(on, label) {
     if (!skipBar) return;
     skipBar.classList.toggle("hasnext", !!on);
+    if (on && nextEl) {
+        const want = label || "Next ›";
+        if (nextEl.textContent !== want) nextEl.textContent = want;
+    }
 }
 // ── DOM spotlight + card ──────────────────────────────────────────────
 // The game canvas sits underneath the DOM, so a canvas-drawn box can never
@@ -1977,8 +2118,12 @@ function drawDomStep(step) {
         return "spot";
     }
     domCardT.textContent = (typeof step.label === "function" ? step.label() : step.label) || "";
+    // Plain text, so every marker the canvas card would have rendered as
+    // chrome has to be flattened - not just the keycaps.
     domCardB.textContent = String(typeof step.hint === "function" ? step.hint() : step.hint || "")
-        .replace(/\{\{KEY_([A-Z0-9_]+)\}\}/g, (m, id) => lbl("KEY_" + id));
+        .replace(/\{\{KEY_([A-Z0-9_]+)\}\}/g, (m, id) => lbl("KEY_" + id))
+        .replace(/\[\[([^\]]+)\]\]/g, "$1")
+        .replace(/[*`]/g, "");
     domCard.classList.add("show");
 
     // Park the card beside the settings panel rather than on top of it.
@@ -2159,7 +2304,8 @@ export function hook() {
     // Next appears only on steps that asked for one, only while the step is
     // still live, and only after a beat - so it cannot be clicked away before
     // the card it belongs to has even faded in.
-    showNext(!!(s && s.next && state.phase === "active" && T() - state.stepAt > 1400));
+    showNext(!!(s && s.next && state.phase === "active" && T() - state.stepAt > 1400),
+             s && s.nextLabel);
     c.save();
     c.textBaseline = "middle";
     if (s && s.card) {

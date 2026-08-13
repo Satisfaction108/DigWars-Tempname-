@@ -145,20 +145,64 @@ function baseTarget(loc, name) {
     return o;
 }
 
+// Is this spot clear enough to drop a tank on?
+//
+// Two things a practice target must never spawn in: solid rock, which wedges
+// it in the collision geometry where the learner cannot reach it, and the
+// enemy base, whose tiles delete any wrong-team entity outright - the bot
+// would appear and die in the same second, over and over.
+function spawnClear(plotIndex, x, y) {
+    const r = plots.plotRect(plotIndex);
+    const m = 200;
+    if (x < r.x0 + m || x > r.x1 - m || y < r.y0 + m || y > r.y1 - m) return false;
+
+    const b = plots.baseRect(plotIndex);
+    const pad = 320;   // well clear, not merely outside
+    if (x > b.x0 - pad && x < b.x1 + pad && y > b.y0 - pad && y < b.y1 + pad) return false;
+
+    const grid = global.gameManager && global.gameManager.terrainGrid;
+    if (grid && grid.nearestRock) {
+        const rock = grid.nearestRock(x, y, 150);
+        if (rock && rock.alive) return false;
+    }
+    return true;
+}
+
 // Somewhere just off the learner's shoulder. Practice targets used to spawn at
 // a fixed point in the arena, which meant the learner had to go looking for
 // them - and if they had wandered, the target was off screen when it appeared
 // and the lesson sat there waiting on a bot that was "there".
+//
+// The offset is a PREFERENCE, not a promise: it is tried first, then swept
+// around the learner, because the one thing that matters is that the target
+// lands somewhere reachable and visible.
 function besidePlayer(plotIndex, dx, dy) {
     const socket = owners[plotIndex];
     const body = socket && socket.player && socket.player.body;
-    if (!body || body.isDead()) return plots.plotPoint(plotIndex, 'dummy');
-    const r = plots.plotRect(plotIndex);
-    const m = 140;
-    return {
-        x: Math.max(r.x0 + m, Math.min(r.x1 - m, body.x + dx)),
-        y: Math.max(r.y0 + m, Math.min(r.y1 - m, body.y + dy)),
-    };
+    const home = plots.plotPoint(plotIndex, 'dummy');
+    if (!body || body.isDead()) return home;
+
+    const want = Math.atan2(dy, dx);
+    const dist = Math.hypot(dx, dy);
+    // Sweep outward from the requested bearing so the fallback stays as close
+    // to "just there, on your right" as the terrain allows.
+    for (const spread of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3, Math.PI]) {
+        for (const scale of [1, 0.75, 1.3]) {
+            const a = want + spread;
+            const x = body.x + Math.cos(a) * dist * scale;
+            const y = body.y + Math.sin(a) * dist * scale;
+            if (spawnClear(plotIndex, x, y)) return { x, y };
+        }
+    }
+    return home;
+}
+
+// Bring the learner back to full. Used before a fight the lesson wants them to
+// win, right after the lesson that deliberately chewed their health down.
+function heal(body) {
+    if (!body) return;
+    if (body.health && body.health.max) body.health.amount = body.health.max;
+    if (body.shield && body.shield.max) body.shield.amount = body.shield.max;
 }
 
 // A target that never moves and never shoots: the first kill should be about
@@ -240,9 +284,34 @@ function grantPoints(body, n) {
     body.skill.points = Math.max(body.skill.points, n | 0);
 }
 
+// Every stat this tank can actually use goes to its cap, except one that is
+// left empty with exactly `spare` points in hand to fill it.
+//
+// The rammer chapter needs this: which stats a Smasher can use, and what they
+// cap at, is a property of the class definition, so hard-coding a number here
+// would silently drift the moment the tank is retuned. Ask the skill object.
+function fillStats(body, exceptDisplay, spare) {
+    if (!body || !body.skill) return;
+    const raw = body.skill.raw.slice();
+    for (let d = 0; d < DISPLAY_TO_RAW.length; d++) {
+        const r = DISPLAY_TO_RAW[d];
+        raw[r] = d === exceptDisplay ? 0 : body.skill.caps[r];
+    }
+    body.skill.set(raw);
+    body.skill.points = Math.max(0, spare | 0);
+    body.refreshBodyAttributes();
+}
+
 // Put the learner on top of the landmark the lesson is about. Walking 2000
 // units in silence is not a lesson, and the edge arrow only helps if you
 // already know why you are walking.
+//
+// Glided, not snapped: an instant jump reads as a bug or a disconnect, and the
+// client's camera lerps toward the body anyway, so a hard set produced a
+// lurching catch-up. tickGlide walks it there over a few hundred ms - fast
+// enough not to be a journey, slow enough to be legible as movement.
+const GLIDE_MS = 420;
+
 function teleport(socket, key) {
     const i = plotOf(socket);
     const body = socket && socket.player && socket.player.body;
@@ -252,10 +321,32 @@ function teleport(socket, key) {
     // Land beside a structure rather than inside it: dropping a tank on top of
     // a chamber ring wedges it in the collision geometry.
     const off = (key === 'outpost' || key === 'chamberRed' || key === 'chamberBlue') ? -260 : 0;
-    body.x = p.x + off;
-    body.y = p.y;
-    if (body.velocity) { body.velocity.x = 0; body.velocity.y = 0; }
-    if (socket.camera) { socket.camera.x = body.x; socket.camera.y = body.y; }
+    body._tutorialGlide = {
+        fromX: body.x, fromY: body.y,
+        toX: p.x + off, toY: p.y,
+        at: Date.now(),
+    };
+}
+
+function tickGlide() {
+    const now = Date.now();
+    for (const socket of owners) {
+        const body = socket && socket.player && socket.player.body;
+        const g = body && body._tutorialGlide;
+        if (!g) continue;
+        if (body.isDead()) { body._tutorialGlide = null; continue; }
+        let t = (now - g.at) / GLIDE_MS;
+        if (t >= 1) {
+            t = 1;
+            body._tutorialGlide = null;
+        }
+        // Ease in and out so it starts and stops without a jerk.
+        const e = t * t * (3 - 2 * t);
+        body.x = g.fromX + (g.toX - g.fromX) * e;
+        body.y = g.fromY + (g.toY - g.fromY) * e;
+        if (body.velocity) { body.velocity.x = 0; body.velocity.y = 0; }
+        if (body.accel) { body.accel.x = 0; body.accel.y = 0; }
+    }
 }
 
 // Force a player command flag (the drone lesson turns auto-fire off so the
@@ -281,7 +372,24 @@ const CAPS = ['stats', 'upgrade', 'bank'];
 
 function setAllowed(body, csv) {
     const list = String(csv || '').split(',').map(x => x.trim()).filter(Boolean);
-    body._tutorialAllow = new Set(list.filter(c => CAPS.includes(c)));
+    const caps = new Set();
+    // "stats" opens the whole bar; "stats:6" opens exactly one of them, by the
+    // index the skill bar (and the x packet) uses. The per-stat objectives are
+    // about ONE stat, and a learner who dumps the lot into the first bar has
+    // skipped nine lessons without noticing. Carried on `allow` rather than a
+    // command of its own because allow is re-sent on every step, so the lock
+    // cannot outlive the objective that set it.
+    body._tutorialStat = -1;
+    for (const item of list) {
+        const [cap, arg] = item.split(':');
+        if (!CAPS.includes(cap)) continue;
+        caps.add(cap);
+        if (cap === 'stats' && arg !== undefined) {
+            const i = parseInt(arg, 10);
+            if (i >= 0 && i <= 9) body._tutorialStat = i;
+        }
+    }
+    body._tutorialAllow = caps;
 }
 
 // Default-closed: if a step never declared its permissions, assume the strict
@@ -290,6 +398,14 @@ function allows(body, cap) {
     if (!Config.tutorial) return true;
     if (!body || !body._tutorialAllow) return false;
     return body._tutorialAllow.has(cap);
+}
+
+// Which stat index the current step permits (-1 = any).
+function allowsStat(body, index) {
+    if (!Config.tutorial) return true;
+    if (!allows(body, 'stats')) return false;
+    const only = body._tutorialStat;
+    return only === undefined || only < 0 || only === index;
 }
 
 // ─── forced upgrade path ──────────────────────────────────────────────────
@@ -344,7 +460,7 @@ function upgradeAllowed(body, upgrade) {
 // Every tank the curriculum walks through, plus the bullet tank it returns to
 // between chapters. Allowlisted so a crafted TUT packet cannot morph anyone
 // into an arbitrary class.
-const MORPHS = ['director', 'overlord', 'auto3', 'smasher', 'pentaShot'];
+const MORPHS = ['director', 'overlord', 'auto3', 'auto5', 'smasher', 'pentaShot'];
 
 function morph(body, className) {
     try {
@@ -425,9 +541,9 @@ module.exports = {
     plotInfo, talkPlotInfo,
     spawnDummy, spawnFighter, clearBots,
     lockUpgrades, unlockUpgrades, upgradeAllowed, morph,
-    setAllowed, allows,
-    setStats, grantPoints, teleport, setCommand,
-    tickLeash, tickReap, tickBaseGuard,
+    setAllowed, allows, allowsStat,
+    setStats, fillStats, grantPoints, teleport, setCommand, heal,
+    tickLeash, tickReap, tickBaseGuard, tickGlide,
     plotCount: plots.plotCount,
     plotPoint: plots.plotPoint,
 };

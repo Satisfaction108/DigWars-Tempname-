@@ -523,12 +523,6 @@ class socketManager {
                     socket.kick("Ill-sized skill request.");
                     return 1;
                 }
-                // Tutorial: stat points are only spendable during the stat
-                // lessons. Gated here rather than in the UI because 1-0 and M
-                // go straight to the socket without touching the bars.
-                if (Config.tutorial && player.body &&
-                    !require('../tutorialSession.js').allows(player.body, 'stats')) return;
-
                 let number = m[0],
                     max = m[1],
                     stat = ["atk", "hlt", "spd", "str", "pen", "dam", "rld", "mob", "rgn", "shi"][number];
@@ -550,6 +544,13 @@ class socketManager {
                     socket.kick("Unknown stat upgrade request.");
                     return 1;
                 }
+
+                // Tutorial: stat points are only spendable during the stat
+                // lessons, and each of those permits exactly one bar. Gated
+                // here rather than in the UI because 1-0 and M go straight to
+                // the socket without ever touching the bars.
+                if (Config.tutorial && player.body &&
+                    !require('../tutorialSession.js').allowsStat(player.body, number)) return;
 
                 if (player.body != null) {
                     let limit = 256;
@@ -671,6 +672,17 @@ class socketManager {
                     case "points":
                         tut.grantPoints(body, parseInt(m[1], 10) || 0);
                         break;
+
+                    // Max every stat this tank can use except one, and leave
+                    // exactly that many points in hand for it: "fill,6,1".
+                    case "fill":
+                        tut.fillStats(body, parseInt(m[1], 10),
+                                      m[2] === undefined ? 1 : parseInt(m[2], 10) || 0);
+                        break;
+
+                    // Back to full, both bars. Follows the lesson that took a
+                    // deliberate bite out of them.
+                    case "heal": tut.heal(body); break;
 
                     // Put the learner on the landmark the lesson is about.
                     case "goto":

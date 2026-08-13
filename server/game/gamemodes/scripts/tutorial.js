@@ -9,6 +9,9 @@ class Tutorial {
         session.tickReap();
         session.tickLeash();
         session.tickBaseGuard();
+        // After the guards, so a glide in progress is not fought by the fence
+        // on the same tick.
+        session.tickGlide();
     }
     reset() {}
     redefine(gm) { this.gameManager = gm; }
