@@ -52,6 +52,48 @@ function spawnPointFor(socket) {
     return plots.plotPoint(i, 'spawn');
 }
 
+// Everything the client needs to know about its own arena, shipped in the TUTI
+// packet. The client cannot derive any of it: it is handed the room and the
+// terrain, but nothing tells it how the room was divided.
+//
+// The landmarks matter beyond drawing markers. Without them the lesson script
+// falls back on "the first outpost in the list" and "the nearest rock", both of
+// which happily point at a NEIGHBOUR's arena - the outpost list is room-wide
+// and the terrain renderer holds every rock in the room. Every world lookup on
+// the client is filtered through `arena` for that reason.
+function plotInfo(index) {
+    const pt = (k) => {
+        const p = plots.plotPoint(index, k);
+        return { x: Math.round(p.x), y: Math.round(p.y) };
+    };
+    const c = plots.plotCenter(index);
+    const r = plots.plotRect(index);
+    return {
+        plot: index,
+        spawn: pt('spawn'),
+        rocks: pt('rocks'),
+        base: pt('base'),              // the lethal, red one
+        homeBase: pt('homeBase'),
+        vault: pt('vaultBlue'),        // the one they can actually bank at
+        outpost: pt('outpost'),
+        chamberBlue: pt('chamberBlue'),
+        chamberRed: pt('chamberRed'),
+        // Frame for the full map, and the filter for every world lookup.
+        cx: Math.round(c.x), cy: Math.round(c.y),
+        size: plots.PLOT_SIZE,
+        arena: {
+            x0: Math.round(r.x0), y0: Math.round(r.y0),
+            x1: Math.round(r.x1), y1: Math.round(r.y1),
+        },
+    };
+}
+
+function talkPlotInfo(socket) {
+    const i = plotOf(socket);
+    if (i < 0) return;
+    try { socket.talk("TUTI", JSON.stringify(plotInfo(i))); } catch (e) { }
+}
+
 // ─── scripted bots ────────────────────────────────────────────────────────
 
 function killBot(entity) {
@@ -260,14 +302,20 @@ function tickLeash() {
     }
 }
 
-// Hold every learner out of their plot's enemy base. Runs on the gamemode
-// loop, so it applies on every step - a learner who wanders into the base
-// during the mining lesson would die to something nothing has explained yet.
+// Hold every learner inside their own arena, and out of its enemy base. Runs
+// on the gamemode loop, so both apply on every step:
+//   - a learner who wanders into the base would die to something nothing has
+//     explained yet;
+//   - a learner who drives out of the arena ends up in the gutter or a
+//     neighbour's world, which is exactly what plot isolation exists to stop.
+// Fence first, base second: the base sits on the arena's right edge, so the
+// fence must not be able to push anyone back into it.
 function tickBaseGuard() {
     for (let i = 0; i < owners.length; i++) {
         const socket = owners[i];
         const body = socket && socket.player && socket.player.body;
         if (!body || body.isDead()) continue;
+        plots.keepInPlot(body, i);
         plots.keepOutOfBase(body, i);
     }
 }
@@ -287,6 +335,7 @@ function tickReap() {
 
 module.exports = {
     claimPlot, releasePlot, plotOf, freePlots, spawnPointFor,
+    plotInfo, talkPlotInfo,
     spawnDummy, spawnFighter, clearBots,
     lockUpgrades, unlockUpgrades, upgradeAllowed, morph,
     setAllowed, allows,

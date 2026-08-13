@@ -143,8 +143,13 @@ class Entity extends EventEmitter {
 
     become(player, dom = false) {
         this.addController(new ioTypes.listenToPlayer(this, { player, static: dom })); // Make it listen.
+        // Tutorial: the objective chain is the only voice on the training
+        // ground. Stock messages ("You have spawned!", self-destruct notices,
+        // living-wall deaths) pop up over whichever lesson card is on screen
+        // and read as bugs to someone who has been playing for ninety seconds.
         this.sendMessage = (content, displayTime = Config.popup_message_duration) =>
-            player.socket.talk("m", displayTime, content);  // make sure that it sends messages.
+            Config.tutorial ? undefined
+                            : player.socket.talk("m", displayTime, content);
         this.kick = (reason) => player.socket.kick(reason);
     }
 

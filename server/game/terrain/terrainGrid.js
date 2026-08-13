@@ -1586,4 +1586,4 @@ class TerrainGrid {
     }
 }
 
-module.exports = { TerrainGrid, CELL, ORE, REGROW, easeGrowth };
+module.exports = { TerrainGrid, CELL, ORE, ORE_HP, REGROW, easeGrowth };

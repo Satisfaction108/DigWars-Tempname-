@@ -1,6 +1,7 @@
-// Tutorial room: a PLOT_COLS x PLOT_ROWS grid of identical learner plots.
-// Every plot carries its own 2x2 enemy base block so the "never touch an enemy
-// base" lesson can be demonstrated safely inside the learner's own world.
+// Tutorial room: a PLOT_COLS x PLOT_ROWS grid of identical learner arenas,
+// each a miniature of room_dig_wars.js - a friendly base column down the left
+// edge and a lethal enemy base column down the right - separated by gutters of
+// plain tiles that nobody can see across.
 //
 // Room files are evaluated with `tileClass` in scope (see loaders/global.js).
 
@@ -11,17 +12,13 @@ const roomHeight = plots.ROOM_TILES_Y;
 
 const room = Array(roomHeight).fill(null).map(() => Array(roomWidth).fill(tileClass.normal));
 
-for (let gy = 0; gy < plots.PLOT_ROWS; gy++) {
-    for (let gx = 0; gx < plots.PLOT_COLS; gx++) {
-        const ox = gx * plots.PLOT_TILES;
-        const oy = gy * plots.PLOT_TILES;
-        const b = plots.BASE_TILES;
-        for (let y = b.y0; y <= b.y1; y++) {
-            for (let x = b.x0; x <= b.x1; x++) {
-                // base2 == TEAM_RED, i.e. hostile to the learner (TEAM_BLUE).
-                room[oy + y][ox + x] = tileClass.base2;
-            }
-        }
+for (let i = 0; i < plots.plotCount(); i++) {
+    const o = plots.plotTileOrigin(i);
+    for (let y = 0; y < plots.PLOT_TILES; y++) {
+        // base1 == TEAM_BLUE, the learner's own team: safe to stand on, and
+        // where their vault sits. base2 == TEAM_RED, hostile and lethal.
+        room[o.y + y][o.x + plots.BASE_COL_BLUE] = tileClass.base1;
+        room[o.y + y][o.x + plots.BASE_COL_RED]  = tileClass.base2;
     }
 }
 

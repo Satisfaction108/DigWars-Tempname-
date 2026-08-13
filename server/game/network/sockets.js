@@ -22,6 +22,9 @@ class socketManager {
     };
 
     broadcast(message) {
+        // Tutorial: a room-wide announcement is by definition about somebody
+        // else's arena, and nothing on the training ground should ever be.
+        if (Config.tutorial) return;
         for (let i = 0; i < this.clients.length; i++) {
             this.clients[i].talk("m", Config.popup_message_duration, message);
         }
@@ -613,24 +616,7 @@ class socketManager {
                     // Hand the client the landmarks of its own plot. The
                     // client cannot derive these: it knows the room, but not
                     // how the room was divided into plots.
-                    case "hello": {
-                        const plotsMod = require('../terrain/tutorialPlots.js');
-                        const pt = (k) => {
-                            const p = tut.plotPoint(plot, k);
-                            return { x: Math.round(p.x), y: Math.round(p.y) };
-                        };
-                        const centre = plotsMod.plotCenter(plot);
-                        // Same payload as the spawn-time TUTI - this one is a
-                        // re-request and must not overwrite fields away.
-                        socket.talk("TUTI", JSON.stringify({
-                            plot,
-                            base: pt('base'),
-                            spawn: pt('spawn'),
-                            rocks: pt('rocks'),
-                            cx: Math.round(centre.x), cy: Math.round(centre.y),
-                            size: plotsMod.PLOT_SIZE,
-                        }));
-                    } break;
+                    case "hello": tut.talkPlotInfo(socket); break;
 
                     // Spawn the stationary practice target.
                     case "dummy": tut.spawnDummy(plot); break;
@@ -1317,22 +1303,7 @@ class socketManager {
                 // Announce the plot immediately. The client treats receiving
                 // this as proof it really is on the tutorial server - see the
                 // auto-start gate in public/client/tutorial.js.
-                const plotIdx = session.plotOf(socket);
-                const pt = (k) => {
-                    const q = session.plotPoint(plotIdx, k);
-                    return { x: Math.round(q.x), y: Math.round(q.y) };
-                };
-                try {
-                    const plotsMod = require('../terrain/tutorialPlots.js');
-                    const centre = plotsMod.plotCenter(plotIdx);
-                    socket.talk("TUTI", JSON.stringify({
-                        plot: plotIdx, base: pt('base'),
-                        spawn: pt('spawn'), rocks: pt('rocks'),
-                        // Frame for the full map: the learner's plot only.
-                        cx: Math.round(centre.x), cy: Math.round(centre.y),
-                        size: plotsMod.PLOT_SIZE,
-                    }));
-                } catch (e) { }
+                session.talkPlotInfo(socket);
             }
         }
 
@@ -2090,8 +2061,15 @@ class socketManager {
         });
         let minimapTeams = new Delta(3, args => {
             let all = [];
+            // Tutorial: every learner is on TEAM_BLUE, so the team minimap is
+            // the one place they would still see each other - as friendly dots
+            // scattered across arenas they cannot reach. args[1] is the
+            // viewer's arena; anything outside it is filtered out.
+            const plot = args[1];
+            const tutPlots = Config.tutorial ? require('../terrain/tutorialPlots.js') : null;
             for (const my of entities.values())
                 if (my.type === "tank" && my.team === args[0] && my.master === my && my.allowedOnMinimap) {
+                    if (tutPlots && tutPlots.plotAt(my.x, my.y) !== plot) continue;
                     all.push({
                         id: my.id,
                         data: [
@@ -2278,7 +2256,10 @@ class socketManager {
             const ccState = gemMode ? JSON.stringify(
                 require('../terrain/coreChambers.js').stateSnapshot()) : null;
             for (let socket of subscribers) {
-                minimapTeamUpdates = minimapTeams.update(socket.id, socket.player.body ? socket.player.body.team : socket.player.team);
+                minimapTeamUpdates = minimapTeams.update(
+                    socket.id,
+                    socket.player.body ? socket.player.body.team : socket.player.team,
+                    Config.tutorial ? require('../tutorialSession.js').plotOf(socket) : null);
                 if (!socket.status.selectedLeaderboard) socket.status.selectedLeaderboard = "global";
                 if (!socket.status.hasSpawned || socket.status.selectedLeaderboard == "stop") continue;
                 let sl = socket.status.selectedLeaderboard;

@@ -129,6 +129,29 @@ function rockAt(t, k) {
 function rockAlive(t, k) {
     return t._cellPolys.has(k) && !t._rockDead.has(k);
 }
+
+// ── staying inside our own arena ───────────────────────────────────────
+// The tutorial room holds one arena per learner, but nothing the client
+// receives is scoped to ours: the terrain renderer holds every rock in the
+// room, and global.outposts / global.chambers / global.vaults are room-wide
+// lists. Left alone, "the first outpost" and "the nearest rock" cheerfully
+// point at a neighbour's arena - a marker the learner can see on the map and
+// can never reach. Every world lookup below goes through inArena().
+function arena() {
+    const p = global.tutorialPlot;
+    return (p && p.arena) ? p.arena : null;
+}
+function inArena(x, y) {
+    const a = arena();
+    if (!a) return true;          // not on the tutorial server: no filtering
+    return x >= a.x0 && x <= a.x1 && y >= a.y0 && y <= a.y1;
+}
+// A landmark the server placed in OUR arena, as a target descriptor.
+function landmark(key, kind, r) {
+    const p = (global.tutorialPlot || {})[key];
+    if (!p) return null;
+    return r ? { kind, x: p.x, y: p.y, r } : { kind, x: p.x, y: p.y };
+}
 // Pick a rock that makes a good first target: ore-bearing if we can, and at a
 // comfortable stand-off so the player has to actually aim rather than bump it.
 function acquireRock(wantOre) {
@@ -154,6 +177,7 @@ function acquireRock(wantOre) {
         if (!rockAlive(t, k)) continue;
         const rk = rockAt(t, k);
         if (!rk) continue;
+        if (!inArena(rk.x, rk.y)) continue;
         const d = Math.hypot(rk.x - px, rk.y - py);
         if (d < near) continue;
         const score = Math.abs(d - ideal) + (d > ideal ? 0 : 400);
@@ -162,7 +186,12 @@ function acquireRock(wantOre) {
     if (!best && wantOre) return acquireRock(false);
     return best;
 }
+// The pad the learner can actually bank at. On the tutorial server the server
+// names it outright - every arena has a red pad too, and it sits on the lethal
+// base, so "nearest" is the one answer that must never be given.
 function nearestVault() {
+    const own = (global.tutorialPlot || {}).vault;
+    if (own) return { x: own.x, y: own.y, r: 95 };
     if (!global.vaults || !global.vaults.length) return null;
     const px = global.player.renderx, py = global.player.rendery;
     let best = null, bestD = Infinity;
@@ -408,6 +437,7 @@ function practiceBot(name) {
         if (e.team === myTeam()) continue;
         if (!e.render || !e.render.draws) continue;
         if (name && !(e.name || "").includes(name)) continue;
+        if (!inArena(e.x, e.y)) continue;
         const d = Math.hypot(e.x - global.player.cx.x, e.y - global.player.cy.y);
         if (d < bestD) { bestD = d; best = e; }
     }
@@ -653,14 +683,10 @@ const ALL_STEPS = [
         allow: "bank",
         label: "Take the outpost",
         hint: () => "Outposts are capture points. Bank gems on the pad to claim one - it then heals your team and lets you respawn there.",
-        acquire: () => {
-            const o = (global.outposts || [])[0];
-            return o ? { kind: "vault", x: o.x, y: o.y, r: o.r || 95 } : null;
-        },
-        revalidate: () => {
-            const o = (global.outposts || [])[0];
-            return o ? { kind: "vault", x: o.x, y: o.y, r: o.r || 95 } : null;
-        },
+        // global.outposts is room-wide, so index 0 is whichever arena the
+        // server happened to build first - usually somebody else's.
+        acquire: () => landmark("outpost", "vault", 95),
+        revalidate: () => landmark("outpost", "vault", 95),
         // Standing on it is the lesson; actually capturing costs gems they may
         // not have, so arriving is enough.
         done: () => global.vault.isOutpost || T() - state.stepAt > 30000,
@@ -670,10 +696,10 @@ const ALL_STEPS = [
         label: "Find the core chamber",
         title: "CORE CHAMBERS",
         hint: () => "That ringed vault holds a hoard of gems. Break the ring and it spills - but it takes a team, and everyone nearby wants the same pile.",
-        acquire: () => {
-            const c = (global.chambers || [])[0];
-            return c ? { kind: "point", x: c.x, y: c.y } : null;
-        },
+        // The enemy's, past the outpost: the blue one on the near side is
+        // theirs to defend, not to crack open.
+        acquire: () => landmark("chamberRed", "point"),
+        revalidate: () => landmark("chamberRed", "point"),
         settle: 600,
         done: () => T() - state.stepAt > 7000,
     },
@@ -682,14 +708,8 @@ const ALL_STEPS = [
         label: "Never touch a base",
         title: "ENEMY BASES KILL INSTANTLY",
         hint: () => "The red zone is the enemy base. It does not damage you - it deletes you, and everything in your satchel. Stay out.",
-        acquire: () => {
-            const p = (global.tutorialPlot || {}).base;
-            return p ? { kind: "point", x: p.x, y: p.y } : null;
-        },
-        revalidate: () => {
-            const p = (global.tutorialPlot || {}).base;
-            return p ? { kind: "point", x: p.x, y: p.y } : null;
-        },
+        acquire: () => landmark("base", "point"),
+        revalidate: () => landmark("base", "point"),
         settle: 600,
         done: () => T() - state.stepAt > 6500,
     },
@@ -887,6 +907,16 @@ function pollLessons() {
     const a = archetype(m);
     state.tank = a;           // debug aid, mirrors window.dwTut
     state.myColor = gui.color;
+    // Nothing pops up on the training ground. The lesson cards were written
+    // for the live game, where they are the only teacher; here the objective
+    // chain already narrates every one of these beats, and a "New stat" card
+    // firing over the step that is currently ASKING for a stat point is
+    // exactly the interruption the tutorial exists to avoid. They resume as
+    // normal the moment the learner is on a real server.
+    // tutorialMode as well as tutorialPlot: the plot packet arrives a beat
+    // after the connection does, and that beat is long enough for a card to
+    // fire on top of the opening title.
+    if (global.tutorialPlot || global.tutorialMode) return;
     if (lesson || !a || lessonsMuted()) return;
     const key = String(gui.type) + "|" + a.name;
     if (key !== tankWas) { tankWas = key; tankSince = T(); return; }

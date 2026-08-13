@@ -5376,6 +5376,21 @@ import * as tutorial from './tutorial.js';
             let centerX = x + len / 2;
             let centerY = y + height / 2;
 
+            // Tutorial: the room holds one arena per learner. Drawn to room
+            // scale the minimap shows everybody's training ground at once and
+            // shrinks the learner's own to a corner of it - so frame it on
+            // their arena instead, exactly as the full map already does.
+            // Everything outside the frame falls outside the clip below.
+            let mmW = global.gameWidth, mmH = global.gameHeight;
+            let mmCX = 0, mmCY = 0;
+            const tutPlot = global.tutorialPlot;
+            if (tutPlot && tutPlot.size) {
+                mmW = mmH = tutPlot.size;
+                mmCX = tutPlot.cx; mmCY = tutPlot.cy;
+            }
+            const mmX = (wx) => x + ((wx - mmCX) / mmW + 0.5) * len;
+            const mmY = (wy) => y + ((wy - mmCY) / mmH + 0.5) * height;
+
             ctx[2].globalAlpha = 0.4;
             ctx[2].save();
             ctx[2].fillStyle = color.white;
@@ -5403,10 +5418,10 @@ import * as tutorial from './tutorial.js';
                         let relX = cellWorldX - playerWorldX;
                         let relY = cellWorldY - playerWorldY;
 
-                        let minimapX = config.game.centeredMinimap ? centerX + (relX / global.gameWidth) * len : x + (j * len) / W;
-                        let minimapY = config.game.centeredMinimap ? centerY + (relY / global.gameHeight) * height : y + (i * height) / H;
-                        let cellWidth = len / W;
-                        let cellHeight = height / H;
+                        let minimapX = config.game.centeredMinimap ? centerX + (relX / mmW) * len : mmX(cellWorldX);
+                        let minimapY = config.game.centeredMinimap ? centerY + (relY / mmH) * height : mmY(cellWorldY);
+                        let cellWidth = (len / W) * (global.gameWidth / mmW);
+                        let cellHeight = (height / H) * (global.gameHeight / mmH);
                         if (!cell) {
                             ctx[2].fillStyle = gameDraw.getColor("border", true);
                             drawGuiRect(minimapX, minimapY, cellWidth, cellHeight);
@@ -5436,19 +5451,19 @@ import * as tutorial from './tutorial.js';
                 let relX = entity.x - global.player.cx.animX;
                 let relY = entity.y - global.player.cy.animY;
 
-                let minimapX = config.game.centeredMinimap ? centerX + (relX / global.gameWidth) * len : x + (entity.x / global.gameWidth + 0.5) * len;
-                let minimapY = config.game.centeredMinimap ? centerY + (relY / global.gameHeight) * height : y + (entity.y / global.gameHeight + 0.5) * height;
+                let minimapX = config.game.centeredMinimap ? centerX + (relX / mmW) * len : mmX(entity.x);
+                let minimapY = config.game.centeredMinimap ? centerY + (relY / mmH) * height : mmY(entity.y);
 
                 switch (entity.type) {
                     case 2:
 
                         let trueSize = (entity.size + 2) / 1.1283791671;
-                        let sizeOnMap = (trueSize / global.gameWidth) * len;
+                        let sizeOnMap = (trueSize / mmW) * len;
                         drawGuiRect(minimapX - sizeOnMap, minimapY - sizeOnMap, sizeOnMap * 2, sizeOnMap * 2);
                         break;
                     case 1:
 
-                        let entitySize = (entity.size / global.gameWidth) * len;
+                        let entitySize = (entity.size / mmW) * len;
                         drawGuiCircle(minimapX, minimapY, entitySize);
                         break;
                     case 0:
@@ -5467,8 +5482,8 @@ import * as tutorial from './tutorial.js';
                 for (const v of global.vaults) {
                     const relX = v.x - global.player.cx.animX;
                     const relY = v.y - global.player.cy.animY;
-                    const mx = config.game.centeredMinimap ? centerX + (relX / global.gameWidth) * len : x + (v.x / global.gameWidth + 0.5) * len;
-                    const my = config.game.centeredMinimap ? centerY + (relY / global.gameHeight) * height : y + (v.y / global.gameHeight + 0.5) * height;
+                    const mx = config.game.centeredMinimap ? centerX + (relX / mmW) * len : mmX(v.x);
+                    const my = config.game.centeredMinimap ? centerY + (relY / mmH) * height : mmY(v.y);
                     const mr = (global.mobile ? 6 : 4.5) * gp;
                     ctx[2].beginPath();
                     for (let i = 0; i < GEMM.length; i++) {
@@ -5489,7 +5504,7 @@ import * as tutorial from './tutorial.js';
             ctx[2].strokeStyle = color.guiblack;
             ctx[2].fillStyle = color.guiblack;
 
-            drawGuiCircle(config.game.centeredMinimap ? centerX : x + (global.player.cx.animX / global.gameWidth + 0.5) * len, config.game.centeredMinimap ? centerY : y + (global.player.cy.animY / global.gameHeight + 0.5) * height, !global.mobile ? 2 : 3.5, false);
+            drawGuiCircle(config.game.centeredMinimap ? centerX : mmX(global.player.cx.animX), config.game.centeredMinimap ? centerY : mmY(global.player.cy.animY), !global.mobile ? 2 : 3.5, false);
             ctx[2].restore();
             ctx[2].globalAlpha = 1;
             ctx[2].fillStyle = color.black;

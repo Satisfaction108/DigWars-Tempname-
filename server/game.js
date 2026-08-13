@@ -295,17 +295,20 @@ class gameServer {
                     seed: cfg.seed ?? 7,
                     extrusionChance: cfg.extrusion_chance ?? 0.40,
                 });
-                // Tutorial: replace the lane map with isolated learner plots.
-                // Carving has to land between generate() and buildContour(),
-                // because the colliders are built from the cell grid.
+                // Tutorial: replace the lane map with isolated learner arenas.
+                // carveTerrain sets the cell grid buildContour derives its
+                // lattice bounds from, so it must land BEFORE buildContour and
+                // nothing may touch the cells after it - the client recomputes
+                // those same bounds from the transmitted cells. sculpt() then
+                // shapes the rock by killing cells, which IS transmitted.
                 const tutorialPlots = Config.tutorial
                     ? require('./game/terrain/tutorialPlots.js')
                     : null;
                 if (tutorialPlots) tutorialPlots.carveTerrain(this.terrainGrid);
                 this.terrainGrid.buildContour();
                 if (tutorialPlots) {
+                    tutorialPlots.sculpt(this.terrainGrid);
                     tutorialPlots.installSites(this.terrainGrid);
-                    tutorialPlots.seedOres(this.terrainGrid);
                 }
             }
 
