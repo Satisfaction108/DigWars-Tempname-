@@ -112,8 +112,11 @@ class TerrainRenderer {
         this._oreSprout  = new Map();   
         this._sproutArt  = new Map();   
         this._growFx     = [];          
-        this._growDust   = new Map();   
-        this._silRebuildAt = 0;         
+        this._growDust   = new Map();
+        this._silRebuildAt = 0;
+        // Lattice polygons, keyed by rock key. Depends only on the map, so it
+        // survives every silhouette rebuild - see _buildVoronoiBoundary.
+        this._voroLattice = null;
     }
 
     _h(x, y, s) {
@@ -155,6 +158,7 @@ class TerrainRenderer {
         this._rows  = rows;
         this._cells = new Uint8Array(cells);
         this._lineRocks = null;
+        this._voroLattice = null;       // new map: rebuild the polygons once
         this._debugVoronoiSegs = null;
         // Reset rock state, then apply the server snapshot (late join / rejoin)
         this._rockHealth.clear();
@@ -1087,50 +1091,62 @@ class TerrainRenderer {
         const incCache = new Map();
         const polyCache = new Map();
 
-        for (let vj = vjLo; vj <= vjHi; vj++) {
-            for (let vi = viLo; vi <= viHi; vi++) {
-                const key = vi * 100003 + vj;
-                const [hx, hy] = h2(vi, vj);
-                const sx = vi+hx, sy = vj+hy;
+        // The lattice polygons depend only on (cols, rows, hash) - never on
+        // which rocks are alive - so they are identical on every rebuild. This
+        // function reruns on a 120ms throttle every time a rock dies, and
+        // re-clipping ~10k cells against 24 neighbours each was the single most
+        // expensive thing that happened while mining. Build them once per map
+        // and keep them; a rebuild then only re-reads _rockDead.
+        // init() clears the cache along with everything else.
+        let lattice = this._voroLattice;
+        if (!lattice) {
+            lattice = this._voroLattice = new Map();
+            for (let vj = vjLo; vj <= vjHi; vj++) {
+                for (let vi = viLo; vi <= viHi; vi++) {
+                    const key = vi * 100003 + vj;
+                    const [hx, hy] = h2(vi, vj);
+                    const sx = vi+hx, sy = vj+hy;
 
-                let poly = [[sx-3,sy-3],[sx+3,sy-3],[sx+3,sy+3],[sx-3,sy+3]];
-                for (let dj = -2; dj <= 2 && poly.length >= 3; dj++) {
-                    for (let di = -2; di <= 2 && poly.length >= 3; di++) {
-                        if (di === 0 && dj === 0) continue;
-                        const [nhx, nhy] = h2(vi+di, vj+dj);
-                        const tx = vi+di+nhx, ty = vj+dj+nhy;
-                        poly = clip(poly, (sx+tx)/2, (sy+ty)/2, tx-sx, ty-sy);
+                    let poly = [[sx-3,sy-3],[sx+3,sy-3],[sx+3,sy+3],[sx-3,sy+3]];
+                    for (let dj = -2; dj <= 2 && poly.length >= 3; dj++) {
+                        for (let di = -2; di <= 2 && poly.length >= 3; di++) {
+                            if (di === 0 && dj === 0) continue;
+                            const [nhx, nhy] = h2(vi+di, vj+dj);
+                            const tx = vi+di+nhx, ty = vj+dj+nhy;
+                            poly = clip(poly, (sx+tx)/2, (sy+ty)/2, tx-sx, ty-sy);
+                        }
                     }
+                    if (poly.length < 3) continue;
+                    let area2 = 0;
+                    for (let ai = 0; ai < poly.length; ai++) {
+                        const [ax, ay] = poly[ai], [bx, by] = poly[(ai+1)%poly.length];
+                        area2 += ax*by - bx*ay;
+                    }
+                    if (Math.abs(area2) / 2 < 0.05) continue;
+
+                    // Tile-coord polygon cached for cracks + shatter effects
+                    let pcx = 0, pcy = 0;
+                    for (const p of poly) { pcx += p[0]; pcy += p[1]; }
+                    pcx = pcx / poly.length * rockSz; pcy = pcy / poly.length * rockSz;
+                    const tilePoly = poly.map(p => [p[0] * rockSz, p[1] * rockSz]);
+                    const tilePath = new Path2D();
+                    tilePath.moveTo(tilePoly[0][0], tilePoly[0][1]);
+                    for (let pi = 1; pi < tilePoly.length; pi++)
+                        tilePath.lineTo(tilePoly[pi][0], tilePoly[pi][1]);
+                    tilePath.closePath();
+                    lattice.set(key, {
+                        poly, sx, sy,
+                        cell: { k: key, poly: tilePoly, cx: pcx, cy: pcy, path: tilePath },
+                    });
                 }
-                if (poly.length < 3) { incCache.set(key, false); continue; }
-                let area2 = 0;
-                for (let ai = 0; ai < poly.length; ai++) {
-                    const [ax, ay] = poly[ai], [bx, by] = poly[(ai+1)%poly.length];
-                    area2 += ax*by - bx*ay;
-                }
-                if (Math.abs(area2) / 2 < 0.05) { incCache.set(key, false); continue; }
-
-                // Tile-coord polygon cached for cracks + shatter effects
-                let pcx = 0, pcy = 0;
-                for (const p of poly) { pcx += p[0]; pcy += p[1]; }
-                pcx = pcx / poly.length * rockSz; pcy = pcy / poly.length * rockSz;
-                const tilePoly = poly.map(p => [p[0] * rockSz, p[1] * rockSz]);
-                const tilePath = new Path2D();
-                tilePath.moveTo(tilePoly[0][0], tilePoly[0][1]);
-                for (let pi = 1; pi < tilePoly.length; pi++)
-                    tilePath.lineTo(tilePoly[pi][0], tilePoly[pi][1]);
-                tilePath.closePath();
-                this._cellPolys.set(key, {
-                    k: key, poly: tilePoly, cx: pcx, cy: pcy, path: tilePath,
-                });
-
-                
-                
-                if (this._rockDead.has(key)) { incCache.set(key, false); continue; }
-
-                incCache.set(key, true);
-                polyCache.set(key, { poly, sx, sy });
             }
+        }
+
+        for (const [key, L] of lattice) {
+            this._cellPolys.set(key, L.cell);
+            if (this._rockDead.has(key)) { incCache.set(key, false); continue; }
+            incCache.set(key, true);
+            polyCache.set(key, L);
         }
 
         const isInc = (vi, vj) => incCache.get(vi * 100003 + vj) || false;

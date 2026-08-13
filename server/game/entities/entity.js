@@ -440,6 +440,22 @@ class Entity extends EventEmitter {
         if (set.VALUE != null) this.skill.score = Math.max(this.skill.score, set.VALUE * this.squiggle);
         if (set.ALT_ABILITIES != null) this.abilities = set.ALT_ABILITIES;
         if (set.GUNS != null) {
+            // Kill anything the OUTGOING guns still owns before dropping them.
+            // Drones, swarms and traps live in gun.children / body.children and
+            // outlive their gun, so a class change used to leave the old tank's
+            // drones orbiting a tank that no longer has a drone gun - they had
+            // no launcher left to recall or replace them and simply never went
+            // away. TURRETS below has always done this; GUNS never did.
+            for (let old of this.guns.values()) {
+                // destroy() splices the child out of gun.children and
+                // body.children itself, so iterate over a copy.
+                for (let child of [...old.children, ...old.bulletchildren]) {
+                    if (!child || child.isGhost) continue;
+                    try { child.kill(); child.destroy(); } catch (e) { }
+                }
+                old.children.length = 0;
+                old.bulletchildren.length = 0;
+            }
             this.guns.clear();
             this.gunsArrayed = [];
             let newGuns = [];
@@ -974,6 +990,20 @@ class Entity extends EventEmitter {
             return 0;
         }
         if (!this.settings.canGoOutsideRoom) {
+            // Tutorial: the learner's world is their own arena, not the whole
+            // room. Same soft push as the room border below, against a smaller
+            // rectangle, so the edge of the training ground behaves exactly
+            // like the edge of the real map - lean on it and you slow to a
+            // stop, rather than being snapped back a step.
+            const ab = this.arenaBounds;
+            if (ab) {
+                const f = Config.room_bound_force / global.gameManager.roomSpeed;
+                this.accel.x -= Math.min(this.x - this.realSize - ab.x0 + 50, 0) * f;
+                this.accel.x -= Math.max(this.x + this.realSize - ab.x1 - 50, 0) * f;
+                this.accel.y -= Math.min(this.y - this.realSize - ab.y0 + 50, 0) * f;
+                this.accel.y -= Math.max(this.y + this.realSize - ab.y1 - 50, 0) * f;
+                return;
+            }
             if (Config.arena_shape === "circle") {
                 let centerPoint = {
                     x: global.gameManager.room.width - global.gameManager.room.width,

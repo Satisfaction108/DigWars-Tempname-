@@ -145,6 +145,22 @@ function baseTarget(loc, name) {
     return o;
 }
 
+// Somewhere just off the learner's shoulder. Practice targets used to spawn at
+// a fixed point in the arena, which meant the learner had to go looking for
+// them - and if they had wandered, the target was off screen when it appeared
+// and the lesson sat there waiting on a bot that was "there".
+function besidePlayer(plotIndex, dx, dy) {
+    const socket = owners[plotIndex];
+    const body = socket && socket.player && socket.player.body;
+    if (!body || body.isDead()) return plots.plotPoint(plotIndex, 'dummy');
+    const r = plots.plotRect(plotIndex);
+    const m = 140;
+    return {
+        x: Math.max(r.x0 + m, Math.min(r.x1 - m, body.x + dx)),
+        y: Math.max(r.y0 + m, Math.min(r.y1 - m, body.y + dy)),
+    };
+}
+
 // A target that never moves and never shoots: the first kill should be about
 // aiming and holding fire, nothing else.
 function spawnDummy(plotIndex) {
@@ -153,8 +169,7 @@ function spawnDummy(plotIndex) {
     if (!slot) return null;
     if (slot.dummy && !slot.dummy.isDead()) return slot.dummy;
 
-    const loc = plots.plotPoint(plotIndex, 'dummy');
-    const o = baseTarget(loc, 'Practice Dummy');
+    const o = baseTarget(besidePlayer(plotIndex, 460, -110), 'Practice Dummy');
     o.controllers = [];               // no AI at all
     o.define({ CONTROLLERS: [] }, false, false, false);
     o.settings.hasNoRecoil = true;    // its own guns never fire, but be sure
@@ -163,27 +178,93 @@ function spawnDummy(plotIndex) {
   } catch (e) { util.warn("tutorial: dummy spawn failed - " + (e && e.message)); return null; }
 }
 
-// The first opponent that shoots back, pinned to the bottom of the skill range.
-// botSkill drives decision quality only (not damage or speed), so a low value
-// gives a real fight that a beginner can win.
+// The first opponent that shoots back.
+//
+// It is a Penta Shot, same as the learner, on a deliberately thin stat spread
+// rather than a blank one: an opponent with no stats at all dies to a sneeze
+// and teaches nothing about aiming or backing off. Display-order stats, which
+// setStats maps onto the raw skill array.
+const FIGHTER_STATS = [3, 3, 4, 5, 5, 5, 5, 1, 0, 0];
+
 function spawnFighter(plotIndex) {
   try {
     const slot = bots[plotIndex];
     if (!slot) return null;
     if (slot.fighter && !slot.fighter.isDead()) return slot.fighter;
 
-    const loc = plots.plotPoint(plotIndex, 'fighter');
-    const o = baseTarget(loc, 'Rookie');
-    o.define({ CONTROLLERS: ["digWarsGoals"] }, false, false, false);
-    o.botSkill = 0.1;
-    o.botStyle = 'normal';
-    o.botTemperament = 'passive';
-    o.botRammerAllowed = false;
+    const o = baseTarget(besidePlayer(plotIndex, 520, 140), 'Rookie');
+    o.define('pentaShot');
+    // io_tutorialDuelist, not the full bot brain: see controllers.js for why.
+    o.define({ CONTROLLERS: ["tutorialDuelist"] }, false, false, false);
+    o.tutorialFoe = (owners[plotIndex] && owners[plotIndex].player)
+        ? owners[plotIndex].player.body : null;
     o.botStatsFixed = true;
     o.botRespawnsRemaining = 0;
+    setStats(o, FIGHTER_STATS);
+    o.refreshBodyAttributes();
     slot.fighter = o;
     return o;
   } catch (e) { util.warn("tutorial: fighter spawn failed - " + (e && e.message)); return null; }
+}
+
+// ─── staging helpers the lesson script drives ─────────────────────────────
+
+// The skill bar the player sees is ordered
+//   body damage, max health, bullet speed, bullet health, bullet penetration,
+//   bullet damage, reload, movement speed, shield regen, shield capacity
+// while Skill.raw is ordered [rld, pen, str, dam, spd, shi, atk, hlt, rgn, mob].
+// Lessons talk in the order the player can see, so the mapping lives here once.
+const DISPLAY_TO_RAW = [6, 7, 4, 2, 1, 3, 0, 9, 8, 5];
+
+function setStats(body, list) {
+    if (!body || !body.skill) return;
+    const raw = body.skill.raw.slice();
+    for (let i = 0; i < DISPLAY_TO_RAW.length && i < list.length; i++) {
+        const v = Math.max(0, Math.min(Config.skill_cap, list[i] | 0));
+        raw[DISPLAY_TO_RAW[i]] = v;
+    }
+    // set() clamps to caps and refunds the overflow into points, which is
+    // exactly right: asking a rammer for bullet damage should hand the point
+    // back rather than silently vanish it.
+    const spent = raw.reduce((a, b) => a + b, 0);
+    const before = body.skill.raw.reduce((a, b) => a + b, 0);
+    body.skill.set(raw);
+    body.skill.points = Math.max(0, body.skill.points + before - spent);
+    body.refreshBodyAttributes();
+}
+
+// Hand the learner points to spend. Used when a morph opens up a stat they
+// have never seen (a rammer's Engine Acceleration) after everything was spent.
+function grantPoints(body, n) {
+    if (!body || !body.skill) return;
+    body.skill.points = Math.max(body.skill.points, n | 0);
+}
+
+// Put the learner on top of the landmark the lesson is about. Walking 2000
+// units in silence is not a lesson, and the edge arrow only helps if you
+// already know why you are walking.
+function teleport(socket, key) {
+    const i = plotOf(socket);
+    const body = socket && socket.player && socket.player.body;
+    if (i < 0 || !body || body.isDead()) return;
+    let p;
+    try { p = plots.plotPoint(i, key); } catch (e) { return; }
+    // Land beside a structure rather than inside it: dropping a tank on top of
+    // a chamber ring wedges it in the collision geometry.
+    const off = (key === 'outpost' || key === 'chamberRed' || key === 'chamberBlue') ? -260 : 0;
+    body.x = p.x + off;
+    body.y = p.y;
+    if (body.velocity) { body.velocity.x = 0; body.velocity.y = 0; }
+    if (socket.camera) { socket.camera.x = body.x; socket.camera.y = body.y; }
+}
+
+// Force a player command flag (the drone lesson turns auto-fire off so the
+// learner sees drones recall when they release the button).
+function setCommand(socket, name, on) {
+    const p = socket && socket.player;
+    if (!p || !p.command) return;
+    if (!['autofire', 'autospin', 'override', 'autoalt', 'spinlock'].includes(name)) return;
+    p.command[name] = !!on;
 }
 
 // ─── step gating ──────────────────────────────────────────────────────────
@@ -260,7 +341,10 @@ function upgradeAllowed(body, upgrade) {
 // and the upgrade tree cannot reach Director from there - no menu filtering
 // can teach a drone tank to someone who already finished a different branch.
 // Allowlisted so the TUT packet can never morph anyone into an arbitrary tank.
-const MORPHS = ['director', 'pentaShot'];
+// Every tank the curriculum walks through, plus the bullet tank it returns to
+// between chapters. Allowlisted so a crafted TUT packet cannot morph anyone
+// into an arbitrary class.
+const MORPHS = ['director', 'overlord', 'auto3', 'smasher', 'pentaShot'];
 
 function morph(body, className) {
     try {
@@ -271,24 +355,27 @@ function morph(body, className) {
     } catch (e) { util.warn("tutorial: morph failed - " + (e && e.message)); }
 }
 
-// Keep each practice bot near its home point.
+// Keep each practice bot on the learner's screen.
 //
-// Two problems this solves. The obvious one: a bot that leaves its plot could
-// drift into a neighbour's world, which plot isolation must never allow. The
-// subtler one, and the reason the leash is a RADIUS rather than the plot
-// border: a plot is far bigger than the screen, so digWarsGoals is perfectly
-// entitled to go mine a rock across the plot - and the learner is left staring
-// at an empty field waiting for an opponent that is alive, well, and 3000
-// units away. The lesson has to happen where the learner can see it.
-const LEASH_RADIUS = 1100;
+// The duelist controller already circles the player, so this is a backstop for
+// the cases the controller cannot cover: knockback, a bot spawned before the
+// player moved, and the stationary dummy after the learner has walked off. The
+// radius is set by the VERTICAL view cull (fov * 0.5625, about 1125 units),
+// which is far tighter than the horizontal one - a bot 1200 units above the
+// learner is culled out of their client entirely and reads as "it vanished".
+const LEASH_RADIUS = 820;
 
 function tickLeash() {
     for (let i = 0; i < bots.length; i++) {
         const slot = bots[i];
+        const socket = owners[i];
+        const player = socket && socket.player && socket.player.body;
         for (const key of ['dummy', 'fighter']) {
             const o = slot[key];
             if (!o || o.isDead()) continue;
-            const home = plots.plotPoint(i, key);
+            // Anchor on the learner, not on a fixed point: the lesson has to
+            // happen where they can see it, wherever that is.
+            const home = (player && !player.isDead()) ? player : plots.plotPoint(i, key);
             const dx = o.x - home.x, dy = o.y - home.y;
             const d = Math.hypot(dx, dy);
             if (d <= LEASH_RADIUS) continue;
@@ -298,25 +385,25 @@ function tickLeash() {
             o.x = home.x + dx * k;
             o.y = home.y + dy * k;
             if (o.velocity) { o.velocity.x *= 0.2; o.velocity.y *= 0.2; }
+            plots.keepInPlot(o, i);
         }
     }
 }
 
-// Hold every learner inside their own arena, and out of its enemy base. Runs
-// on the gamemode loop, so both apply on every step:
-//   - a learner who wanders into the base would die to something nothing has
-//     explained yet;
-//   - a learner who drives out of the arena ends up in the gutter or a
-//     neighbour's world, which is exactly what plot isolation exists to stop.
-// Fence first, base second: the base sits on the arena's right edge, so the
-// fence must not be able to push anyone back into it.
+// Hold every learner inside their own arena, and out of its enemy base.
+//
+// The arena fence itself is NOT applied here: entity.confinementToTheseEarthly-
+// Shackles() does it, using the same soft push the real room border uses, so
+// the edge of the training ground feels like the edge of the real map instead
+// of a snap-back. All this loop does is publish the bounds onto the body and
+// keep the lethal base out of reach.
 function tickBaseGuard() {
     for (let i = 0; i < owners.length; i++) {
         const socket = owners[i];
         const body = socket && socket.player && socket.player.body;
         if (!body || body.isDead()) continue;
-        plots.keepInPlot(body, i);
-        plots.keepOutOfBase(body, i);
+        body.arenaBounds = plots.plotRect(i);
+        plots.pushOutOfBase(body, i);
     }
 }
 
@@ -339,6 +426,7 @@ module.exports = {
     spawnDummy, spawnFighter, clearBots,
     lockUpgrades, unlockUpgrades, upgradeAllowed, morph,
     setAllowed, allows,
+    setStats, grantPoints, teleport, setCommand,
     tickLeash, tickReap, tickBaseGuard,
     plotCount: plots.plotCount,
     plotPoint: plots.plotPoint,

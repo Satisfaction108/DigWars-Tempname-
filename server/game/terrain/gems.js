@@ -387,4 +387,4 @@ function tickGem(gem, tg, players) {
     }
 }
 
-module.exports = { spawnOreBurst, spawnGem, initSatchel, updateSatchel, dropGemsOnDeath, tickGem, talkGems, SATCHEL_CAP };
+module.exports = { spawnOreBurst, spawnGem, initSatchel, updateSatchel, dropGemsOnDeath, tickGem, talkGems, setBanked, SATCHEL_CAP };

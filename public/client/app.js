@@ -4324,7 +4324,8 @@ import * as tutorial from './tutorial.js';
         if (global.tutorialMode) {
             const allow = window.dwTutAllow || "";
             const ui = window.dwTutUi || "";
-            if (!allow.includes("stats") && !ui.startsWith("skill") && !ui.startsWith("stat")) return;
+            if (!allow.includes("stats") && !ui.startsWith("skill") &&
+                !ui.startsWith("stat") && ui !== "points") return;
         }
 
         if (global.mobile) return drawMobileSkillUpgrades(spacing, alcoveSize);

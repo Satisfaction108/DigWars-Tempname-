@@ -175,6 +175,15 @@ function spawnStructure(c) {
     
     o.pinX = c.x;
     o.pinY = c.y;
+    // Tutorial: a real ring is meant to take a team a while, which is a fine
+    // design and a terrible lesson - the learner would be holding fire for
+    // half a minute to see what happens. Thin it down; the objective is the
+    // hoard spilling out, not the grind to get there.
+    if (Config.tutorial && o.health && o.health.max) {
+        o.health.max *= 0.18;
+        o.health.amount = o.health.max;
+        if (o.shield) { o.shield.max = 0; o.shield.amount = 0; }
+    }
     o.on('dead', () => onChamberDeath(c));
     c.entity = o;
     c._hpTrack = o.health.max;

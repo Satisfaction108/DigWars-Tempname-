@@ -643,12 +643,59 @@ class socketManager {
                     // Chip the learner's health so the HP bar visibly moves and
                     // regeneration can be demonstrated. Never lethal: it clamps
                     // to a fraction of max rather than dealing damage.
+                    //
+                    // Takes the shield down with it. A tank at full shield and
+                    // a third health barely looks damaged, and the lesson is
+                    // that BOTH bars come back on their own - so both have to
+                    // visibly move.
                     case "hurt":
                         if (body.health && body.health.max) {
                             body.health.amount = Math.min(
-                                body.health.amount, body.health.max * 0.35);
+                                body.health.amount, body.health.max * 0.12);
                         }
+                        if (body.shield && body.shield.max) body.shield.amount = 0;
                         break;
+
+                    // Set the learner's stats outright, in the order the skill
+                    // bar shows them. Chapters that are about flying a tank
+                    // (drones, autos) hand out a working build rather than
+                    // making the learner guess one first.
+                    case "stats": {
+                        if (typeof m[1] !== "string") return;
+                        const list = m[1].split(",").map(x => parseInt(x, 10) || 0);
+                        tut.setStats(body, list);
+                    } break;
+
+                    // Hand back points to spend - used when a morph unlocks a
+                    // stat the learner has never seen.
+                    case "points":
+                        tut.grantPoints(body, parseInt(m[1], 10) || 0);
+                        break;
+
+                    // Put the learner on the landmark the lesson is about.
+                    case "goto":
+                        if (typeof m[1] !== "string") return;
+                        tut.teleport(socket, m[1]);
+                        break;
+
+                    // Force a command toggle (the drone chapter switches
+                    // auto-fire off so drones visibly recall on release).
+                    case "cmd":
+                        if (typeof m[1] !== "string") return;
+                        // "0"/"1", not truthiness: the string "0" is truthy.
+                        tut.setCommand(socket, m[1], String(m[2]) === "1");
+                        break;
+
+                    // Set the satchel outright. The core-chamber lesson zeroes
+                    // it first so the 4000 that spills out of the ring is the
+                    // only number the learner ever sees.
+                    case "gems": {
+                        const n = Math.max(0, parseInt(m[1], 10) || 0);
+                        const gems = require('../terrain/gems.js');
+                        body.carriedGems = Math.min(n, body.gemCap | 0 || n);
+                        gems.updateSatchel(body);
+                        gems.talkGems(body, 0);
+                    } break;
 
                     // Declare what the current step permits. Anything not
                     // listed is refused at the socket until the next step.

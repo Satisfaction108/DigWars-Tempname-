@@ -72,6 +72,15 @@ function spawnStructure(site, team) {
     
     o.pinX = site.x;
     o.pinY = site.y;
+    // Tutorial: the lesson is "an outpost is a thing you break to take", and
+    // a beginner is not going to chew 9000 HP off a RESIST-50 structure to
+    // learn it. Thin it right down so the objective lands in a few seconds -
+    // the step that follows says out loud that a real one is far tougher.
+    if (Config.tutorial && o.health && o.health.max) {
+        o.health.max *= 0.045;
+        o.health.amount = o.health.max;
+        if (o.shield) { o.shield.max = 0; o.shield.amount = 0; }
+    }
     o.on('dead', () => onStructureDeath(site));
     site.banner = o;
     site._hpTrack = o.health.max;   

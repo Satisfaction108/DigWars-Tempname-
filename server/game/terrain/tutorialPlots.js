@@ -416,10 +416,27 @@ function baseRect(index) {
     };
 }
 
-// Push a body back out of its arena's enemy base by the shortest axis, so
-// sliding along the edge still feels like a wall rather than a trap.
-function keepOutOfBase(body, index) {
+// Keep a body out of its arena's enemy base.
+//
+// Two layers, because a purely soft push can be barged through at speed and
+// the penalty for getting through is instant death:
+//   - an accelerating shove that starts BASE_SOFT units out, so the approach
+//     feels like leaning on the room border rather than hitting an invisible
+//     pane of glass;
+//   - a hard stop right at the keep-out line, which nobody should ever reach.
+const BASE_SOFT = 260;
+
+function pushOutOfBase(body, index) {
     const r = baseRect(index);
+    // Only the left face matters in practice - the base is a full-height
+    // column down the arena's right edge - but the rect handles all four so a
+    // body that somehow ends up inside still leaves by the shortest way.
+    const softX0 = r.x0 - BASE_SOFT;
+    if (body.x > softX0 && body.y > r.y0 && body.y < r.y1) {
+        const depth = body.x - softX0;
+        if (body.accel) body.accel.x -= depth * 0.06;
+        if (body.velocity && body.velocity.x > 0) body.velocity.x *= 0.86;
+    }
     if (body.x <= r.x0 || body.x >= r.x1 || body.y <= r.y0 || body.y >= r.y1) return false;
 
     const dLeft = body.x - r.x0, dRight = r.x1 - body.x;
@@ -455,7 +472,7 @@ function keepInPlot(body, index) {
 }
 
 module.exports = {
-    BASE_KEEPOUT, baseRect, keepOutOfBase, keepInPlot, plotRect,
+    BASE_KEEPOUT, baseRect, pushOutOfBase, keepInPlot, plotRect,
     TILE, PLOT_TILES, GUTTER_TILES, PITCH_TILES, PLOT_COLS, PLOT_ROWS,
     PLOT_SIZE, PITCH_SIZE, ROOM_TILES_X, ROOM_TILES_Y,
     LAYOUT, BASE_COL_BLUE, BASE_COL_RED,

@@ -1166,6 +1166,17 @@ body.in-game #homeSettingsPanel .kb-row b.kb-editing {
 .dwTutSkipBtn:hover { background: rgba(18,20,26,.9); color: #f2ead6; }
 .dwTutSkipBtn:active { transform: scale(.96); }
 
+/* Next is offered only by steps that declare it - see showNext() in
+   client/tutorial.js. It reads as the primary action when it is there. */
+.dwTutNext { display: none; }
+#dwTutSkipBar.hasnext .dwTutNext { display: inline-block; }
+.dwTutNext {
+    color: #0b0d10;
+    background: #ffd75e;
+    font-weight: 700;
+}
+.dwTutNext:hover { background: #ffe693; color: #0b0d10; }
+
 /* Steps that point at DOM controls need DOM chrome: the settings panel sits at
    z-index 300 with a dimming overlay, so a canvas-drawn box is both underneath
    the button it is meant to outline and behind the veil. */

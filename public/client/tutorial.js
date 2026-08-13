@@ -314,6 +314,18 @@ const state = {
     evolveMark: 0,
     // world position of this plot's enemy base, learned from the room grid
     basePoint: null,
+    // The one rock the mining objective is about. Chosen once, on arrival, and
+    // never re-chosen: a marker that hops between rocks as you drive is a
+    // marker you cannot follow.
+    lockedRock: null,
+    // Override is a pure toggle with nothing mirrored on the client, so - like
+    // auto-fire - it is counted rather than read back. On for one press, off
+    // for the next: the family lessons want to see the whole cycle.
+    overrideCount: 0,
+    // Outpost objective: how far its health has fallen, and whether it has
+    // come back flying our colours.
+    outpostHurt: 0,
+    outpostMine: false,
 };
 
 function snapshot() {
@@ -341,8 +353,11 @@ function snapshot() {
     state.bothAt = 0;
     state.spinOn = false;
     state.overrideSeen = false;
+    state.overrideCount = 0;
     state.pingSeen = false;
     state.mapOpened = false;
+    state.outpostHurt = 0;
+    state.outpostMine = false;
 }
 
 // ── objectives ─────────────────────────────────────────────────────────
@@ -354,9 +369,14 @@ function snapshot() {
 // lesson: spawn a practice target, pin the class menu to one tank, chip our
 // health so the HP bar visibly moves. Every one of them is ignored outright on
 // a live server - see the TUT case in server/game/network/sockets.js.
-function tut(cmd, arg) {
-    try { global.canvas.socket.talk("TUT", cmd, arg === undefined ? "" : arg); }
-    catch (e) { }
+// Everything is sent as strings: the protocol will happily carry a number, but
+// the server then has to guess whether "0" meant off or was just a value, and
+// a command flag that reads a string "0" as true is a very quiet bug.
+function tut(cmd, ...args) {
+    try {
+        global.canvas.socket.talk("TUT", cmd,
+            ...(args.length ? args.map(a => String(a)) : [""]));
+    } catch (e) { }
 }
 
 // A live enemy in our plot, if one is up. The scripted bots are the only
@@ -413,7 +433,7 @@ const ALL_STEPS = [
     {
         id: "aim",
         label: "Aim with your mouse",
-        hint: () => "Your tank always points where your cursor is. Move your mouse in a circle and watch the barrel follow.",
+        hint: () => "Your tank always points where your cursor is. *Move your mouse in a circle* and watch the barrel follow.",
         target: () => ({ kind: "self" }),
         onEnter: () => { state.aimTotal = 0; state.aimLast = null; },
         progress: () => clamp(aimSweep() / (Math.PI * 3), 0, 1),
@@ -422,7 +442,7 @@ const ALL_STEPS = [
     {
         id: "move",
         label: "Drive",
-        hint: () => "{{KEY_UP}}{{KEY_LEFT}}{{KEY_DOWN}}{{KEY_RIGHT}} to drive. Your left hand drives, your right hand aims - they work independently.",
+        hint: () => "{{KEY_UP}}{{KEY_LEFT}}{{KEY_DOWN}}{{KEY_RIGHT}} to drive. Your left hand drives, your right hand aims - *they work independently*.",
         target: () => ({ kind: "self" }),
         progress: () => clamp(Math.hypot(
             global.player.renderx - state.base.x,
@@ -434,7 +454,7 @@ const ALL_STEPS = [
     {
         id: "moveAim",
         label: "Do both at once",
-        hint: () => "Now the hard part: keep your cursor pointed at one spot while you drive somewhere else. This is the whole game.",
+        hint: () => "Now the hard part: *keep your cursor on one spot while you drive somewhere else*. This is the whole game.",
         target: () => ({ kind: "self" }),
         onEnter: () => { state.aimTotal = 0; state.aimLast = null; state.bothAt = 0; },
         progress: () => clamp(state.bothAt / 1400, 0, 1),
@@ -443,12 +463,26 @@ const ALL_STEPS = [
     {
         id: "autofire",
         label: "Auto-fire",
-        hint: () => "Press {{KEY_AUTO_FIRE}} to keep firing without holding the button - most players leave this on. Press it again to switch it off.",
+        hint: () => global.mobile
+            ? "*Tap Autofire* to keep shooting without holding the screen - most players leave it on. *Tap it again* to switch it off."
+            : "*Press {{KEY_AUTO_FIRE}}* to keep firing without holding the button - most players leave this on. *Press it again* to switch it off.",
         target: () => ({ kind: "self" }),
         // Auto-fire is a server-side toggle with nothing mirrored on the
         // client, so there is no state to read back - count the toggles.
         progress: () => clamp(state.autofireCount / 2, 0, 1),
         done: () => state.autofireCount >= 2,
+    },
+    {
+        id: "autospin",
+        label: "Auto-spin",
+        hint: () => global.mobile
+            ? "*Tap Autospin* to set your barrels sweeping on their own while you drive. *Tap it again* to stop."
+            : "*Press {{KEY_AUTO_SPIN}}* to set your barrels sweeping on their own while you drive. *Press it again* to stop.",
+        target: () => ({ kind: "self" }),
+        // Unlike auto-fire this one IS real client state, so watch the actual
+        // on-then-off cycle rather than counting keypresses.
+        progress: () => state.spinOn ? (global.autoSpin ? 0.5 : 1) : 0,
+        done: () => state.spinOn && !global.autoSpin,
     },
 
     // ── points and stats ───────────────────────────────────────────────
@@ -457,10 +491,14 @@ const ALL_STEPS = [
         allow: "",
         label: "Find your points",
         title: "YOU HAVE POINTS TO SPEND",
-        hint: () => `Bottom-left, above the bars: the x${gui.points || 42} is how many stat points you have left. You spawn with all of them - spend them or you fight at half strength.`,
-        ui: "skills",
-        settle: 900,
-        done: () => T() - state.stepAt > 5200,
+        hint: () => `Bottom-left, just above the bars: \`x${gui.points || 42}\` is *how many stat points you have left*. You spawn with all of them - *spend them* or you fight at half strength.`,
+        // Box the counter itself, not the whole skill bar: the number IS the
+        // lesson here, and the bars get their own step next.
+        ui: "points",
+        next: true,
+        // Next is the way out; the timer is only a backstop so a learner who
+        // never finds the button is not parked here forever.
+        done: () => T() - state.stepAt > 40000,
     },
     {
         id: "stats",
@@ -480,7 +518,7 @@ const ALL_STEPS = [
         // The menu is pinned to one choice per tier - the next rung of the
         // Twin - Triple Shot - Penta Shot ladder - so "pick the highlighted
         // class" is never ambiguous and never empty.
-        hint: () => "Tanks evolve in steps. We have set the menu to one choice at a time: keep picking it - Twin, then Triple Shot, then Penta Shot.",
+        hint: () => "Tanks evolve in steps. We have pinned the menu to one choice at a time: *keep picking it* - Twin, then Triple Shot, then Penta Shot.",
         ui: "upgrades",
         onEnter: () => tut("lock", "Twin,Triple Shot,Penta Shot"),
         settle: 900,
@@ -490,7 +528,7 @@ const ALL_STEPS = [
     {
         id: "dummy",
         label: "Destroy the dummy",
-        hint: () => "Here is a target that cannot fight back. Point your cursor at it and hold the left mouse button.",
+        hint: () => "Here is a target that cannot fight back. *Point your cursor at it and hold left click*.",
         onEnter: () => { tut("unlock"); tut("dummy"); },
         acquire: () => {
             const b = practiceBot("Dummy");
@@ -506,18 +544,21 @@ const ALL_STEPS = [
         id: "health",
         label: "Watch your health",
         title: "YOUR HEALTH BAR",
-        hint: () => "That bar under your tank is your health. It refills on its own if you stop taking hits - backing off is usually better than pushing on.",
+        hint: () => "We just took a chunk out of you. The bar under your tank is your *health*, and the thinner one behind it is your *shield*. *Both refill on their own* once you stop taking hits - backing off is usually better than pushing on.",
         onEnter: () => tut("hurt"),
+        // Box the bar itself so there is no doubt which of the several bars on
+        // screen the card is talking about.
+        ui: "hp",
         target: () => ({ kind: "self" }),
-        // Wait for real regeneration rather than a timer, so the lesson is the
-        // bar actually climbing back up in front of them.
+        // Wait for real regeneration rather than a timer: the lesson is the
+        // bar visibly climbing back up in front of them.
         progress: () => clamp(state.hpFrac, 0, 1),
-        done: () => state.hpFrac > 0.9 || T() - state.stepAt > 16000,
+        done: () => state.hpFrac > 0.97,
     },
     {
         id: "fighter",
         label: "Beat a real opponent",
-        hint: () => "This one shoots back - but it is the weakest opponent in the game. Circle it, keep firing, and use your health bar to decide when to back off.",
+        hint: () => "A Penta Shot like yours, but with a *much thinner stat spread*. It shoots back. *Circle it, keep firing*, and use your health bar to decide when to back off.",
         onEnter: () => tut("fighter"),
         acquire: () => {
             const b = practiceBot("Rookie");
@@ -540,20 +581,40 @@ const ALL_STEPS = [
     // ── the economy ────────────────────────────────────────────────────
     {
         id: "rock",
-        label: "Break a rock",
-        hint: () => "Gems live inside rock. Shoot the marked rock until it shatters.",
-        acquire: () => acquireRock(),
-        revalidate: () => acquireRock(),
-        progress: () => {
-            const t = state.target && rockAt(terr(), state.target.k);
-            return t && t.maxHealth ? 1 - clamp(t.health / t.maxHealth, 0, 1) : 0;
+        label: "Break the marked rock",
+        hint: () => "Gems live inside rock, and *the richer the ore the tougher the rock*. Shoot the marked one until it shatters.",
+        // Pick ONCE, on arrival, and never re-pick. The old version re-ran
+        // acquire every frame, so the marker hopped to whichever rock happened
+        // to be at a nice stand-off as the learner moved - you could never
+        // tell which rock you were supposed to be shooting.
+        onEnter: () => {
+            tut("goto", "rocks");
+            state.lockedRock = null;
         },
+        acquire: () => {
+            if (state.lockedRock && rockAlive(terr(), state.lockedRock.k)) return state.lockedRock;
+            // wantOre: the gems step immediately after has to have something
+            // to collect, and a plain rock drops dust.
+            const r = acquireRock(true);
+            if (r) state.lockedRock = { kind: "rock", ...r };
+            return state.lockedRock;
+        },
+        progress: () => {
+            const t = terr();
+            const k = state.target && state.target.k;
+            if (!t || k === undefined) return 0;
+            const h = t._rockHealth.get(k);
+            return h === undefined ? 0 : clamp(1 - h, 0, 1);
+        },
+        // Remember where it died so the next objective can point at the gems
+        // it dropped - by the time that step runs the rock is gone.
+        onDone: (tg) => { if (tg) state.lastBreak = { x: tg.x, y: tg.y }; },
         done: () => state.target ? !rockAlive(terr(), state.target.k) : false,
     },
     {
         id: "gems",
         label: "Collect the gems",
-        hint: () => "Drive over the loose gems to scoop them up. They ride in your satchel until you bank them.",
+        hint: () => "*Drive over the loose gems* to scoop them up. They ride in your satchel until you bank them.",
         acquire: () => state.lastBreak
             ? { kind: "point", x: state.lastBreak.x, y: state.lastBreak.y }
             : null,
@@ -564,15 +625,17 @@ const ALL_STEPS = [
     {
         id: "ores",
         title: "NOT ALL ROCK IS EQUAL",
-        subtitle: "Plain rock gives dust. Copper, veins and shards give more. Emerald is the richest - and the toughest to break.",
+        subtitle: "Every rock carries one of these. The richer it is, the longer it takes to break.",
         card: true,
-        done: () => T() - state.stepAt > 5000,
+        gems: true,             // draw the four tiers under the card
+        done: () => T() - state.stepAt > 7000,
     },
     {
         id: "bank",
         allow: "bank",
         label: "Bank your gems",
-        hint: () => "Carried gems drop when you die - banked gems are yours forever. Park on your vault pad to bank them.",
+        hint: () => "*Carried gems drop when you die - banked gems are yours forever.* Park on your vault pad and *wait for the bar to finish*.",
+        onEnter: () => tut("goto", "vault"),
         acquire: () => {
             const v = nearestVault();
             return v ? { kind: "vault", x: v.x, y: v.y, r: v.r || 95 } : null;
@@ -581,77 +644,238 @@ const ALL_STEPS = [
             const v = nearestVault();
             return v ? { kind: "vault", x: v.x, y: v.y, r: v.r || 95 } : null;
         },
-        done: () => global.gems.banked > state.base.banked ||
-            (global.vault.onPad && state.base.carried > 0 && global.gems.carried === 0),
+        progress: () => {
+            const b = state.base.carried || 1;
+            return clamp(1 - global.gems.carried / b, 0, 1);
+        },
+        // Every last gem, not the first tick of the deposit: the drone chapter
+        // hands out a build and the satchel must be settled before it does.
+        done: () => global.gems.carried === 0 && global.gems.banked > state.base.banked,
     },
 
     // ── the other tank families ────────────────────────────────────────
+    // Each family gets the same three beats: here is what it is, here is
+    // override, here is what auto-fire does to it. Reading about a drone tank
+    // teaches nothing; flying one for twenty seconds teaches it properly.
     {
-        id: "drones",
-        label: "Command your drones",
-        title: "A DIFFERENT KIND OF TANK",
-        // A Penta Shot cannot evolve into Director - the tree does not cross
-        // branches - so the server morphs the tank outright for this lesson.
-        // The lock is set to a name that matches nothing so Director's own
-        // upgrade menu stays hidden while they play with the drones.
-        hint: () => "We just turned you into a Director - a drone tank. It fires nothing: instead, drones follow your cursor. Hold the left mouse button to send them out, release to call them home.",
-        onEnter: () => { tut("morph", "director"); tut("lock", "none"); },
-        onDone: () => { tut("morph", "pentaShot"); tut("unlock"); },
+        id: "droneIntro",
+        label: "You are an Overlord",
+        title: "DRONE TANKS",
+        hint: () => "*Drone tanks fire nothing.* They launch drones that fly on their own and *chase wherever your cursor is*. *Hold left click* to send them out, *release* to call them home. We have switched auto-fire off and given you a build so you can feel it.",
+        // A Penta Shot cannot evolve into Overlord - the tree does not cross
+        // branches - so the server morphs the tank outright.
+        onEnter: () => {
+            tut("morph", "overlord");
+            tut("lock", "none");
+            tut("cmd", "autofire", 0);
+            // max reload / bullet health / bullet damage / bullet penetration,
+            // 6 bullet speed - the build the lesson describes.
+            tut("stats", "0,0,6,9,9,9,9,0,0,0");
+        },
         target: () => ({ kind: "self" }),
-        progress: () => clamp((T() - state.stepAt) / 9000, 0, 1),
-        done: () => T() - state.stepAt > 9000,
+        next: true,
+        settle: 0,
+        done: () => T() - state.stepAt > 22000,
     },
     {
-        id: "families",
-        title: "THE OTHER FAMILIES",
-        subtitle: "Auto tanks carry turrets that aim themselves. Rammers drop guns entirely and kill by driving into things - their stats trade reload and bullet damage for body damage and speed.",
-        card: true,
-        done: () => T() - state.stepAt > 6000,
+        id: "droneOverride",
+        label: "Take direct control",
+        hint: () => "*Press {{KEY_OVER_RIDE}}* for override: your drones stop hunting and *hold formation on your cursor* instead. *Press it again* to let them loose.",
+        target: () => ({ kind: "self" }),
+        progress: () => clamp(state.overrideCount / 2, 0, 1),
+        done: () => state.overrideCount >= 2,
+    },
+    {
+        id: "droneAutofire",
+        label: "Auto-fire with drones",
+        hint: () => "One more thing worth knowing: with *auto-fire on*, your drones stay out permanently instead of returning when you let go. Handy - *but you give up the recall*. You do not have to turn it on now.",
+        target: () => ({ kind: "self" }),
+        next: true,
+        done: () => T() - state.stepAt > 14000,
+    },
+    {
+        id: "autoIntro",
+        label: "You are an Auto-3",
+        title: "AUTO TANKS",
+        hint: () => "*Auto tanks carry turrets that pick their own targets and fire by themselves.* You can drive and let them work - which is why they are forgiving to learn on, and why they never quite hit as hard as aiming yourself.",
+        onEnter: () => {
+            tut("morph", "auto3");
+            tut("lock", "none");
+            tut("cmd", "autofire", 0);
+            tut("stats", "0,3,6,9,9,9,9,3,0,0");
+            tut("dummy");
+        },
+        target: () => ({ kind: "self" }),
+        next: true,
+        done: () => T() - state.stepAt > 20000,
+    },
+    {
+        id: "autoOverride",
+        label: "Override the turrets",
+        hint: () => "*Press {{KEY_OVER_RIDE}}* and the turrets stop choosing for themselves - *they aim exactly where you point*. *Press it again* to hand them back.",
+        target: () => ({ kind: "self" }),
+        progress: () => clamp(state.overrideCount / 2, 0, 1),
+        done: () => state.overrideCount >= 2,
+    },
+    {
+        id: "autoAutofire",
+        label: "Fire them yourself",
+        hint: () => global.mobile
+            ? "*Tap Autofire* and the turrets shoot where you aim instead of where they like. That combination - *override plus auto-fire* - is how an auto tank is really flown."
+            : "*Press {{KEY_AUTO_FIRE}}* and the turrets shoot where you aim instead of where they like. That combination - *override plus auto-fire* - is how an auto tank is really flown.",
+        target: () => ({ kind: "self" }),
+        progress: () => clamp(state.autofireCount / 1, 0, 1),
+        done: () => state.autofireCount >= 1,
+    },
+    {
+        id: "rammerIntro",
+        label: "You are a Smasher",
+        title: "RAMMERS",
+        hint: () => "*Rammers have no guns at all.* You are the weapon: *drive into things* to kill them, and *drive into rock* to mine it. In exchange for the guns you get far more health, speed and body damage than anything that shoots.",
+        onEnter: () => {
+            tut("morph", "smasher");
+            tut("lock", "none");
+            tut("cmd", "autofire", 0);
+            tut("cmd", "autospin", 0);
+            // Its bullet stats are capped at zero, so set() hands those points
+            // straight back - which is exactly the point of the next step.
+            tut("stats", "9,9,0,0,0,0,0,9,0,0");
+            tut("points", 1);
+        },
+        target: () => ({ kind: "self" }),
+        next: true,
+        done: () => T() - state.stepAt > 20000,
+    },
+    {
+        id: "rammerStat",
+        allow: "stats",
+        label: () => statName(6) || "Engine Acceleration",
+        hint: () => `Half your bars just went dark - a rammer has no bullets to improve, so those points came back. In their place is *${statName(6) || "Engine Acceleration"}*: *how hard you accelerate*, which is how fast you build up ramming speed. *Put a point into it.*`,
+        ui: "stat:6",
+        statIndex: 6,
+        progress: () => {
+            const sk = statSkill(6);
+            return sk && sk.amount > (state.base.statAmt || 0) ? 1 : 0;
+        },
+        done: () => {
+            const sk = statSkill(6);
+            if (!sk || !sk.cap) return true;
+            return sk.amount > (state.base.statAmt || 0);
+        },
+    },
+    {
+        id: "rammerRules",
+        label: "How a rammer plays",
+        hint: () => "A rammer has *no auto-fire, no auto-spin and no override* - there is nothing to fire, sweep or aim. It has *one* attack and *one* mining tool, and they are the same thing: *your body*.",
+        target: () => ({ kind: "self" }),
+        // Back to the bullet tank the rest of the tutorial is written for.
+        onDone: () => {
+            tut("morph", "pentaShot");
+            tut("unlock");
+            tut("stats", "0,3,6,9,9,9,9,3,0,0");
+        },
+        next: true,
+        done: () => T() - state.stepAt > 14000,
     },
 
     // ── the map ────────────────────────────────────────────────────────
     {
         id: "outpost",
-        allow: "bank",
         label: "Take the outpost",
-        hint: () => "Outposts are capture points. Bank gems on the pad to claim one - it then heals your team and lets you respawn there.",
-        // global.outposts is room-wide, so index 0 is whichever arena the
-        // server happened to build first - usually somebody else's.
+        hint: () => "*Outposts are capture points.* Break the one in the middle and it comes back flying your colours - it then *heals your team and lets you respawn there*. We have given you an absurd build for this.",
+        onEnter: () => {
+            tut("goto", "outpost");
+            tut("stats", "9,9,9,9,9,9,9,9,9,9");
+        },
         acquire: () => landmark("outpost", "vault", 95),
         revalidate: () => landmark("outpost", "vault", 95),
-        // Standing on it is the lesson; actually capturing costs gems they may
-        // not have, so arriving is enough.
-        done: () => global.vault.isOutpost || T() - state.stepAt > 30000,
+        progress: () => clamp(state.outpostHurt, 0, 1),
+        done: () => state.outpostMine,
+    },
+    {
+        id: "outpostHard",
+        title: "THAT WAS THE EASY VERSION",
+        subtitle: "A real outpost has twenty times that health and someone defending it. Bring friends.",
+        card: true,
+        done: () => T() - state.stepAt > 4600,
     },
     {
         id: "chamber",
-        label: "Find the core chamber",
+        label: "Crack the red core chamber",
         title: "CORE CHAMBERS",
-        hint: () => "That ringed vault holds a hoard of gems. Break the ring and it spills - but it takes a team, and everyone nearby wants the same pile.",
+        hint: () => "A core chamber is a team's treasury - *4000 gems* behind a ring. *Break the ring* and the whole hoard spills out. We have emptied your satchel so you can see exactly what it is worth.",
         // The enemy's, past the outpost: the blue one on the near side is
         // theirs to defend, not to crack open.
+        onEnter: () => {
+            tut("goto", "chamberRed");
+            tut("gems", 0);
+        },
         acquire: () => landmark("chamberRed", "point"),
         revalidate: () => landmark("chamberRed", "point"),
-        settle: 600,
-        done: () => T() - state.stepAt > 7000,
+        // The hoard is 4000 and the satchel holds exactly 4000, but the gems
+        // scatter as the ring falls and chasing the last few hundred is
+        // busywork - half of it is plenty to have made the point.
+        progress: () => clamp(global.gems.carried / 2000, 0, 1),
+        done: () => global.gems.carried >= 2000,
+    },
+    {
+        id: "chamberSides",
+        label: "Yours and theirs",
+        title: "TWO CHAMBERS, TWO JOBS",
+        hint: () => "There is one of these per team. *Break the red one* - and *defend the blue one*, because the enemy wants your 4000 just as badly. Bank what you take before somebody takes it back off your corpse.",
+        acquire: () => landmark("chamberBlue", "point"),
+        revalidate: () => landmark("chamberBlue", "point"),
+        next: true,
+        done: () => T() - state.stepAt > 13000,
     },
     {
         id: "base",
-        label: "Never touch a base",
-        title: "ENEMY BASES KILL INSTANTLY",
-        hint: () => "The red zone is the enemy base. It does not damage you - it deletes you, and everything in your satchel. Stay out.",
-        acquire: () => landmark("base", "point"),
-        revalidate: () => landmark("base", "point"),
-        settle: 600,
-        done: () => T() - state.stepAt > 6500,
+        title: "NEVER TOUCH A BASE",
+        subtitle: "The red column on their side is the enemy base. It does not damage you - it deletes you, satchel and all.",
+        card: true,
+        next: true,
+        done: () => T() - state.stepAt > 7000,
     },
     {
         id: "minimap",
         label: "Read the map",
-        hint: () => "Press {{KEY_TOGGLE_MAP}} to open the full map, then press it again to close it. You are the arrow.",
+        hint: () => "*Press {{KEY_TOGGLE_MAP}}* to open the full map, then *press it again* to close it. You are the arrow.",
         ui: "minimap",
         progress: () => state.mapOpened ? (global.showBigMap ? 0.5 : 1) : 0,
         done: () => state.mapOpened && !global.showBigMap,
+    },
+
+    // ── settings ───────────────────────────────────────────────────────
+    {
+        id: "keys",
+        group: "keys", groupPos: 1, groupLen: 3,
+        // Rebinding keys is meaningless on a touch device, and the Keybinds
+        // tab is literally not rendered there (sp-desktop-only), so the whole
+        // chapter drops out rather than pointing at nothing.
+        omit: () => global.mobile,
+        label: "Open settings",
+        hint: () => "Last thing. *Hit the settings button* - everything you can control lives in there.",
+        ui: "dom:#ingameSettingsBtn",
+        done: () => settingsOpen(),
+    },
+    {
+        id: "keysTab",
+        group: "keys", groupPos: 2, groupLen: 3,
+        omit: () => global.mobile,
+        label: "Find your keybinds",
+        hint: () => "*Open the Keybinds tab.* Every control is listed, and *you can click any of them* to rebind it to a key you prefer.",
+        ui: "dom:.sp-tab[data-tab='sp-keybinds']",
+        done: () => keybindsTabOpen() || !settingsOpen(),
+    },
+    {
+        id: "keysClose",
+        group: "keys", groupPos: 3, groupLen: 3,
+        omit: () => global.mobile,
+        label: "Close settings",
+        hint: () => "*Close it with the X* when you are done looking.",
+        ui: "dom:#homeSettingsClose",
+        settle: 300,
+        done: () => !settingsOpen(),
     },
     {
         id: "done",
@@ -689,7 +913,37 @@ function uiRect(kind) {
         const y = global.mobile ? spacing : SH() - h - spacing - 5;
         return { x: x - pad, y: y - pad, w: len + pad * 2, h: h + pad * 2 };
     }
+    if (kind === "hp") {
+        // The health bar is world-drawn under the tank (app.js drawHealth),
+        // and the tank is always dead centre, so the bar's screen rect can be
+        // reconstructed from the player's own size rather than hunted for.
+        const me = global.entities.find(e => e.id === gui.playerid);
+        if (!me) return null;
+        const r = util.getRatio() || 1;
+        const size = (me.size || 20) * r;
+        const real = (me.realSize || me.size || 20) * r;
+        const yy = SH() / 2 + real + 14.3 * r;
+        const h = 14 * r;
+        return { x: SW() / 2 - size - pad, y: yy - h / 2 - pad,
+                 w: size * 2 + pad * 2, h: h + pad * 2 };
+    }
     const rs = [];
+    if (kind === "points") {
+        // The "x42" counter is drawn one row above the top stat bar, hard
+        // right (app.js drawSkillBars). Derive it from the bars themselves so
+        // it tracks their layout instead of guessing at screen coordinates.
+        let top = null;
+        for (let i = 0; i < cl.stat.size(); i++) {
+            const r = cl.stat.rect(i);
+            if (!r) continue;
+            if (!top || r.y < top.y) top = r;
+        }
+        if (!top) return null;
+        const x = top.x / cr, y = top.y / cr, w = top.w / cr, h = top.h / cr;
+        const boxW = Math.min(w, 74 * US());
+        return { x: x + w - boxW - pad, y: y - h - pad * 1.2,
+                 w: boxW + pad * 2, h: h + pad * 1.6 };
+    }
     if (kind && kind.indexOf("stat:") === 0) {
         rs.push(cl.stat.rect(parseInt(kind.slice(5))));
     } else if (kind === "skills") {
@@ -856,14 +1110,6 @@ function completeStep() {
 }
 
 function advance() {
-    const finished = stepDef();
-    // Stat caps depend on the tank just chosen, so the per-stat objectives are
-    // rebuilt the moment evolution is done rather than at tutorial start.
-    if (finished && finished.id === "evolve") {
-        buildChain();
-        const at = STEPS.findIndex(s2 => s2.group === "stats");
-        if (at >= 0) return enterStep(at);
-    }
     if (state.step >= STEPS.length - 1) return finish();
     enterStep(state.step + 1);
 }
@@ -898,6 +1144,20 @@ function update() {
     // complete instantly, in the frames before the server's spawn arrives.
     if (botAlive("Dummy")) state.dummySeen = true;
     if (botAlive("Rookie")) state.fighterSeen = true;
+
+    // The outpost objective. global.outpostState is room-wide, so match on the
+    // one whose position is our arena's - id ordering is a server-build detail
+    // and not something the client should lean on.
+    if (s.id === "outpost") {
+        const mine = (global.tutorialPlot || {}).outpost;
+        for (const o of (global.outpostState || [])) {
+            const site = (global.outposts || []).find(x => x.id === o.id);
+            if (!site || !mine) continue;
+            if (Math.hypot(site.x - mine.x, site.y - mine.y) > 200) continue;
+            if (o.h !== undefined) state.outpostHurt = Math.max(state.outpostHurt, 1 - o.h);
+            if (o.t === myTeam()) state.outpostMine = true;
+        }
+    }
 
     // Our own health, for the regeneration lesson.
     const me = global.entities.find(e => e.id === gui.playerid);
@@ -1261,19 +1521,32 @@ export function drawIndicators() {
 }
 
 // ── HUD pass ───────────────────────────────────────────────────────────
-// text is tokenised so {{KEY_X}} renders as a real keycap glyph inline
+// Hint text is tokenised so it can carry three things inline:
+//   {{KEY_X}}   a real keycap glyph for whatever that action is bound to
+//   *emphasis*  the words that are the actual instruction, drawn bold and
+//               gold - a wall of even grey text hides the one clause that
+//               says what to press
+//   `x42`       a boxed literal, for naming a number that is also on screen
+//               somewhere ("the x42 above the bars") so the two read as the
+//               same object
 function tokenize(str) {
     const out = [];
-    const re = /\{\{(KEY_[A-Z0-9_]+)\}\}/g;
+    // One pass, three markers. Everything between markers is plain words.
+    const re = /\{\{(KEY_[A-Z0-9_]+)\}\}|\*([^*]+)\*|`([^`]+)`/g;
+    const plain = (chunk) => {
+        for (const w of chunk.split(/\s+/).filter(Boolean)) out.push({ t: "w", s: w });
+    };
     let last = 0, m;
     while ((m = re.exec(str))) {
-        if (m.index > last)
-            for (const w of str.slice(last, m.index).split(/\s+/).filter(Boolean))
-                out.push({ t: "w", s: w });
-        out.push({ t: "k", s: lbl(m[1]) });
+        if (m.index > last) plain(str.slice(last, m.index));
+        if (m[1]) out.push({ t: "k", s: lbl(m[1]) });
+        else if (m[2]) {
+            // bold runs stay word-per-token so they still wrap normally
+            for (const w of m[2].split(/\s+/).filter(Boolean)) out.push({ t: "b", s: w });
+        } else out.push({ t: "v", s: m[3] });
         last = m.index + m[0].length;
     }
-    for (const w of str.slice(last).split(/\s+/).filter(Boolean)) out.push({ t: "w", s: w });
+    plain(str.slice(last));
     return out;
 }
 
@@ -1282,7 +1555,11 @@ function measure(c, tok, S) {
         c.font = `800 ${12 * S}px ${FONT}`;
         return Math.max(20 * S, c.measureText(tok.s).width + 14 * S);
     }
-    c.font = `500 ${14 * S}px ${FONT}`;
+    if (tok.t === "v") {
+        c.font = `800 ${13 * S}px ${FONT}`;
+        return c.measureText(tok.s).width + 12 * S;
+    }
+    c.font = `${tok.t === "b" ? 800 : 500} ${14 * S}px ${FONT}`;
     return c.measureText(tok.s).width;
 }
 
@@ -1317,6 +1594,23 @@ function drawLine(c, line, cx, y, S) {
             c.fillStyle = `rgb(${GOLD})`;
             c.textAlign = "center";
             c.fillText(it.tok.s, x + it.w / 2, y + 0.5 * S);
+        } else if (it.tok.t === "v") {
+            const h = 19 * S;
+            roundRect(c, x, y - h / 2, it.w, h, 4 * S);
+            c.fillStyle = `rgba(${GOLD},.13)`;
+            c.fill();
+            c.strokeStyle = `rgba(${GOLD},.55)`;
+            c.lineWidth = 1.5;
+            c.stroke();
+            c.font = `800 ${13 * S}px ${FONT}`;
+            c.fillStyle = `rgb(${GOLD})`;
+            c.textAlign = "center";
+            c.fillText(it.tok.s, x + it.w / 2, y + 0.5 * S);
+        } else if (it.tok.t === "b") {
+            c.font = `800 ${14 * S}px ${FONT}`;
+            c.fillStyle = `rgb(${GOLD})`;
+            c.textAlign = "left";
+            c.fillText(it.tok.s, x, y);
         } else {
             c.font = `500 ${14 * S}px ${FONT}`;
             c.fillStyle = `rgba(${PALE},.93)`;
@@ -1348,6 +1642,67 @@ function trackedText(c, str, cx, y, size, color, track, alpha) {
         c.fillText(ch, x, y);
         x += w + track;
     }
+}
+
+// The four ore tiers, drawn as the gems themselves rather than described in a
+// sentence. Colours and values mirror server/lib/definitions/groups/digwars.js
+// and terrain/coreChambers.js, so what the card shows is what drops.
+const GEM_LEGEND = [
+    { name: "Copper",     color: "#c96f2e", glow: "#e8a05c", worth: "15",  r: 0.72 },
+    { name: "Azurite",    color: "#3b7ce0", glow: "#6fa3f2", worth: "30",  r: 0.85 },
+    { name: "Core Shard", color: "#b13ecf", glow: "#e08af5", worth: "150", r: 1.0 },
+    { name: "Emerald",    color: "#1fbf6b", glow: "#6ff5a8", worth: "500", r: 1.18 },
+];
+
+function drawGemLegend(c, cx, y, alpha) {
+    const S = US();
+    const slot = Math.min(SW() * 0.21, 116 * S);
+    const n = GEM_LEGEND.length;
+    let x = cx - (n - 1) * slot / 2;
+    const R = 17 * S;
+    const wob = T() / 620;
+    c.save();
+    c.globalAlpha = alpha;
+    for (let i = 0; i < n; i++) {
+        const g = GEM_LEGEND[i];
+        const rr = R * g.r * (1 + 0.045 * Math.sin(wob + i));
+        // glow
+        const grad = c.createRadialGradient(x, y, 0, x, y, rr * 2.4);
+        grad.addColorStop(0, g.glow + "88");
+        grad.addColorStop(1, g.glow + "00");
+        c.fillStyle = grad;
+        c.beginPath(); c.arc(x, y, rr * 2.4, 0, Math.PI * 2); c.fill();
+        // the gem: the same slow-spinning diamond the pickups draw as
+        const rot = wob * 0.35 + i;
+        c.beginPath();
+        for (let k = 0; k < 4; k++) {
+            const a = rot + k * Math.PI / 2;
+            const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr * 1.18;
+            k ? c.lineTo(px, py) : c.moveTo(px, py);
+        }
+        c.closePath();
+        c.fillStyle = g.color;
+        c.fill();
+        c.lineWidth = 2 * S;
+        c.strokeStyle = "rgba(0,0,0,.55)";
+        c.stroke();
+
+        c.font = `700 ${12 * S}px ${FONT}`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.lineWidth = 3;
+        c.strokeStyle = "rgba(0,0,0,.65)";
+        c.strokeText(g.name, x, y + rr + 20 * S);
+        c.fillStyle = `rgba(${PALE},.95)`;
+        c.fillText(g.name, x, y + rr + 20 * S);
+
+        c.font = `800 ${11 * S}px ${FONT}`;
+        c.strokeText(g.worth, x, y + rr + 36 * S);
+        c.fillStyle = `rgba(${GOLD},.9)`;
+        c.fillText(g.worth, x, y + rr + 36 * S);
+        x += slot;
+    }
+    c.restore();
 }
 
 function drawTitleCard(c, s) {
@@ -1392,6 +1747,9 @@ function drawTitleCard(c, s) {
         c.strokeText(subtitle, cx, cy + size * 0.72 + 22 * S);
         c.fillStyle = `rgba(${PALE},.92)`;
         c.fillText(subtitle, cx, cy + size * 0.72 + 22 * S);
+    }
+    if (s.gems) {
+        drawGemLegend(c, cx, cy + size * 0.72 + 86 * S, a * smooth((t - 520) / 700));
     }
     c.restore();
 }
@@ -1492,7 +1850,7 @@ function drawObjective(c) {
 }
 
 // ── controls (DOM, so they are reliably clickable/tappable) ───────────
-let skipBar = null, skipAllEl = null;
+let skipBar = null, skipAllEl = null, nextEl = null;
 function ensureSkip() {
     if (skipBar) return;
     skipBar = document.createElement("div");
@@ -1512,12 +1870,22 @@ function ensureSkip() {
         skipBar.appendChild(b);
         return b;
     };
-    // No Back and no Next: an objective is cleared by DOING it. Manual
-    // stepping let a learner click straight past the thing being taught,
-    // which is exactly how someone finishes a tutorial having learned
-    // nothing. "Skip tutorial" remains, as the one deliberate way out.
+    // Most objectives are cleared by DOING them - a universal Next would let
+    // someone click past the thing being taught, which is how you finish a
+    // tutorial having learned nothing. But some steps have nothing to do:
+    // they explain a tank family, or name a number on the HUD. Those declare
+    // `next: true` and get the button; everything else does not.
+    nextEl = mk("dwTutNext", "Next ›", () => {
+        if (state.running && state.phase === "active") completeStep();
+    });
     skipAllEl = mk("dwTutSkipAll", "Skip tutorial", skipToEnd);
     document.body.appendChild(skipBar);
+}
+// Show the Next control only for steps that asked for one, and only once the
+// step has been on screen long enough to have been read.
+function showNext(on) {
+    if (!skipBar) return;
+    skipBar.classList.toggle("hasnext", !!on);
 }
 // ── DOM spotlight + card ──────────────────────────────────────────────
 // The game canvas sits underneath the DOM, so a canvas-drawn box can never
@@ -1679,7 +2047,7 @@ function onKeyDown(e) {
     const k = e.keyCode;
     if (k === 32) state.fireSeen = true;
     if (k === global.KEY_AUTO_FIRE) state.autofireCount++;
-    if (k === global.KEY_OVER_RIDE) state.overrideSeen = true;
+    if (k === global.KEY_OVER_RIDE) { state.overrideSeen = true; state.overrideCount++; }
     if (k === global.KEY_AUTO_ALT) state.pingSeen = true;
 }
 // Mobile has no key events, so catch the taps that land on the action buttons
@@ -1691,7 +2059,7 @@ function onTouchStart(e) {
         const mpos = { x: t.clientX * global.ratio, y: t.clientY * global.ratio };
         const b = global.clickables.mobileButtons.check(mpos);
         if (b === 3) state.autofireCount++;      // Autofire
-        else if (b === 7) state.overrideSeen = true;  // Override
+        else if (b === 7) { state.overrideSeen = true; state.overrideCount++; }  // Override
     }
 }
 function onMouseDown(e) {
@@ -1730,8 +2098,20 @@ function finish() {
     // leads to the real game (the completion flag just set means home.js no
     // longer reroutes it here). Lingering alone in a spent plot teaches
     // nothing and quietly hogs one of the few slots.
+    //
+    // app.js installs an onbeforeunload that asks "leave site?" whenever a
+    // game is live, which is right for a real match and absurd here: the
+    // learner finished, and the browser interrogates them about it. Close the
+    // socket and drop the guard first so the trip home is silent.
     if (global.tutorialMode) {
-        setTimeout(() => { try { location.reload(); } catch (e) { } }, 4200);
+        setTimeout(() => {
+            try { window.onbeforeunload = null; } catch (e) { }
+            try { global.canvas.socket.close(); } catch (e) { }
+            global.gameStart = false;
+            try { location.replace(location.pathname); } catch (e) {
+                try { location.reload(); } catch (e2) { }
+            }
+        }, 4200);
     }
     state.running = false;
     state.phase = "finished";
@@ -1770,19 +2150,25 @@ export function hook() {
     const c = ctxGui();
     if (!c) return;
 
-    if (!state.running) { showSkip(false); hideDomStep(); return; }
+    if (!state.running) { showSkip(false); showNext(false); hideDomStep(); return; }
     if (T() - tutFlagAt > 3000) { tutFlagAt = T(); sendTutorialFlag(true); }
 
     update();
 
     const s = stepDef();
+    // Next appears only on steps that asked for one, only while the step is
+    // still live, and only after a beat - so it cannot be clicked away before
+    // the card it belongs to has even faded in.
+    showNext(!!(s && s.next && state.phase === "active" && T() - state.stepAt > 1400));
     c.save();
     c.textBaseline = "middle";
     if (s && s.card) {
         hideDomStep();
         drawTitleCard(c, s);
-        // park the skip control under the title card; no skipping the outro
-        layoutSkip(SH() * 0.46);
+        // park the skip control under the title card; no skipping the outro.
+        // Cards carrying the gem legend need the extra room or the buttons
+        // land on top of the gems they are illustrating.
+        layoutSkip(SH() * (s.gems ? 0.68 : 0.46));
         showSkip(!s.final);
         refreshNav();
     } else {

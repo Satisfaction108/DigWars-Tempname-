@@ -2841,6 +2841,70 @@ class io_minesRocks extends IO {
     }
 }
 
+// TUTORIAL DUELIST
+//
+// The practice opponent in the tutorial ran on io_digWarsGoals, which is the
+// full bot brain: it picks a role, goes mining, banks its satchel and hunts
+// objectives across the arena. That is correct behaviour for a match and
+// completely wrong for a lesson. The learner watched it wander off, and
+// because the vertical view cull is only about 1125 units the bot literally
+// vanished off the client and reappeared as it drifted - the "it keeps
+// disappearing" bug.
+//
+// This controller does exactly one thing: circle the learner at duelling
+// range and shoot at them. It never leaves the screen, never mines, never
+// banks, and never decides it has somewhere better to be.
+class io_tutorialDuelist extends IO {
+    constructor(body) {
+        super(body);
+        this.acceptsFromTop = false;
+        // Orbit rather than charge: a bot that drives straight in reads as a
+        // rammer and gives the learner nothing to circle-strafe against.
+        // Well inside the vertical cull so it is always on screen.
+        this.range = 430;
+        this.phase = Math.random() * Math.PI * 2;
+        this.spin = Math.random() < 0.5 ? 1 : -1;
+        this.turnAt = 0;
+    }
+    think() {
+        const foe = this.body.tutorialFoe;
+        if (!foe || foe.isGhost || (foe.isDead && foe.isDead())) {
+            return { goal: { x: this.body.x, y: this.body.y }, fire: false, main: false };
+        }
+        const now = Date.now();
+        // Reverse the orbit occasionally so the fight is not a fixed circle
+        // the learner can hold one key through.
+        if (now > this.turnAt) {
+            this.turnAt = now + 2600 + Math.random() * 2600;
+            this.spin = -this.spin;
+        }
+        const dx = foe.x - this.body.x, dy = foe.y - this.body.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const toFoe = Math.atan2(dy, dx);
+
+        // Orbit angle: swing wide of the straight line by an amount that grows
+        // as we close, so it spirals in to `range` and then circles.
+        const closing = Math.max(-1, Math.min(1, (dist - this.range) / this.range));
+        const lead = toFoe + this.spin * (1 - Math.abs(closing)) * 1.15;
+        const step = Math.max(140, Math.min(dist, 520));
+        const goal = {
+            x: this.body.x + Math.cos(lead) * step,
+            y: this.body.y + Math.sin(lead) * step,
+        };
+        // If we somehow ended up far away, forget the orbit and just come back:
+        // being on screen matters more than looking clever.
+        if (dist > this.range * 2.4) { goal.x = foe.x; goal.y = foe.y; }
+
+        return {
+            target: { x: dx, y: dy },
+            goal,
+            fire: true,
+            main: true,
+            power: 1,
+        };
+    }
+}
+
 // Kept for the bot controller chain: the goal controller owns unsticking now,
 // so this only exists so older CONTROLLERS lists stay valid.
 class io_unstick extends IO {
@@ -2871,6 +2935,7 @@ let ioTypes = {
     //movement related
     unstick: io_unstick,
     digWarsGoals: io_digWarsGoals,
+    tutorialDuelist: io_tutorialDuelist,
     canRepel: io_canRepel,
     mapTargetToGoal: io_mapTargetToGoal,
     siegeAI: io_siegeAI,
