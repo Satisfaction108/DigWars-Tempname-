@@ -48,7 +48,7 @@ module.exports = {
 
             properties: {
                 teams: 2,
-                bot_cap: process.env.BOT_CAP === undefined ? 100 : Math.min(100, Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0))
+                bot_cap: process.env.BOT_CAP === undefined ? 40 : Math.min(40, Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0))
             }
         },
         {
@@ -144,8 +144,8 @@ module.exports = {
     // Keep matches populated, but never let the bot system exceed twelve
     // tanks, and never let one team hoard them: six per side keeps fights
     // even and the map alive without drowning the humans.
-    bot_cap: process.env.BOT_CAP === undefined ? 100 : Math.min(100, Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0)),
-    bot_team_cap: 50,
+    bot_cap: process.env.BOT_CAP === undefined ? 40 : Math.min(40, Math.max(0, parseInt(process.env.BOT_CAP, 10) || 0)),
+    bot_team_cap: 20,
     bot_xp_gain: 60,
     bot_start_level: 100,
     bot_skill_upgrade_chances: [1, 1, 3, 4, 4, 4, 4, 2, 1, 1],
