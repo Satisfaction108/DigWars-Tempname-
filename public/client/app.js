@@ -29,6 +29,9 @@ import * as tutorial from './tutorial.js';
     // as you drop, so it reads as mounting pressure rather than a jump scare.
     const LOW_HP_START = 0.52;
     const LOW_HP_FULL = 0.06;
+    const HIT_TICK_MS = 240;
+    const killSkullImg = new Image();
+    killSkullImg.src = "img/skull.svg";
 
     fetch("changelog.md", { cache: "no-cache" }).then(response => response.text()).then(response => {
         let a = [];
@@ -4888,7 +4891,7 @@ import * as tutorial from './tutorial.js';
         const now = performance.now();
         const c = ctx[2];
         const cx = global.screenWidth / 2, cy = global.screenHeight * 0.22;
-        const DUR = 2600;
+        const DUR = 3000;
 
         for (let k = list.length - 1; k >= 0; k--) {
             const t = list[k];
@@ -4918,10 +4921,13 @@ import * as tutorial from './tutorial.js';
 
             c.save();
             c.globalAlpha = a;
-            drawText("BANKED", cx, cy - 34 * pop, 12, color.gold, "center", true, a, 7);
-            drawText(t.title, cx, cy + 2, 32 * pop, color.guiwhite, "center", true, a, 5);
+            const rung = Math.min(1, Math.log10(Math.max(500, t.at || 500)) / 5);
+            const titleSize = (30 + 8 * rung) * pop;
+            const bonusSize = (22 + 10 * rung) * pop;
+            drawText("BANKED", cx, cy - 38 * pop, 12, color.gold, "center", true, a, 7);
+            drawText(t.title, cx, cy - 2, titleSize, color.guiwhite, "center", true, a, 5);
             if (t.bonus) {
-                drawText(t.bonus, cx, cy + 34 * pop, 15, color.lgreen, "center", true, a, 6);
+                drawText(t.bonus, cx, cy + 42 * pop, bonusSize, color.gold, "center", true, a, 4.5);
             }
             c.restore();
             break;
@@ -4999,10 +5005,10 @@ import * as tutorial from './tutorial.js';
                 ? "#FF5A52"
                 : (finish || tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF4C4");
 
-            if (!d.self && age < 150) {
-                const ht = age / 150;
-                const ha = (1 - ht) * (1 - ht) * fade;
-                const spread = (5 + 14 * ht) * ratio;
+            if (!d.self && age < HIT_TICK_MS) {
+                const ht = age / HIT_TICK_MS;
+                const ha = (1 - ht) * fade;
+                const spread = (5 + 12 * ht) * ratio;
                 const ox = ratio * d.x - px + halfW;
                 const oy = ratio * d.y - py + halfH;
                 c.save();
@@ -5022,19 +5028,18 @@ import * as tutorial from './tutorial.js';
             }
 
             if (d.word) {
-                drawText(d.word, x, y - size * 0.88, size * 0.46, tint, "center", true, fade, 6);
+                drawText(d.word, x, y - size * 0.92, size * 0.44, tint, "center", true, fade, 6);
             }
             const num = "-" + util.formatLargeNumber(Math.round(d.amount));
             drawText(num, x, y, size, tint, "center", true, fade, 5.5);
             if (combo >= 2) {
-                drawText("×" + combo, x + size * 0.78, y + size * 0.06, size * 0.38, tint, "left", true, fade * 0.95, 6);
+                drawText("×" + combo, x, y + size * 0.78, size * 0.36, tint, "center", true, fade * 0.9, 6);
             }
         }
         c.restore();
     }
 
-    // Kill confirm. Same visual language as the rest of the HUD: thick dark
-    // stroke, round joins, two circles for eyes. Not an svg paste-on.
+    // Fallback skull if the svg hasn't loaded yet.
     function drawKillSkull(c, x, y, s) {
         const sw = Math.max(1.4, s * 0.09);
         c.save();
@@ -5097,7 +5102,7 @@ import * as tutorial from './tutorial.js';
         const now = performance.now();
         const c = ctx[2];
         const halfW = global.screenWidth / 2, halfH = global.screenHeight / 2;
-        const HOLD = 1400, FADE = 550, DUR = HOLD + FADE;
+        const HOLD = 2000, FADE = 700, DUR = HOLD + FADE;
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
             const age = now - d.born;
@@ -5110,26 +5115,31 @@ import * as tutorial from './tutorial.js';
                 : 1;
             let x = ratio * d.x - px + halfW;
             let y = ratio * d.y - py + halfH;
-            x = Math.max(50, Math.min(global.screenWidth - 50, x));
-            y = Math.max(50, Math.min(global.screenHeight - 60, y));
+            x = Math.max(56, Math.min(global.screenWidth - 56, x));
+            y = Math.max(56, Math.min(global.screenHeight - 70, y));
 
             c.save();
             c.strokeStyle = color.guiwhite;
             c.lineCap = "round";
             for (let r = 0; r < 2; r++) {
-                c.globalAlpha = fade * (0.55 - r * 0.22) * Math.max(0, 1 - age / 700);
+                c.globalAlpha = fade * (0.55 - r * 0.22) * Math.max(0, 1 - age / 900);
                 c.lineWidth = (2.2 - r * 0.6) * ratio;
                 c.beginPath();
-                c.arc(x, y, ((14 + r * 10) + age * (0.07 - r * 0.02)) * ratio * pop, 0, Math.PI * 2);
+                c.arc(x, y, ((18 + r * 12) + age * (0.06 - r * 0.018)) * ratio * pop, 0, Math.PI * 2);
                 c.stroke();
             }
             c.restore();
 
+            const skullS = 52 * pop * ratio;
             c.save();
             c.globalAlpha = fade;
-            drawKillSkull(c, x, y - 10 * pop * ratio, 24 * pop * ratio);
+            if (killSkullImg.complete && killSkullImg.naturalWidth) {
+                c.drawImage(killSkullImg, x - skullS / 2, y - skullS * 0.62, skullS, skullS);
+            } else {
+                drawKillSkull(c, x, y - 14 * pop * ratio, 28 * pop * ratio);
+            }
             c.restore();
-            drawText("DEAD", x, y + 26 * pop * ratio, 15 * pop * ratio, color.guiwhite, "center", true, fade, 5.5);
+            drawText("DEAD", x, y + 34 * pop * ratio, 16 * pop * ratio, color.guiwhite, "center", true, fade, 5.5);
         }
     }
 
@@ -5181,9 +5191,9 @@ import * as tutorial from './tutorial.js';
 
         if (hurt > 0.01) {
             c.save();
-            const gd = c.createRadialGradient(w / 2, h / 2, r * 0.55, w / 2, h / 2, r);
+            const gd = c.createRadialGradient(w / 2, h / 2, r * 0.52, w / 2, h / 2, r);
             gd.addColorStop(0, "rgba(210,28,28,0)");
-            gd.addColorStop(1, "rgba(210,28,28," + (0.22 * hurt).toFixed(3) + ")");
+            gd.addColorStop(1, "rgba(210,28,28," + (0.34 * hurt).toFixed(3) + ")");
             c.fillStyle = gd;
             c.fillRect(0, 0, w, h);
             c.restore();

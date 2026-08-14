@@ -2583,6 +2583,28 @@ class TerrainRenderer {
                         ctx.arc(im.x, im.y, 0.13 * rockSz * isc * (1 - ts * 0.6), 0, Math.PI * 2);
                         ctx.fill();
                     }
+                    // rock hits are one-shot, no combo. skip grind scrapes.
+                    if (!im.small) {
+                        const tickT = dt / 260;
+                        if (tickT < 1) {
+                            const ha = (1 - tickT) * 0.72;
+                            const spread = (0.16 + 0.28 * tickT) * rockSz;
+                            ctx.save();
+                            ctx.globalAlpha = ha;
+                            ctx.strokeStyle = "rgba(255,244,210,0.95)";
+                            ctx.lineWidth = Math.max(0.035, 0.042 * rockSz);
+                            ctx.lineCap = "round";
+                            for (let k = 0; k < 4; k++) {
+                                const ang = Math.PI / 4 + k * Math.PI / 2;
+                                const ca = Math.cos(ang), sa = Math.sin(ang);
+                                ctx.beginPath();
+                                ctx.moveTo(im.x + ca * spread * 0.42, im.y + sa * spread * 0.42);
+                                ctx.lineTo(im.x + ca * spread, im.y + sa * spread);
+                                ctx.stroke();
+                            }
+                            ctx.restore();
+                        }
+                    }
                     // a good spray of rock chips: fly out fast off the rock
                     
                     const fly = Math.min(1, tc / 0.3);

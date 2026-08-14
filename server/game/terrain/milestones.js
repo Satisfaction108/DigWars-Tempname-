@@ -14,13 +14,14 @@ const gems = require('./gems.js');
 
 // at: banked threshold that triggers the popup. bonus: gems paid on top.
 const BANK_MILESTONES = [
-    { at: 100,    bonus: 20 },
-    { at: 500,    bonus: 75 },
-    { at: 1500,   bonus: 200 },
-    { at: 5000,   bonus: 500 },
-    { at: 15000,  bonus: 1500 },
-    { at: 50000,  bonus: 10000 },
-    { at: 150000, bonus: 25000 },
+    { at: 500,    bonus: 100 },
+    { at: 1000,   bonus: 250 },
+    { at: 2500,   bonus: 750 },
+    { at: 5000,   bonus: 2000 },
+    { at: 10000,  bonus: 5000 },
+    { at: 25000,  bonus: 15000 },
+    { at: 50000,  bonus: 40000 },
+    { at: 100000, bonus: 100000 },
 ];
 
 // Called every time a player banks (vault.js). Fires every rung their total

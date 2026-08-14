@@ -522,13 +522,13 @@ function pushDamageNumber(targetId, amount, tier, taken) {
     if (list.length > 8) list.splice(0, list.length - 8);
 }
 function applyHitJuice(amount, tier, taken) {
+    const t = Math.min(1, Math.max(0, amount) / 100);
+    punchCamera(0.55 + t * 4.9, 70 + t * 90);
     if (taken) {
         global.hurtAt = performance.now();
-        global.hurtPower = Math.min(1, 0.35 + amount / 55);
-        if (amount >= 8 || tier >= 1) punchCamera(1.6 + Math.min(3.2, amount * 0.05), 110);
+        global.hurtPower = Math.min(1, 0.38 + amount / 50);
         if (gameSound.combatHurt) gameSound.combatHurt(Math.min(1, amount / 40));
     } else {
-        if (tier >= 1) punchCamera(tier >= 2 ? 1.6 : 0.8, 80);
         if (gameSound.combatHit) gameSound.combatHit(tier);
     }
 }
@@ -1072,6 +1072,7 @@ let incoming = async function(message, socket) {
                     global.milestones.push({
                         title: util.formatLargeNumber(at),
                         bonus: bonus > 0 ? "+" + util.formatLargeNumber(bonus) : "",
+                        at,
                         born: Math.max(performance.now(), prev + 400),
                     });
                     if (global.milestones.length > 4) global.milestones.shift();

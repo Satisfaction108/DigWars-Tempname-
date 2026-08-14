@@ -883,6 +883,7 @@ class gameHandler {
     quickMaintainLoop = () => {
         this.coordinateBotPushes();
         this.directorTick();
+        const now = Date.now();
         for (let i = 0; i < this.bots.length; i++) {
             let o = this.bots[i];
             if (!o.botStatsFixed) {
@@ -891,12 +892,16 @@ class gameHandler {
                 o.refreshSkills();
             }
             const upgradeIndex = o.botStatsFixed ? this.botUpgradeIndex(o) : ran.irandomRange(0, o.upgrades.length);
-            if (o.leftoverUpgrades && upgradeIndex !== null && o.upgrade(upgradeIndex)) {
+            if (o.leftoverUpgrades && now >= (o.botNextUpgradeAt || 0) && upgradeIndex !== null && o.upgrade(upgradeIndex)) {
                 o.leftoverUpgrades--;
-                // Re-shape the build for the class the bot just became:
-                // a stat spread chosen at spawn (as a basic tank) is wrong
-                // for the sniper or destroyer it upgrades into.
+                o.botDidUpgrade = true;
+                o.botNextUpgradeAt = now + 650 + Math.floor(Math.random() * 250);
+                if (!o.leftoverUpgrades) o.botSettleAt = now + 400;
                 if (o.botStatsFixed) this.configureBotStats(o);
+            }
+            if (!o.botArmed && now >= (o.botWakeAt || 0) && !o.leftoverUpgrades) {
+                if (o.botDidUpgrade && now < (o.botSettleAt || 0)) continue;
+                this.armBot(o);
             }
         }
         
@@ -1005,12 +1010,52 @@ class gameHandler {
         return fallback();
     }
 
+    // Sit still and invuln until upgrades finish, then hand the tank its AI.
+    armBot(o) {
+        if (!o || o.isDead() || o.botArmed) return;
+        o.botArmed = true;
+        const botName = o.name;
+        let CC = Class[o.defs[0]];
+        if (!CC) CC = {};
+        o.controllers = [];
+        o.define({
+            CONTROLLERS: CC.CONTROLLERS ? [...Class.bot.CONTROLLERS, ...CC.CONTROLLERS] : Class.bot.CONTROLLERS,
+            FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE,
+            AI: Class.bot.AI,
+        }, false, true, false);
+        if (CC && CC.HEALING_TANK) {
+            o.controllers = [];
+            o.define({
+                CONTROLLERS: ["healTeamMasters", "minion", ["wanderAroundMap", { replicatePlayerMovement: true, lookAtGoal: true }]],
+                FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE,
+                AI: Class.bot.AI,
+            }, false, true, false);
+        }
+        o.name = botName;
+        this.configureBotStats(o);
+        o.refreshBodyAttributes();
+        o.invuln = false;
+        o.on("define", () => {
+            let next = Class[o.defs[0]];
+            if (next && next.HEALING_TANK) {
+                o.controllers = [];
+                o.define({
+                    CONTROLLERS: ["healTeamMasters", "minion", ["wanderAroundMap", { replicatePlayerMovement: true, lookAtGoal: true }]],
+                    FACING_TYPE: next.FACING_TYPE ? next.FACING_TYPE : Class.bot.FACING_TYPE,
+                    AI: Class.bot.AI,
+                }, false, true, false);
+            }
+            o.define({ FACING_TYPE: next.FACING_TYPE ? next.FACING_TYPE : Class.bot.FACING_TYPE, AI: Class.bot.AI, }, false, true, false);
+            this.configureBotStats(o);
+        });
+    }
+
     spawnBots(loc, team, existingName = null, lifecycle = null) {
         const nameKey = lifecycle?.nameKey || (existingName ? null : ran.chooseBotName());
         let botName = existingName || Config.bot_name_prefix + nameKey;
         let o = new Entity(loc);
         o.define(Config.spawn_class);
-        o.define({ CONTROLLERS: ["digWarsGoals"] }, false, false, false);
+        o.controllers = [];
         o.refreshBodyAttributes();
         o.isBot = true;
         // Bots should not be put to sleep by view-based activation. Their AI
@@ -1033,6 +1078,11 @@ class gameHandler {
         o.name = botName;
         o.invuln = true;
         o.leftoverUpgrades = ran.chooseChance(...Config.bot_class_upgrade_chances);
+        o.botWakeAt = Date.now() + 2000;
+        o.botNextUpgradeAt = o.botWakeAt;
+        o.botArmed = false;
+        o.botDidUpgrade = false;
+        o.botSettleAt = 0;
         let color = Config.random_body_colors ? Math.floor(Math.random() * 20) : team ? getTeamColor(team) : "darkGrey";
         o.color.base = color;
         o.leaderboardColor = color;
@@ -1114,42 +1164,6 @@ class gameHandler {
             lastY: o.y,
         });
         if (Config.tag) Config.tag_data.addBot(o), global.nextTagBotTeam = null;
-        setTimeout(() => {
-            if (o.isDead()) return;
-            let CC = Class[o.defs[0]];
-            if (!CC) CC = {};
-            o.controllers = [];
-            o.define({
-                CONTROLLERS: CC.CONTROLLERS ? [...Class.bot.CONTROLLERS, ...CC.CONTROLLERS] : Class.bot.CONTROLLERS,
-                FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE,
-                AI: Class.bot.AI,
-            }, false, true, false)
-            if (CC && CC.HEALING_TANK) {
-                o.controllers = [];
-                o.define({
-                    CONTROLLERS: ["healTeamMasters", "minion", ["wanderAroundMap", { replicatePlayerMovement: true, lookAtGoal: true }]],
-                    FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE,
-                    AI: Class.bot.AI,
-                }, false, true, false);
-            }
-            o.name = botName;
-            this.configureBotStats(o);
-            o.refreshBodyAttributes();
-            o.invuln = false;
-            o.on("define", () => {
-                let CC = Class[o.defs[0]];
-                if (CC && CC.HEALING_TANK) {
-                    o.controllers = [];
-                    o.define({ 
-                        CONTROLLERS: ["healTeamMasters", "minion", ["wanderAroundMap", { replicatePlayerMovement: true, lookAtGoal: true }]],
-                        FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE,
-                        AI: Class.bot.AI,
-                    }, false, true, false);
-                }
-                o.define({ FACING_TYPE: CC.FACING_TYPE ? CC.FACING_TYPE : Class.bot.FACING_TYPE, AI: Class.bot.AI, }, false, true, false);
-                this.configureBotStats(o);
-            })
-        }, 3000 + Math.floor(Math.random() * 7000));
         o.on('dead', () => {
             const stats = this.botStats.get(o.id);
             if (stats) stats.deaths++;
