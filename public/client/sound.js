@@ -315,6 +315,26 @@ class GameSound {
             this._grains({ n: 4, span: 0.16, cutLo: 300, cutHi: 1000, peak: 0.09 * v, pan: sp.pan, delay: 0.04 });
         }
     }
+
+    // You landed a hit. A bright tick that climbs with the tier so a
+    // Critical! is a different sound from chip, without becoming a jingle.
+    combatHit(tier = 0) {
+        if (!this._ready() || !this._throttle('combatHit', 40)) return;
+        const t = Math.max(0, Math.min(2, tier | 0));
+        const v = this._busyGain();
+        this._thump({ cut0: 3200 + t * 700, cut1: 700, dur: 0.028, peak: 0.16 * v });
+        this._tone({ freq: 1560 + t * 420, type: 'sine', dur: 0.045 + t * 0.015, peak: 0.055 * v, attack: 0.001 });
+        if (t >= 2) this._tone({ freq: 2340, type: 'triangle', dur: 0.06, peak: 0.04 * v, delay: 0.012, attack: 0.002 });
+    }
+
+    // You got hit. A muffled thud; heavier when the chunk of life is bigger.
+    combatHurt(frac = 0.3) {
+        if (!this._ready() || !this._throttle('combatHurt', 55)) return;
+        const f = Math.max(0.15, Math.min(1, frac));
+        const v = this._busyGain();
+        this._thump({ cut0: 900, cut1: 90, dur: 0.08 + f * 0.05, peak: (0.18 + 0.28 * f) * v });
+        this._tone({ freq: 90 + 40 * f, type: 'sine', dur: 0.07, peak: 0.05 * f * v, attack: 0.002 });
+    }
 }
 
 export const gameSound = new GameSound();

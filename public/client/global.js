@@ -315,10 +315,11 @@ const global = {
     // Personal milestone toasts ("★ 500 BANKED") - transient, client-side.
     milestones: [],
 
-    // Floating damage numbers. Purely cosmetic and purely client-side: the
-    // amounts are derived from the health ratio and max health the entity
-    // update already carries, so no extra server traffic pays for them.
+    // Floating combat text. Server-authored (DMG packets) and scaled to 100
+    // so every tank reads the same: 20 means a fifth of their life.
     damageNumbers: [],
+    hurtAt: -1e9,
+    hurtPower: 0,
     
     
     leader: { id: -1, x: 0, y: 0, team: 0, at: -1e9 },
@@ -504,6 +505,8 @@ const global = {
         global.messages = [];
         global.milestones = [];
         global.damageNumbers = [];
+        global.hurtAt = -1e9;
+        global.hurtPower = 0;
         global.metrics.latency = [];
         global.chats = {};
         global.metrics.rendertime = 0;
@@ -538,6 +541,8 @@ const global = {
         global.messages = [];
         global.milestones = [];
         global.damageNumbers = [];
+        global.hurtAt = -1e9;
+        global.hurtPower = 0;
         global.metrics.latency = [];
         global.chats = {};
         global.metrics.rendertime = 0;

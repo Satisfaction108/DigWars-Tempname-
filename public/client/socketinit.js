@@ -444,10 +444,24 @@ function Status() {
 // merge into one growing number rather than stacking a tower of "-3"s - that
 // merge is what keeps a minigun burst or a drone swarm readable instead of
 // turning the target into a wall of digits.
-const DMG_COMBINE_MS = 180;
+const DMG_COMBINE_MS = 220;
+function punchCamera(amount, duration) {
+    const set = config.graphical.shakeProperties.CameraShake;
+    const now = Date.now();
+    if (set.shakeStartTime !== -1 && now - set.shakeStartTime < 70) {
+        set.shakeAmount = Math.max(set.shakeAmount, amount);
+        return;
+    }
+    set.shakeStartTime = now;
+    set.shakeDuration = duration;
+    set.shakeAmount = amount;
+    set.keepShake = false;
+}
 // Damage the server attributed to or against us. targetId locates the body to
-// float the number over; taken=true means we were the one hit.
-function pushDamageNumber(targetId, amount, crit, taken) {
+// float the number over; taken=true means we were the one hit. amount is
+// already scaled to 100 (percent of the target's max health). tier 0/1/2 =
+// normal / Nice! / Critical!.
+function pushDamageNumber(targetId, amount, tier, taken) {
     if (!(amount >= 1)) return;
     const target = global.entities.find(e => e.id === targetId);
     // Out of view (or already gone) - nothing to anchor a number to.
@@ -461,26 +475,45 @@ function pushDamageNumber(targetId, amount, crit, taken) {
         // newest; if that one has aged out, so has everything before it.
         if (now - d.born > DMG_COMBINE_MS) break;
         // Deliberately not restamping born: the number keeps its original rise
-        // and fade and just counts up. Restamping would snap it back down every
-        // merge, and under sustained fire it would never leave the screen.
+        // and fade and just counts up. A short punch scale is restamped so a
+        // burst that grows into Critical still feels like it landed.
         d.amount += amount;
-        d.crit = d.crit || crit;
+        d.tier = Math.max(d.tier, tier);
+        if (d.amount >= 18) d.tier = 2;
+        else if (d.amount >= 8) d.tier = Math.max(d.tier, 1);
         d.x = target.x;
         d.y = target.y;
+        d.punch = now;
+        applyHitJuice(amount, d.tier, taken);
         return;
     }
-    list.push({
+    const entry = {
         id: targetId,
         x: target.x,
         y: target.y,
         amount,
-        crit,
+        tier,
         self: taken,
         born: now,
+        punch: 0,
         jitter: Math.random() * 2 - 1,
-    });
+    };
+    list.push(entry);
+    applyHitJuice(amount, tier, taken);
     // Hard cap so a busy brawl can never grow this without bound.
-    if (list.length > 32) list.splice(0, list.length - 32);
+    if (list.length > 14) list.splice(0, list.length - 14);
+}
+function applyHitJuice(amount, tier, taken) {
+    if (taken) {
+        global.hurtAt = performance.now();
+        global.hurtPower = Math.min(1, 0.28 + amount / 70);
+        // chip doesn't kick the camera - a real chunk of life does.
+        if (amount >= 6 || tier >= 1) punchCamera(1.4 + Math.min(3.2, amount * 0.05), 100);
+        if (gameSound.combatHurt) gameSound.combatHurt(Math.min(1, amount / 40));
+    } else {
+        if (tier >= 2) punchCamera(1.1, 70);
+        if (gameSound.combatHit) gameSound.combatHit(tier);
+    }
 }
 
 const process = (z = {}) => {
@@ -998,11 +1031,12 @@ let incoming = async function(message, socket) {
                 if (w.over && !wasOver) w.victoryAt = performance.now();
             } break;
             case 'DMG': {
-                // Combat text: targetId, amount, crit, taken(0 = we dealt it,
+                // Combat text: targetId, amount (0-100 of max hp), tier
+                // (0/1/2 = normal/Nice!/Critical!), taken (0 = we dealt it,
                 // 1 = we took it). The server only sends these to the two
                 // players in the exchange, so anything that arrives here is
                 // ours by definition.
-                pushDamageNumber(m[0], m[1] | 0, !!(m[2] | 0), !!(m[3] | 0));
+                pushDamageNumber(m[0], m[1] | 0, m[2] | 0, !!(m[3] | 0));
             } break;
             case 'MS': {
                 // Personal achievement: kind, threshold, bonus paid

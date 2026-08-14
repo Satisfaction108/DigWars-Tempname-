@@ -6,10 +6,12 @@ const { combineStats } = require('../../lib/definitions/facilitators.js');
 // eased blink from the rising edge, so this only has to outlast a couple of
 // network ticks - long enough that the edge can't be missed, short enough that
 // rapid fire still reads as separate blinks.
-const HIT_FLASH_MS = 140;
-// Share of a body's max health that a single hit has to take off to read as a
-// heavy one. Scaled off max health rather than a flat number so it stays
-// meaningful for both a level 45 tank and a miniboss.
+const HIT_FLASH_MS = 160;
+// Combat text is always "out of 100" so a 20-HP tank and an 80-HP tank read
+// the same: 20 means a fifth of their life, not a raw internal chip. Nice /
+// Critical are fractions of max health, so they stay meaningful on bosses.
+const DMG_DISPLAY_SCALE = 100;
+const DMG_NICE_FRACTION = 0.08;
 const DMG_CRIT_FRACTION = 0.18;
 class Entity extends EventEmitter {
     constructor(position, master) {
@@ -1042,16 +1044,21 @@ class Entity extends EventEmitter {
     // exchange: whoever landed the hit, and whoever took it. Deriving these on
     // the client from health deltas instead looks fine one-on-one and falls
     // apart in a real fight - every bot and teammate shooting the same target
-    // stacks their damage onto your screen too, so a 100 HP tank visibly eats
-    // 300+ in popups. Only the server knows who actually dealt what.
+    // stacks their damage onto your screen too. Only the server knows who
+    // actually dealt what. Amounts are scaled to 100 so they stay readable
+    // across tanks with different max health.
     reportDamageNumber(amount) {
         // Tanks and minibosses only. Numbers floating over bullets, drones, food
         // and rock are noise, and bailing here first also keeps this off the hot
         // path for the hundreds of bullets taking chip damage every tick.
         if (this.type !== 'tank' && this.type !== 'miniboss') return;
-        if (!(amount >= 1)) return;
-        const rounded = Math.round(amount);
-        const crit = this.health.max > 0 && amount >= this.health.max * DMG_CRIT_FRACTION ? 1 : 0;
+        const maxH = this.health.max;
+        if (!(maxH > 0) || !(amount > 0)) return;
+        const display = Math.round(DMG_DISPLAY_SCALE * amount / maxH);
+        if (display < 1) return;
+        let tier = 0;
+        if (amount >= maxH * DMG_CRIT_FRACTION) tier = 2;
+        else if (amount >= maxH * DMG_NICE_FRACTION) tier = 1;
 
         // Whoever landed it: first thing in the collision array that actually
         // deals damage, walked up to the tank that owns it (bullet -> drone ->
@@ -1067,12 +1074,12 @@ class Entity extends EventEmitter {
             break;
         }
         if (attacker && attacker.socket && attacker !== this) {
-            attacker.socket.talk('DMG', this.id, rounded, crit, 0);
+            attacker.socket.talk('DMG', this.id, display, tier, 0);
         }
         // Only a real player body reports damage taken - a player's drone or
         // trap getting chipped is not "you got hit".
         if (this.socket) {
-            this.socket.talk('DMG', this.id, rounded, crit, 1);
+            this.socket.talk('DMG', this.id, display, tier, 1);
         }
     }
 

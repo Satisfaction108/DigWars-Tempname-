@@ -15,22 +15,19 @@ import * as tutorial from './tutorial.js';
     // ---- Hit feedback ----------------------------------------------------
     // The blink is triggered by the server (entity.js stamps hitAt on damage and
     // reports a decaying hitFlash); everything below is just how it's drawn.
-    // Kept a touch shorter than the server's HIT_FLASH_MS window so rapid fire
-    // reads as separate blinks rather than one long red smear.
-    const HIT_BLINK_MS = 120;
-    // Never a full repaint - the tank has to stay recognisably its team colour
-    // through the flash, or a firefight turns into a screen of red blobs.
-    const HIT_BLINK_STRENGTH = 0.72;
-    const HIT_BLINK_COLOR = "#FF3B30";
-    // Floating damage numbers. Short and quick on purpose - combat text is
-    // meant to be read out of the corner of your eye and then get out of the
-    // way, so it clears well before the next exchange lands.
-    const DMG_DURATION_MS = 720;
-    const DMG_RISE = 34;
-    // Low-health vignette. Starts feathering in well before it's fatal so it
-    // reads as mounting pressure rather than a jump scare at 5%.
-    const LOW_HP_START = 0.4;
-    const LOW_HP_FULL = 0.08;
+    // White, not red: a red flash vanishes on the red team in a brawl. Warm
+    // white is the diep/valorant trick - it reads on every team colour.
+    const HIT_BLINK_MS = 160;
+    const HIT_BLINK_STRENGTH = 0.82;
+    const HIT_BLINK_COLOR = "#FFF4E0";
+    // Floating damage numbers. Fade in, overshoot, hold, fade out - a blunt
+    // pop at full opacity is what made the old ones look like stickers.
+    const DMG_DURATION_MS = 920;
+    const DMG_RISE = 42;
+    // Low-health vignette. Starts faint around half health and creeps inward
+    // as you drop, so it reads as mounting pressure rather than a jump scare.
+    const LOW_HP_START = 0.52;
+    const LOW_HP_FULL = 0.06;
 
     fetch("changelog.md", { cache: "no-cache" }).then(response => response.text()).then(response => {
         let a = [];
@@ -194,7 +191,7 @@ import * as tutorial from './tutorial.js';
         
         
         
-        for (const id of ["optSatchelWarning", "optLeaderIndicators", "optWarBar", "optChatMessages"]) {
+        for (const id of ["optSatchelWarning", "optLeaderIndicators", "optWarBar", "optChatMessages", "optHitFeedback"]) {
             if (localStorage.getItem(id + "Checked") !== null) util.retrieveFromLocalStorage(id);
         }
         util.retrieveFromLocalStorage("optRenderKillbar");
@@ -1052,6 +1049,8 @@ import * as tutorial from './tutorial.js';
         config.game.satchelWarning = dwOpt("optSatchelWarning");
         config.game.leaderIndicators = dwOpt("optLeaderIndicators");
         config.game.warBar = dwOpt("optWarBar");
+        config.game.damageNumbers = dwOpt("optHitFeedback");
+        config.game.hitFlash = dwOpt("optHitFeedback");
         global.GUIStatus.renderChat = dwOpt("optChatMessages");
 
         switch (document.getElementById("optBorders").value) {
@@ -2121,13 +2120,15 @@ import * as tutorial from './tutorial.js';
             const blend = render.status.getBlend();
 
             // Server-driven hit blink, eased on the client so it stays smooth
-            // between network ticks. The squared falloff gives a hard flash that
-            // trails off, which reads far better at this duration than a linear
-            // fade - a linear one looks like the tank is simply changing colour.
+            // between network ticks. A short fade-in then a squared falloff
+            // reads as an impact rather than the tank simply changing colour.
             let hitBlend = 0;
-            if (config.game.hitFlash && render.hitAt) {
+            if (config.game.hitFlash && render.hitAt && instance.drawsHealth) {
                 const ht = (performance.now() - render.hitAt) / HIT_BLINK_MS;
-                if (ht < 1) hitBlend = (1 - ht) * (1 - ht) * HIT_BLINK_STRENGTH;
+                if (ht < 1) {
+                    const fadeIn = ht < 0.12 ? ht / 0.12 : 1;
+                    hitBlend = fadeIn * (1 - ht) * (1 - ht) * HIT_BLINK_STRENGTH;
+                }
             }
 
             const sourceGuns = source.guns;
@@ -2280,6 +2281,22 @@ import * as tutorial from './tutorial.js';
 
                 ctx[1].drawImage(context.canvas, x - xx, y - yy);
                 ctx[1].restore();
+            }
+
+            // hit ring lives on the world canvas so it isn't clipped by the
+            // offscreen body blit. only health-drawing bodies, so a bullet
+            // storm doesn't grow a field of white circles.
+            if (turretInfo === false && !assignedContext && instance.drawsHealth && hitBlend > 0) {
+                const ht = Math.max(0, Math.min(1, (performance.now() - render.hitAt) / HIT_BLINK_MS));
+                const ringCtx = ctx[1];
+                ringCtx.save();
+                ringCtx.globalAlpha = alphaFade * (1 - ht) * (1 - ht) * 0.9;
+                ringCtx.strokeStyle = HIT_BLINK_COLOR;
+                ringCtx.lineWidth = Math.max(1.6, initStrokeWidth * (1.7 - ht * 0.8));
+                ringCtx.beginPath();
+                ringCtx.arc(x, y, sizeRatio * (1.06 + ht * 0.72), 0, Math.PI * 2);
+                ringCtx.stroke();
+                ringCtx.restore();
             }
 
             if (sharp) {
@@ -4226,7 +4243,7 @@ import * as tutorial from './tutorial.js';
                         ctx[1].globalAlpha *= 0.3 + 0.3 * shield;
                         drawBar(x - size, x - size + 2 * size * shield, seperated ? yy - barWidth * 1.45 : yy, barWidth + barChunk * 0.35, config.graphical.coloredHealthbars ? gameDraw.mixColors(col, color.guiblack, 0.25) : color.teal, ctx[1])
                     }
-                    if (gui.showhealthtext) drawText(Math.round(instance.healthN) + "/" + Math.round(instance.maxHealthN), x, yy + barWidth * 2 + barWidth * config.graphical.separatedHealthbars * 2 + 10, 12 * ratio, color.guiwhite, "center");
+                    if (gui.showhealthtext) drawText(Math.round(instance.health * 100) + "/100", x, yy + barWidth * 2 + barWidth * config.graphical.separatedHealthbars * 2 + 10, 12 * ratio, color.guiwhite, "center");
                     ctx[1].globalAlpha = alpha;
                 }
             }
@@ -4929,9 +4946,8 @@ import * as tutorial from './tutorial.js';
     
     // Floating damage numbers. World-anchored, so each number keeps rising from
     // the spot the hit actually landed - it stays readable even if the target
-    // dies or drives off mid-flight. Purely cosmetic: nothing here feeds back
-    // into game state, and every amount is derived from health data the entity
-    // update already carried, so it costs no extra server traffic.
+    // dies or drives off mid-flight. Amounts are 0-100 of the target's max
+    // health (server-scaled), so a fifth of a life always reads as 20.
     function drawDamageNumbers(px, py, ratio) {
         const list = global.damageNumbers;
         if (!list || !list.length) return;
@@ -4947,40 +4963,85 @@ import * as tutorial from './tutorial.js';
             if (age >= DMG_DURATION_MS) { list.splice(i, 1); continue; }
             const t = age / DMG_DURATION_MS;
 
-            // Quick pop on entry, then a decelerating drift upward. Opacity is
-            // held flat for the first half so the number is actually legible
-            // before it starts to go.
-            // Overshoot on entry, settle back to 1. The tiny scale punch is what
-            // makes a hit feel like it landed; a plain fade-in reads as limp.
-            const pop = t < 0.16
-                ? 1.26 - 0.26 * Math.pow(t / 0.16, 0.6)
-                : 1;
-            const fade = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-            const rise = DMG_RISE * (1 - Math.pow(1 - t, 3));
+            // fade in, hold, fade out. a number that appears at full opacity
+            // is what made the old ones look like they were stamped on.
+            let fade;
+            if (t < 0.11) {
+                const u = t / 0.11;
+                fade = 1 - (1 - u) * (1 - u);
+            } else if (t < 0.58) {
+                fade = 1;
+            } else {
+                const u = (t - 0.58) / 0.42;
+                fade = 1 - u * u;
+            }
 
-            const x = ratio * d.x - px + halfW + d.jitter * 11 * ratio;
-            const y = ratio * d.y - py + halfH - (24 + rise) * ratio;
+            // ease-out-back: start small, overshoot, settle.
+            let pop;
+            if (t < 0.22) {
+                const u = t / 0.22;
+                const c1 = 1.70158, c3 = c1 + 1;
+                pop = 0.42 + 0.58 * (1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2));
+            } else {
+                pop = 1;
+            }
+            if (d.punch) {
+                const pt = (now - d.punch) / 150;
+                if (pt < 1) pop *= 1 + 0.16 * (1 - pt) * (1 - pt);
+            }
+
+            const rise = DMG_RISE * (1 - Math.pow(1 - t, 2.5));
+            const x = ratio * d.x - px + halfW + d.jitter * 10 * ratio;
+            const y = ratio * d.y - py + halfH - (28 + rise) * ratio;
             if (x < -80 || x > global.screenWidth + 80) continue;
             if (y < -80 || y > global.screenHeight + 80) continue;
 
-            // Damage you take reads red, damage you deal reads white, so the two
-            // are never confused mid-fight. A heavy hit turns green and picks up
-            // a small CRIT tag above it. Stroke is passed as a high ratio, which
-            // drawText reads as a fine outline - enough to stay legible over pale
-            // floor and dark rock alike without the chunky arras outline.
-            const size = (d.crit ? 19 : 14.5) * pop * ratio;
-            const tint = d.crit ? color.lgreen : (d.self ? "#FF5A4E" : color.guiwhite);
-            if (d.crit) {
-                drawText("CRIT", x, y - size * 0.92, size * 0.5, color.lgreen, "center", true, fade * 0.9, 8);
+            // damage you take is red. damage you deal is warm gold, hotter
+            // for nicer hits. green was the heal colour - never a crit.
+            const tier = d.tier || 0;
+            const size = (15 + Math.min(9, d.amount * 0.09) + (tier >= 2 ? 5 : tier >= 1 ? 2.5 : 0)) * pop * ratio;
+            const tint = d.self
+                ? "#FF4E4E"
+                : (tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF1A8");
+
+            // four-tick burst on the body for the first beat - the aha that
+            // still reads when the number itself is lost in the mess.
+            if (!d.self && age < 170) {
+                const ht = age / 170;
+                const a = (1 - ht) * (1 - ht) * fade;
+                const spread = (7 + 20 * ht) * ratio;
+                const ox = ratio * d.x - px + halfW;
+                const oy = ratio * d.y - py + halfH;
+                c.save();
+                c.globalAlpha = a;
+                c.strokeStyle = tint;
+                c.lineWidth = Math.max(1.6, 2.1 * ratio);
+                c.lineCap = "round";
+                for (let k = 0; k < 4; k++) {
+                    const ang = Math.PI / 4 + k * Math.PI / 2;
+                    const ca = Math.cos(ang), sa = Math.sin(ang);
+                    c.beginPath();
+                    c.moveTo(ox + ca * spread * 0.42, oy + sa * spread * 0.42);
+                    c.lineTo(ox + ca * spread, oy + sa * spread);
+                    c.stroke();
+                }
+                c.restore();
             }
-            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade, 7);
+
+            if (tier >= 1) {
+                const label = tier >= 2 ? "Critical!" : "Nice!";
+                drawText(label, x, y - size * 0.92, size * 0.44, tint, "center", true, fade * 0.95, 8);
+            }
+            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade, 6);
         }
         c.restore();
     }
 
     // Red edge vignette as your own health drops. Smoothed toward the target
     // rather than tracking health directly, so a burst of chip damage feathers
-    // in instead of strobing, and the pulse quickens as it gets worse.
+    // in instead of strobing. Intensity and how far it creeps inward both
+    // climb as health falls. A separate short slam covers the moment you
+    // actually get hit, even at full hp.
     let lowHpLevel = 0;
     function drawLowHealthVignette() {
         let target = 0;
@@ -4991,23 +5052,42 @@ import * as tutorial from './tutorial.js';
                 target = Math.max(0, Math.min(1, k));
             }
         }
-        lowHpLevel += (target - lowHpLevel) * 0.08;
-        if (lowHpLevel < 0.004) return;
+        lowHpLevel += (target - lowHpLevel) * 0.07;
+
+        const now = performance.now();
+        const hurtAge = now - (global.hurtAt || -1e9);
+        const hurt = hurtAge < 240 ? (1 - hurtAge / 240) * (global.hurtPower || 0.5) : 0;
+
+        if (lowHpLevel < 0.004 && hurt < 0.01) return;
 
         const c = ctx[2];
         const w = global.screenWidth, h = global.screenHeight;
         const r = Math.hypot(w, h) / 2;
-        // Heartbeat: ~1s at the threshold tightening to ~0.45s at death's door.
-        const period = 1000 - 550 * lowHpLevel;
-        const pulse = 0.5 + 0.5 * Math.sin(performance.now() / (period / (2 * Math.PI)));
-        const peak = (0.16 + 0.30 * lowHpLevel) * (0.78 + 0.22 * pulse);
-        c.save();
-        const gd = c.createRadialGradient(w / 2, h / 2, r * (0.72 - 0.22 * lowHpLevel), w / 2, h / 2, r);
-        gd.addColorStop(0, "rgba(196,24,24,0)");
-        gd.addColorStop(1, "rgba(196,24,24," + peak.toFixed(3) + ")");
-        c.fillStyle = gd;
-        c.fillRect(0, 0, w, h);
-        c.restore();
+
+        if (lowHpLevel >= 0.004) {
+            // heartbeat: ~1.1s at the threshold tightening to ~0.42s near death.
+            const period = 1100 - 680 * lowHpLevel;
+            const pulse = 0.5 + 0.5 * Math.sin(now / (period / (2 * Math.PI)));
+            const peak = (0.07 + 0.40 * lowHpLevel) * (0.84 + 0.16 * pulse);
+            const inner = 0.78 - 0.30 * lowHpLevel;
+            c.save();
+            const gd = c.createRadialGradient(w / 2, h / 2, r * inner, w / 2, h / 2, r);
+            gd.addColorStop(0, "rgba(170,16,16,0)");
+            gd.addColorStop(1, "rgba(170,16,16," + peak.toFixed(3) + ")");
+            c.fillStyle = gd;
+            c.fillRect(0, 0, w, h);
+            c.restore();
+        }
+
+        if (hurt > 0.01) {
+            c.save();
+            const gd = c.createRadialGradient(w / 2, h / 2, r * 0.55, w / 2, h / 2, r);
+            gd.addColorStop(0, "rgba(210,28,28,0)");
+            gd.addColorStop(1, "rgba(210,28,28," + (0.22 * hurt).toFixed(3) + ")");
+            c.fillStyle = gd;
+            c.fillRect(0, 0, w, h);
+            c.restore();
+        }
     }
 
     function drawSatchelDanger() {

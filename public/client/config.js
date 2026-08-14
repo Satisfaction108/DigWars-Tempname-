@@ -52,9 +52,8 @@ const config = {
         satchelWarning: true,
         leaderIndicators: true,
         warBar: true,
-        // Hit feedback. Separate toggles so a player who finds floating numbers
-        // noisy can drop them and still keep the blink, which carries the
-        // "that landed" read on its own.
+        // Hit feedback. One toggle covers the blink, the numbers, and the
+        // callouts; the low-health vignette stays on as a survival cue.
         damageNumbers: true,
         hitFlash: true,
         lowHealthVignette: true,
