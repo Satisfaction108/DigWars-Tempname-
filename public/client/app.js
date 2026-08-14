@@ -20,9 +20,9 @@ import * as tutorial from './tutorial.js';
     const HIT_BLINK_MS = 180;
     const HIT_BLINK_STRENGTH = 0.88;
     const HIT_BLINK_COLOR = "#FFF4E0";
-    const DMG_FADE_IN_MS = 120;
+    const DMG_FADE_IN_MS = 160;
     const DMG_POP_MS = 300;
-    const DMG_FADE_OUT_MS = 700;
+    const DMG_FADE_OUT_MS = 900;
     const DMG_COMBO_HOLD_MS = 1000;
     const DMG_RISE = 50;
     // Low-health vignette. Starts faint around half health and creeps inward
@@ -1450,6 +1450,7 @@ import * as tutorial from './tutorial.js';
         context.save();
         context.lineCap = "round";
         context.lineJoin = "round";
+        if (fade < 1) context.globalAlpha *= Math.max(0, fade);
         if (ratio !== 1) {
             context.scale(1 / ratio, 1 / ratio);
         }
@@ -4489,9 +4490,9 @@ import * as tutorial from './tutorial.js';
             height = 17,
             x = (global.screenWidth - width) / 2,
             y = global.screenHeight - 44 - height;
-        const warLive = config.game.warBar && global.war && global.war.target > 0 &&
+        const warLive = config.game.warBar && global.war &&
             performance.now() - global.war.at <= 6000;
-        if (warLive) y -= 26;
+        if (warLive) y -= 8;
         ctx[2].lineWidth = 10;
         if (global.GUIStatus.renderPlayerKillbar) {
             scorelength = -112.2;
@@ -4815,7 +4816,7 @@ import * as tutorial from './tutorial.js';
     let warBarFrac = 0.5;
     function drawTeamBankBar() {
         const w = global.war;
-        if (!config.game.warBar || !w || !(w.target > 0)) return;
+        if (!config.game.warBar || !w) return;
         const now = performance.now();
         if (w.at <= 0 || now - w.at > 6000) return; // no data yet, or stale
         const bw = 440, h = 13,
@@ -4832,25 +4833,11 @@ import * as tutorial from './tutorial.js';
         drawBar(x, x + bw, cy, h + config.graphical.barChunk, color.black);
         if (f > 0.003) drawBar(x, split, cy, h - 3, color.blue);
         if (f < 0.997) drawBar(split, x + bw, cy, h - 3, color.red);
-        // tie mark at the centre, and a bright frontier notch at the split
         drawBar(x + bw / 2 - 0.8, x + bw / 2 + 0.8, cy, h - 5, "rgba(0,0,0,0.35)");
         drawBar(split - 2.6, split + 2.6, cy, h + 2, color.black);
         drawBar(split - 1.4, split + 1.4, cy, h - 1, color.guiwhite);
         drawText(util.formatLargeNumber(blue), x - 10, cy + 5, 13, color.blue, "right");
         drawText(util.formatLargeNumber(red), x + bw + 10, cy + 5, 13, color.red, "left");
-
-        const ahead = Math.abs(blue - red);
-        const aheadTxt = blue === red ? "dead even"
-            : (blue > red ? "Blue" : "Red") + " +" + util.formatLargeNumber(ahead);
-        drawText("WAR — first to " + util.formatLargeNumber(w.target) + " · " + aheadTxt,
-                 x + bw / 2, y - 10, 12, color.grey, "center");
-
-        // Win-progress underline: how far the leading team is toward the target.
-        const lead = Math.max(blue, red);
-        const pf = Math.min(1, lead / w.target);
-        const leadColor = blue >= red ? color.blue : color.red;
-        if (pf > 0.004) drawBar(x, x + bw * pf, y + h + 8, 3.5, leadColor);
-        drawBar(x, x + bw, y + h + 8, 1.2, "rgba(0,0,0,0.4)");
     }
 
     // Full-screen victory/defeat banner while the war round is being decided.
@@ -4895,7 +4882,7 @@ import * as tutorial from './tutorial.js';
         const c = ctx[2];
         const cx = global.screenWidth / 2;
         const cy = Math.max(global.screenHeight * 0.2, (messageStackBottom || 24) + 78);
-        const DUR = 3200;
+        const DUR = 3800;
 
         for (let k = list.length - 1; k >= 0; k--) {
             const t = list[k];
@@ -4903,20 +4890,31 @@ import * as tutorial from './tutorial.js';
             if (age > DUR) { list.splice(k, 1); continue; }
             if (age < 0) continue;
 
-            const inT = Math.min(1, age / 160);
-            const outT = age > DUR - 480 ? 1 - (age - (DUR - 480)) / 480 : 1;
-            const a = inT * Math.max(0, outT);
+            const inT = Math.min(1, age / 220);
+            const outT = age > DUR - 700 ? 1 - (age - (DUR - 700)) / 700 : 1;
+            const a = (inT < 1 ? inT * inT * (3 - 2 * inT) : 1) * Math.max(0, outT * outT);
             const pop = inT < 1
-                ? (inT < 0.5 ? 0.25 + 1.15 * (1 - Math.pow(1 - inT / 0.5, 3)) : 1.4 - 0.4 * ((inT - 0.5) / 0.5))
+                ? (inT < 0.45 ? 0.15 + 1.45 * (1 - Math.pow(1 - inT / 0.45, 3)) : 1.6 - 0.6 * ((inT - 0.45) / 0.55))
                 : 1;
+
+            c.save();
+            c.globalAlpha = a * 0.55;
+            const pw = 280 * pop, ph = 118 * pop;
+            roundRectPath(c, cx - pw / 2, cy - ph / 2 - 8, pw, ph, 16);
+            c.fillStyle = "rgba(18, 16, 10, 0.82)";
+            c.fill();
+            c.lineWidth = 3;
+            c.strokeStyle = color.gold;
+            c.stroke();
+            c.restore();
 
             c.save();
             c.strokeStyle = color.gold;
             c.lineCap = "round";
-            for (let r = 0; r < 2; r++) {
-                const ring = (32 + r * 18) + Math.min(90, age * (0.11 - r * 0.03));
-                c.globalAlpha = a * (0.55 - r * 0.22) * Math.max(0, 1 - age / 900);
-                c.lineWidth = 2.4 - r;
+            for (let r = 0; r < 3; r++) {
+                const ring = (40 + r * 22) + Math.min(120, age * (0.14 - r * 0.03));
+                c.globalAlpha = a * (0.62 - r * 0.16) * Math.max(0, 1 - age / 1100);
+                c.lineWidth = 3 - r * 0.6;
                 c.beginPath();
                 c.arc(cx, cy, ring * pop, 0, Math.PI * 2);
                 c.stroke();
@@ -4925,13 +4923,12 @@ import * as tutorial from './tutorial.js';
 
             c.save();
             c.globalAlpha = a;
-            const rung = Math.min(1, Math.log10(Math.max(500, t.at || 500)) / 5);
-            const titleSize = (30 + 8 * rung) * pop;
-            const bonusSize = (22 + 10 * rung) * pop;
-            drawText("BANKED", cx, cy - 38 * pop, 12, color.gold, "center", true, a, 7);
-            drawText(t.title, cx, cy - 2, titleSize, color.guiwhite, "center", true, a, 5);
+            const titleSize = 42 * pop;
+            const bonusSize = 26 * pop;
+            drawText("BANKED", cx, cy - 36 * pop, 14, color.gold, "center", true, 1, 7);
+            drawText(t.title, cx, cy + 2, titleSize, color.guiwhite, "center", true, 1, 4.5);
             if (t.bonus) {
-                drawText(t.bonus, cx, cy + 42 * pop, bonusSize, color.gold, "center", true, a, 4.5);
+                drawText(t.bonus, cx, cy + 44 * pop, bonusSize, color.gold, "center", true, 1, 4.5);
             }
             c.restore();
             break;
@@ -4987,12 +4984,12 @@ import * as tutorial from './tutorial.js';
             let fade;
             if (age < DMG_FADE_IN_MS) {
                 const u = age / DMG_FADE_IN_MS;
-                fade = 1 - (1 - u) * (1 - u);
+                fade = u * u * (3 - 2 * u);
             } else if (idle < hold) {
                 fade = 1;
             } else {
-                const u = (idle - hold) / fadeOut;
-                fade = 1 - u * u;
+                const u = Math.min(1, (idle - hold) / fadeOut);
+                fade = (1 - u) * (1 - u);
             }
 
             let pop;
@@ -5118,16 +5115,21 @@ import * as tutorial from './tutorial.js';
         const now = performance.now();
         const c = ctx[2];
         const halfW = global.screenWidth / 2, halfH = global.screenHeight / 2;
-        const HOLD = 2000, FADE = 700, DUR = HOLD + FADE;
+        const HOLD = 1600, FADE = 900, DUR = HOLD + FADE;
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
             const age = now - d.born;
             if (age >= DUR) { list.splice(i, 1); continue; }
             let fade = 1;
-            if (age < 90) fade = age / 90;
-            else if (age > HOLD) fade = 1 - (age - HOLD) / FADE;
-            const pop = age < 240
-                ? (age < 110 ? 0.3 + 1.15 * (age / 110) : 1.45 - 0.45 * ((age - 110) / 130))
+            if (age < 140) {
+                const u = age / 140;
+                fade = u * u * (3 - 2 * u);
+            } else if (age > HOLD) {
+                const u = (age - HOLD) / FADE;
+                fade = (1 - u) * (1 - u);
+            }
+            const pop = age < 280
+                ? (age < 90 ? 0.2 + 1.45 * (age / 90) : 1.65 - 0.65 * ((age - 90) / 190))
                 : 1;
             let x = ratio * d.x - px + halfW;
             let y = ratio * d.y - py + halfH;
@@ -5138,24 +5140,24 @@ import * as tutorial from './tutorial.js';
             c.strokeStyle = color.guiwhite;
             c.lineCap = "round";
             for (let r = 0; r < 2; r++) {
-                c.globalAlpha = fade * (0.55 - r * 0.22) * Math.max(0, 1 - age / 900);
-                c.lineWidth = (2.2 - r * 0.6) * ratio;
+                c.globalAlpha = fade * (0.7 - r * 0.28) * Math.max(0, 1 - age / 1100);
+                c.lineWidth = (2.6 - r * 0.7) * ratio;
                 c.beginPath();
-                c.arc(x, y, ((18 + r * 12) + age * (0.06 - r * 0.018)) * ratio * pop, 0, Math.PI * 2);
+                c.arc(x, y, ((16 + r * 14) + age * (0.08 - r * 0.02)) * ratio * pop, 0, Math.PI * 2);
                 c.stroke();
             }
             c.restore();
 
-            const skullS = 52 * pop * ratio;
+            const skullS = 36 * pop * ratio;
             c.save();
             c.globalAlpha = fade;
             if (killSkullImg.complete && killSkullImg.naturalWidth) {
-                c.drawImage(killSkullImg, x - skullS / 2, y - skullS * 0.62, skullS, skullS);
+                c.drawImage(killSkullImg, x - skullS / 2, y - skullS * 0.68, skullS, skullS);
             } else {
-                drawKillSkull(c, x, y - 14 * pop * ratio, 28 * pop * ratio);
+                drawKillSkull(c, x, y - 12 * pop * ratio, 22 * pop * ratio);
             }
+            drawText("DEAD", x, y + 28 * pop * ratio, 17 * pop * ratio, color.guiwhite, "center", true, 1, 5.5);
             c.restore();
-            drawText("DEAD", x, y + 34 * pop * ratio, 16 * pop * ratio, color.guiwhite, "center", true, fade, 5.5);
         }
     }
 
@@ -5180,9 +5182,9 @@ import * as tutorial from './tutorial.js';
         const hurtAge = now - (global.hurtAt || -1e9);
         const hurt = hurtAge < 240 ? (1 - hurtAge / 240) * (global.hurtPower || 0.5) : 0;
         const deadAge = now - (global.deadFlashAt || -1e9);
-        const dead = deadAge < 220 ? 1 - deadAge / 220 : 0;
+        const dead = deadAge < 320 ? 1 - deadAge / 320 : 0;
         const celeAge = now - (global.celebrateAt || -1e9);
-        const cele = celeAge < 240 ? 1 - celeAge / 240 : 0;
+        const cele = celeAge < 420 ? 1 - celeAge / 420 : 0;
 
         if (lowHpLevel < 0.004 && hurt < 0.01 && dead < 0.01 && cele < 0.01) return;
 
@@ -5218,7 +5220,7 @@ import * as tutorial from './tutorial.js';
             c.save();
             const gd = c.createRadialGradient(w / 2, h / 2, r * 0.5, w / 2, h / 2, r);
             gd.addColorStop(0, "rgba(239,199,75,0)");
-            gd.addColorStop(1, "rgba(239,199,75," + (0.16 * cele).toFixed(3) + ")");
+            gd.addColorStop(1, "rgba(239,199,75," + (0.34 * cele).toFixed(3) + ")");
             c.fillStyle = gd;
             c.fillRect(0, 0, w, h);
             c.restore();
@@ -5227,7 +5229,7 @@ import * as tutorial from './tutorial.js';
             c.save();
             const gd = c.createRadialGradient(w / 2, h / 2, r * 0.58, w / 2, h / 2, r);
             gd.addColorStop(0, "rgba(255,255,255,0)");
-            gd.addColorStop(1, "rgba(255,255,255," + (0.14 * dead).toFixed(3) + ")");
+            gd.addColorStop(1, "rgba(255,255,255," + (0.28 * dead).toFixed(3) + ")");
             c.fillStyle = gd;
             c.fillRect(0, 0, w, h);
             c.restore();
@@ -6907,9 +6909,9 @@ import * as tutorial from './tutorial.js';
             return;
         }
         var easingCoef = dt / properties.shakeDuration;
-        var easing = Math.pow(easingCoef - 1, 3);
-        cdx = easing * (Math.cos(dt * 0.1) + Math.cos(dt * 0.3115)) * Math.random() * properties.shakeAmount;
-        cdy = easing * (Math.sin(dt * 0.05) + Math.sin(dt * 0.3115)) * Math.random() * properties.shakeAmount;
+        var easing = (1 - easingCoef) * (1 - easingCoef);
+        cdx = easing * Math.sin(dt * 0.09) * properties.shakeAmount;
+        cdy = easing * Math.cos(dt * 0.13) * properties.shakeAmount * 0.8;
         if (properties.keepShake && dt > 100) properties.shakeStartTime = Date.now();
         if (cdx == 0 && cdy == 0) return;
         if (returnOption) return {

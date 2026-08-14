@@ -137,11 +137,9 @@ module.exports = {
     // client UI no longer offers it; this also ignores the spawn flag.
     allow_incognito: false,
 
-    // DIG WARS: the war layer. War effort is a per-round team score fed by
-    // every gem a miner banks (plus a trickle for every outpost held). The
-    // first team to war_target wins the round; personal banked gems are
-    // never reset - only the round score. Victory pays every miner on the
-    // winning side a flat gem bonus into their personal bank.
+    // DIG WARS: team war effort. Banking gems (and holding outposts) feeds a
+    // live blue/red score bar. There is no win target - the bar is just a
+    // running tally of who has contributed more this match.
     war_enabled: true,
     war_target: parseInt(process.env.WAR_TARGET, 10) || 25000,
     war_outpost_trickle: 6,    // war points per second per owned outpost

@@ -459,13 +459,24 @@ function hitWord(amount, taken, hp) {
 function assignHitWord(d, hp) {
     d.word = hitWord(d.amount, d.self, hp);
 }
-function punchCamera(amount, duration) {
-    const set = config.graphical.shakeProperties.CameraShake;
+function punchCamera(amount, duration, force) {
     const now = Date.now();
-    if (set.shakeStartTime !== -1 && now - set.shakeStartTime < 70) {
-        set.shakeAmount = Math.max(set.shakeAmount, amount);
-        return;
-    }
+    const apply = (set, amt) => {
+        if (!force && set.shakeStartTime !== -1 && now - set.shakeStartTime < 70) {
+            set.shakeAmount = Math.max(set.shakeAmount, amt);
+            set.shakeDuration = Math.max(set.shakeDuration, duration);
+            return;
+        }
+        set.shakeStartTime = now;
+        set.shakeDuration = duration;
+        set.shakeAmount = amt;
+        set.keepShake = false;
+    };
+    apply(config.graphical.shakeProperties.CameraShake, amount);
+}
+function punchUI(amount, duration) {
+    const set = config.graphical.shakeProperties.UIShake;
+    const now = Date.now();
     set.shakeStartTime = now;
     set.shakeDuration = duration;
     set.shakeAmount = amount;
@@ -570,7 +581,7 @@ function spawnStructureHit(z) {
 }
 function applyHitJuice(amount, tier, taken) {
     const t = Math.min(1, Math.max(0, amount) / 100);
-    punchCamera(0.55 + t * 4.9, 70 + t * 90);
+    punchCamera(4 + t * 28, 120 + t * 160);
     if (taken) {
         global.hurtAt = performance.now();
         global.hurtPower = Math.min(1, 0.38 + amount / 50);
@@ -1107,7 +1118,8 @@ let incoming = async function(message, socket) {
                 list.push({ x: m[0] | 0, y: m[1] | 0, born: now });
                 if (list.length > 4) list.shift();
                 global.deadFlashAt = now;
-                punchCamera(4.8, 200);
+                punchCamera(36, 340, true);
+                punchUI(10, 280);
                 if (gameSound.combatKill) gameSound.combatKill();
             } break;
             case 'MS': {
@@ -1124,7 +1136,8 @@ let incoming = async function(message, socket) {
                         born: Math.max(performance.now(), prev + 400),
                     });
                     if (global.milestones.length > 4) global.milestones.shift();
-                    punchCamera(4.5, 260);
+                    punchCamera(22, 300, true);
+                    punchUI(7, 240);
                     global.celebrateAt = performance.now();
                     if (gameSound.bankCelebrate) gameSound.bankCelebrate();
                 }
