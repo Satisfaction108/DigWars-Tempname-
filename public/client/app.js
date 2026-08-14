@@ -4970,6 +4970,7 @@ import * as tutorial from './tutorial.js';
         const c = ctx[2];
         const halfW = global.screenWidth / 2,
               halfH = global.screenHeight / 2;
+        const ROCK_ORE_TINT = ["#F2F0EA", "#E9A766", "#7FB1F2", "#D98AF0", "#6FF5A8"];
         c.save();
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
@@ -5029,7 +5030,7 @@ import * as tutorial from './tutorial.js';
                 ? (12.5 + Math.min(6, d.amount * 0.08)) * pop * ratio
                 : (15.5 + Math.min(8, d.amount * 0.1) + (tier >= 2 ? 3.5 : tier >= 1 ? 1.5 : 0) + (finish ? 3 : 0) + Math.min(3, combo * 0.25)) * pop * ratio;
             const tint = rock
-                ? "#EDE4C8"
+                ? (ROCK_ORE_TINT[d.ore | 0] || ROCK_ORE_TINT[0])
                 : d.self
                     ? "#FF5A52"
                     : (finish || tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF4C4");

@@ -373,8 +373,9 @@ class TerrainRenderer {
         if (!ev.n || ev.g || ev.x === undefined || !this._world) return;
         if (!this._onScreen(ev.x, ev.y)) return;
         const w = this._world;
+        const ore = (ev.o ?? this._ore.get(ev.k) ?? 0) | 0;
         if (typeof global.pushRockDamage === "function")
-            global.pushRockDamage(ev.x * w.s - w.hw, ev.y * w.s - w.hh, ev.n | 0, ev.u);
+            global.pushRockDamage(ev.x * w.s - w.hw, ev.y * w.s - w.hh, ev.n | 0, ev.u, ore);
     }
 
     // Same 4-tick mark rocks use, in the same cell space so outposts and

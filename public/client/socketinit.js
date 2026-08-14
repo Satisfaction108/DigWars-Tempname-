@@ -534,7 +534,7 @@ function pushDamageNumber(targetId, amount, tier, taken) {
 }
 // Rock chips are individual - no combo, no callouts, no shake. Only the
 // person who landed the shot sees the number.
-global.pushRockDamage = (x, y, amount, ownerId) => {
+global.pushRockDamage = (x, y, amount, ownerId, ore) => {
     if (ownerId !== gui.playerid) return;
     if (!(amount >= 1)) return;
     const now = performance.now();
@@ -552,6 +552,7 @@ global.pushRockDamage = (x, y, amount, ownerId) => {
         jitter: Math.random() * 2 - 1,
         word: "",
         kind: "rock",
+        ore: ore | 0,
         holdMs: 220,
         fadeMs: 620,
     });
