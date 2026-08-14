@@ -14,6 +14,7 @@ const gems = require('./gems.js');
 
 // at: banked threshold that triggers the popup. bonus: gems paid on top.
 const BANK_MILESTONES = [
+    { at: 100,    bonus: 25 },
     { at: 500,    bonus: 100 },
     { at: 1000,   bonus: 250 },
     { at: 2500,   bonus: 750 },

@@ -134,9 +134,7 @@ function tick(actors, dtMs) {
         const banked = body.socket ? (body.socket.gemBanked || 0) : (body.botBanked || 0);
         if (body.isBot) body.botGemsBanked = (body.botGemsBanked || 0) + chunk;
         setBanked(body, banked + chunk);
-        // War layer is parked (Config.war_enabled = false) - re-enable this
-        // hook when we come back to it.
-        // war.add(body.team, chunk);
+        war.add(body.team, chunk);
         milestones.checkBanked(body);
 
         const done = d.remaining < 0.5;

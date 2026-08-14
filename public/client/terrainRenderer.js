@@ -377,6 +377,23 @@ class TerrainRenderer {
             global.pushRockDamage(ev.x * w.s - w.hw, ev.y * w.s - w.hh, ev.n | 0, ev.u);
     }
 
+    // Same 4-tick mark rocks use, in the same cell space so outposts and
+    // chambers match size and fade exactly.
+    addHitMarker(wx, wy) {
+        if (!this.ready || !this._world) return;
+        const w = this._world;
+        const x = (wx + w.hw) / w.s;
+        const y = (wy + w.hh) / w.s;
+        const now = performance.now();
+        this._impacts.push({
+            x, y, dx: 1, dy: 0, born: now,
+            small: false,
+            ticksOnly: true,
+            seed: (Math.round(x * 97 + y * 13) + (now | 0)) & 0xffff,
+        });
+        if (this._impacts.length > 16) this._impacts.shift();
+    }
+
     _beginGrowth(k, tier, gen, now, ax, ay) {
         
         
@@ -2575,6 +2592,7 @@ class TerrainRenderer {
                 for (let i = this._impacts.length - 1; i >= 0; i--) {
                     const im = this._impacts[i];
                     const dt = nowMs - im.born;
+                    if (im.ticksOnly && dt >= 400) { this._impacts.splice(i, 1); continue; }
                     const tc = dt / 1800;
                     if (tc >= 1) { this._impacts.splice(i, 1); continue; }
                     const baseAng = Math.atan2(im.dy ?? 0, im.dx ?? 1);
@@ -2582,7 +2600,7 @@ class TerrainRenderer {
                     const isc = im.small ? 0.45 : 1;
                     
                     const ts = dt / 280;
-                    if (ts < 1) {
+                    if (!im.ticksOnly && ts < 1) {
                         ctx.fillStyle = `rgba(255,235,180,${(1 - ts) * (im.small ? 0.45 : 0.9)})`;
                         ctx.beginPath();
                         ctx.arc(im.x, im.y, 0.13 * rockSz * isc * (1 - ts * 0.6), 0, Math.PI * 2);
@@ -2590,9 +2608,9 @@ class TerrainRenderer {
                     }
                     // rock hits are one-shot, no combo. skip grind scrapes.
                     if (!im.small) {
-                        const tickT = dt / 260;
+                        const tickT = dt / 400;
                         if (tickT < 1) {
-                            const ha = (1 - tickT) * 0.72;
+                            const ha = (1 - tickT) * (1 - tickT) * 0.85;
                             const spread = (0.16 + 0.28 * tickT) * rockSz;
                             ctx.save();
                             ctx.globalAlpha = ha;
@@ -2609,6 +2627,10 @@ class TerrainRenderer {
                             }
                             ctx.restore();
                         }
+                    }
+                    if (im.ticksOnly) {
+                        ctx.globalAlpha = 1;
+                        continue;
                     }
                     // a good spray of rock chips: fly out fast off the rock
                     

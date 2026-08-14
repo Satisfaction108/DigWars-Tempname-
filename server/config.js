@@ -142,10 +142,7 @@ module.exports = {
     // first team to war_target wins the round; personal banked gems are
     // never reset - only the round score. Victory pays every miner on the
     // winning side a flat gem bonus into their personal bank.
-    // DISABLED FOR NOW - the whole layer (terrain/war.js + the war.add hooks
-    // in vault/outposts + the client war bar/banner) is parked until we come
-    // back to it. Flip this to true to re-enable.
-    war_enabled: false,
+    war_enabled: true,
     war_target: parseInt(process.env.WAR_TARGET, 10) || 25000,
     war_outpost_trickle: 6,    // war points per second per owned outpost
     war_win_bonus: 2000,       // gems added to each winner's personal bank

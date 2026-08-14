@@ -29,7 +29,7 @@ import * as tutorial from './tutorial.js';
     // as you drop, so it reads as mounting pressure rather than a jump scare.
     const LOW_HP_START = 0.52;
     const LOW_HP_FULL = 0.06;
-    const HIT_TICK_MS = 240;
+    const HIT_TICK_MS = 400;
     const killSkullImg = new Image();
     killSkullImg.src = "img/skull.svg";
 
@@ -4489,6 +4489,9 @@ import * as tutorial from './tutorial.js';
             height = 17,
             x = (global.screenWidth - width) / 2,
             y = global.screenHeight - 44 - height;
+        const warLive = config.game.warBar && global.war && global.war.target > 0 &&
+            performance.now() - global.war.at <= 6000;
+        if (warLive) y -= 26;
         ctx[2].lineWidth = 10;
         if (global.GUIStatus.renderPlayerKillbar) {
             scorelength = -112.2;
@@ -4836,18 +4839,18 @@ import * as tutorial from './tutorial.js';
         drawText(util.formatLargeNumber(blue), x - 10, cy + 5, 13, color.blue, "right");
         drawText(util.formatLargeNumber(red), x + bw + 10, cy + 5, 13, color.red, "left");
 
+        const ahead = Math.abs(blue - red);
+        const aheadTxt = blue === red ? "dead even"
+            : (blue > red ? "Blue" : "Red") + " +" + util.formatLargeNumber(ahead);
+        drawText("WAR — first to " + util.formatLargeNumber(w.target) + " · " + aheadTxt,
+                 x + bw / 2, y - 10, 12, color.grey, "center");
+
         // Win-progress underline: how far the leading team is toward the target.
         const lead = Math.max(blue, red);
         const pf = Math.min(1, lead / w.target);
         const leadColor = blue >= red ? color.blue : color.red;
         if (pf > 0.004) drawBar(x, x + bw * pf, y + h + 8, 3.5, leadColor);
         drawBar(x, x + bw, y + h + 8, 1.2, "rgba(0,0,0,0.4)");
-
-        const ahead = Math.abs(blue - red);
-        const aheadTxt = blue === red ? "dead even"
-            : (blue > red ? "Blue" : "Red") + " +" + util.formatLargeNumber(ahead);
-        drawText("WAR — first to " + util.formatLargeNumber(w.target) + " · " + aheadTxt,
-                 x + bw / 2, y + h + 24, 12, color.grey, "center");
     }
 
     // Full-screen victory/defeat banner while the war round is being decided.
@@ -4890,8 +4893,9 @@ import * as tutorial from './tutorial.js';
         if (!list || !list.length) return;
         const now = performance.now();
         const c = ctx[2];
-        const cx = global.screenWidth / 2, cy = global.screenHeight * 0.22;
-        const DUR = 3000;
+        const cx = global.screenWidth / 2;
+        const cy = Math.max(global.screenHeight * 0.2, (messageStackBottom || 24) + 78);
+        const DUR = 3200;
 
         for (let k = list.length - 1; k >= 0; k--) {
             const t = list[k];
@@ -4940,7 +4944,7 @@ import * as tutorial from './tutorial.js';
     function drawHitTicks(c, ox, oy, ratio, age, tint, alpha) {
         if (age < 0 || age >= HIT_TICK_MS || !(alpha > 0)) return;
         const ht = age / HIT_TICK_MS;
-        const ha = (1 - ht) * alpha;
+        const ha = (1 - ht) * (1 - ht) * alpha;
         const spread = (5 + 12 * ht) * ratio;
         c.save();
         c.globalAlpha = ha;
@@ -5037,39 +5041,18 @@ import * as tutorial from './tutorial.js';
                 drawHitTicks(c, ratio * d.x - px + halfW, ratio * d.y - py + halfH, ratio, age, tint, fade);
             }
 
+            c.globalAlpha = fade;
             if (d.word) {
-                drawText(d.word, x, y - size * 0.92, size * 0.44, tint, "center", true, fade, 6);
+                drawText(d.word, x, y - size * 0.92, size * 0.44, tint, "center", true, 1, 6);
             }
             const num = "-" + util.formatLargeNumber(Math.round(d.amount));
-            drawText(num, x, y, size, tint, "center", true, fade, 5.5);
+            drawText(num, x, y, size, tint, "center", true, 1, 5.5);
             if (!rock && combo >= 2) {
-                drawText("×" + combo, x, y + size * 0.78, size * 0.36, tint, "center", true, fade * 0.9, 6);
+                drawText("×" + combo, x, y + size * 0.78, size * 0.36, tint, "center", true, 1, 6);
             }
+            c.globalAlpha = 1;
         }
         c.restore();
-    }
-
-    function drawStructureHits(px, py, ratio) {
-        const list = global.structureHits;
-        if (!list || !list.length) return;
-        const now = performance.now();
-        const c = ctx[2];
-        const halfW = global.screenWidth / 2,
-              halfH = global.screenHeight / 2;
-        for (let i = list.length - 1; i >= 0; i--) {
-            const h = list[i];
-            const age = now - h.born;
-            if (age >= HIT_TICK_MS) { list.splice(i, 1); continue; }
-            drawHitTicks(
-                c,
-                ratio * h.x - px + halfW,
-                ratio * h.y - py + halfH,
-                ratio * (h.scale || 1),
-                age,
-                "#FFF4D0",
-                0.88
-            );
-        }
     }
 
     // Fallback skull if the svg hasn't loaded yet.
@@ -6981,7 +6964,6 @@ import * as tutorial from './tutorial.js';
         // exactly over the bodies that took the hit. Drawn before the HUD so
         // the HUD always wins the overlap.
         drawDamageNumbers(px, py, ratio);
-        drawStructureHits(px, py, ratio);
         drawKillBanners(px, py, ratio);
         // World-anchored tutorial markers: drawn here so they share the exact
         // camera transform the entities just used, and sit above the world but

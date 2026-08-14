@@ -31,6 +31,7 @@ function get() {
 
 // The one place war effort is credited. `team` is TEAM_BLUE / TEAM_RED.
 function add(team, amount) {
+    if (Config.tutorial || !Config.war_enabled) return;
     if (!(amount > 0)) return;
     const s = get();
     if (team === TEAM_BLUE) s.blue += amount;

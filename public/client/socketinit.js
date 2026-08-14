@@ -541,8 +541,8 @@ global.pushRockDamage = (x, y, amount, ownerId) => {
         jitter: Math.random() * 2 - 1,
         word: "",
         kind: "rock",
-        holdMs: 420,
-        fadeMs: 380,
+        holdMs: 220,
+        fadeMs: 620,
     });
     if (list.length > 10) list.splice(0, list.length - 10);
 };
@@ -563,14 +563,10 @@ function spawnStructureHit(z) {
     const size = z.size || (chamber ? 160 : 60);
     const rim = size * (chamber ? 0.88 : 0.72);
     const ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.4;
-    const list = global.structureHits;
-    list.push({
-        x: z.x + Math.cos(ang) * rim,
-        y: z.y + Math.sin(ang) * rim,
-        born: performance.now(),
-        scale: chamber ? 1.35 : 1.15,
-    });
-    if (list.length > 14) list.shift();
+    const hx = z.x + Math.cos(ang) * rim;
+    const hy = z.y + Math.sin(ang) * rim;
+    if (window.terrainRenderer && window.terrainRenderer.addHitMarker)
+        window.terrainRenderer.addHitMarker(hx, hy);
 }
 function applyHitJuice(amount, tier, taken) {
     const t = Math.min(1, Math.max(0, amount) / 100);

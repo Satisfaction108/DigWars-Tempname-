@@ -209,9 +209,7 @@ function tick(players, dtMs) {
             // Personal achievements fire here too - outpost-banked gems count
             // toward the same lifetime rungs as vault deposits.
             milestones.checkBanked(body);
-            // War layer is parked (Config.war_enabled = false) - re-enable
-            // this hook when we come back to it.
-            // war.add(body.team, chunk * EFFICIENCY);
+            war.add(body.team, chunk * EFFICIENCY);
         }
         const done = d.remaining < 0.5;
         if (done) {
