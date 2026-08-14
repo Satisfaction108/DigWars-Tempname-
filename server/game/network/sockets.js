@@ -6,6 +6,19 @@ let bans = global.bans || (global.bans = []);
 let permBans = global.permBans || (global.permBans = []);
 global.chatID = 0;
 
+// Walk a killer (bullet/drone/tank) up to the living player or bot to follow.
+function livingSpectateTarget(killers) {
+    if (!Array.isArray(killers)) return null;
+    for (const e of killers) {
+        if (!e) continue;
+        let root = e;
+        for (let i = 0; i < 8 && root.master && root.master !== root; i++) root = root.master;
+        if (typeof root.isDead === "function" && root.isDead()) continue;
+        if (root.isPlayer || root.isBot) return root;
+    }
+    return null;
+}
+
 class socketManager {
     constructor(parent) {
         this.permissionsDict = {};
@@ -1803,9 +1816,7 @@ class socketManager {
                             
                             
                             
-                            const spec = (player.body.finalKillers || [])
-                                .find(e => e && e.isPlayer && !e.isDead());
-                            socket.spectateEntity = spec || null;
+                            socket.spectateEntity = livingSpectateTarget(player.body.finalKillers);
 
                             socket.talk("F", ...player.records());
                             purge();
@@ -1840,9 +1851,7 @@ class socketManager {
                     
                     let hops = 0;
                     while (socket.spectateEntity && socket.spectateEntity.isDead() && hops++ < 8) {
-                        const next = (socket.spectateEntity.finalKillers || [])
-                            .find(e => e && e.isPlayer && !e.isDead());
-                        socket.spectateEntity = next || null;
+                        socket.spectateEntity = livingSpectateTarget(socket.spectateEntity.finalKillers);
                     }
                     if (socket.spectateEntity) {
                         
