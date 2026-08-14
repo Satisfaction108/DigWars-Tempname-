@@ -20,10 +20,13 @@ import * as tutorial from './tutorial.js';
     const HIT_BLINK_MS = 160;
     const HIT_BLINK_STRENGTH = 0.82;
     const HIT_BLINK_COLOR = "#FFF4E0";
-    // Floating damage numbers. Fade in, overshoot, hold, fade out - a blunt
-    // pop at full opacity is what made the old ones look like stickers.
-    const DMG_DURATION_MS = 920;
-    const DMG_RISE = 42;
+    // Floating combat text. Intro (fade + pop) is timed in real ms so a
+    // longer life doesn't slow the entrance. Combo hold is 1s from last hit.
+    const DMG_FADE_IN_MS = 140;
+    const DMG_POP_MS = 280;
+    const DMG_FADE_OUT_MS = 650;
+    const DMG_COMBO_HOLD_MS = 1000;
+    const DMG_RISE = 64;
     // Low-health vignette. Starts faint around half health and creeps inward
     // as you drop, so it reads as mounting pressure rather than a jump scare.
     const LOW_HP_START = 0.52;
@@ -4879,75 +4882,93 @@ import * as tutorial from './tutorial.js';
         c.restore();
     }
 
-    // Personal achievement popups - a gold card that slides down from the
-    // top, holds for a moment, then fades. Newest on top, max three at once.
+    // Personal achievement toasts. Banked-gem rungs fire a celebration, not a
+    // quiet card - starburst, confetti, giant type, gold slam.
     function drawMilestones() {
         const list = global.milestones;
         if (!list || !list.length) return;
         const now = performance.now();
-        const cx = global.screenWidth / 2;
         const c = ctx[2];
-        const DUR = 3.0;      // seconds each popup stays on screen
-        // Sit clear of the message stack rather than at a fixed offset - a run
-        // of server broadcasts would otherwise print straight through the card.
-        const top = Math.max(56, messageStackBottom + 12);
-        let i = 0;
-        for (let k = list.length - 1; k >= 0 && i < 3; k--) {
+        const w = global.screenWidth, h = global.screenHeight;
+        const cx = w / 2, cy = h * 0.28;
+        const DUR = 2800;
+
+        for (let k = list.length - 1; k >= 0; k--) {
             const t = list[k];
-            const age = (now - t.born) / 1000;
+            const age = now - t.born;
             if (age > DUR) { list.splice(k, 1); continue; }
-            // Staggered entries are stamped slightly in the future; skip them
-            // until their turn rather than drawing at a negative alpha.
             if (age < 0) continue;
 
-            // slide-down + pop-in on entry, fade-out at the end
-            const inT = Math.min(1, age / 0.18);
-            const outT = Math.min(1, (DUR - age) / 0.45);
-            const a = Math.min(inT, outT);
-            const settle = 1 - Math.pow(1 - inT, 3);
-
-            const title = t.title;
-            const tw = measureText(title, 19);
-            const bw = t.bonus ? measureText(t.bonus, 13) : 0;
-            const lw = measureText("ACHIEVEMENT", 10);
-            const w = Math.max(tw, bw, lw) + 72;
-            const h = t.bonus ? 80 : 62;
-            const x = cx - w / 2;
-            const y = top + i * (h + 8) - 20 * (1 - settle);
+            const inT = Math.min(1, age / 160);
+            const outT = age > DUR - 500 ? 1 - (age - (DUR - 500)) / 500 : 1;
+            const a = Math.min(1, inT) * Math.max(0, outT);
+            const pop = inT < 1
+                ? (inT < 0.5 ? 0.2 + 1.4 * (1 - Math.pow(1 - inT / 0.5, 3)) : 1.6 - 0.6 * ((inT - 0.5) / 0.5))
+                : 1;
+            const slam = age < 180 ? (1 - age / 180) : 0;
 
             c.save();
-            c.globalAlpha = a;
-            // card body
-            roundRectPath(c, x, y, w, h, 10);
-            c.fillStyle = "rgba(16,17,22,0.95)";
-            c.fill();
-            c.lineWidth = 2.5;
-            c.strokeStyle = "rgba(239,199,75,0.6)";
-            c.stroke();
-            // inner top shine
+            if (slam > 0.01) {
+                c.globalAlpha = slam * 0.35;
+                c.fillStyle = "#efc74b";
+                c.fillRect(0, 0, w, h);
+            }
+            c.globalAlpha = a * 0.22;
+            const gd = c.createRadialGradient(cx, cy, 20, cx, cy, Math.max(w, h) * 0.45);
+            gd.addColorStop(0, "rgba(239,199,75,0.55)");
+            gd.addColorStop(1, "rgba(239,199,75,0)");
+            c.fillStyle = gd;
+            c.fillRect(0, 0, w, h);
+
             c.save();
-            c.globalAlpha = a * 0.5;
-            roundRectPath(c, x + 3, y + 3, w - 6, h * 0.5, 8);
-            c.fillStyle = "rgba(239,199,75,0.07)";
-            c.fill();
-            c.restore();
-            drawText("ACHIEVEMENT", cx, y + 20, 10, color.grey, "center", false, 1, 5.5);
-            drawText(title, cx, y + (t.bonus ? 44 : 40), 19, color.gold, "center", false, 1, 5.5);
-            if (t.bonus) {
-                drawText(t.bonus, cx, y + 66, 13, color.lgreen, "center", false, 1, 5.5);
+            c.translate(cx, cy);
+            c.globalAlpha = a * 0.55;
+            c.strokeStyle = "rgba(255,220,90,0.7)";
+            c.lineWidth = 3;
+            const rayN = 14;
+            for (let i = 0; i < rayN; i++) {
+                const ang = (i / rayN) * Math.PI * 2 + now * 0.0018;
+                const len = 70 + 90 * pop;
+                c.beginPath();
+                c.moveTo(Math.cos(ang) * 18, Math.sin(ang) * 18);
+                c.lineTo(Math.cos(ang) * len, Math.sin(ang) * len);
+                c.stroke();
             }
             c.restore();
-            i++;
+
+            if (t.bits) {
+                for (let i = 0; i < t.bits.length; i++) {
+                    const b = t.bits[i];
+                    const dist = b.spd * (age / 1000);
+                    const bx = cx + Math.cos(b.ang) * dist;
+                    const by = cy + Math.sin(b.ang) * dist + 40 * (age / DUR) * (age / DUR);
+                    c.save();
+                    c.globalAlpha = a * 0.95;
+                    c.translate(bx, by);
+                    c.rotate(b.ang + b.spin * age / 200);
+                    c.fillStyle = b.hue;
+                    c.fillRect(-b.size / 2, -b.size / 4, b.size, b.size / 2);
+                    c.restore();
+                }
+            }
+
+            c.globalAlpha = a;
+            drawText("JACKPOT", cx, cy - 52 * pop, 18 * pop, color.gold, "center", true, a, 7);
+            drawText(t.title, cx, cy + 4, 42 * pop, "#fff4c4", "center", true, a, 5);
+            if (t.bonus) {
+                drawText(t.bonus, cx, cy + 48 * pop, 20 * pop, color.lgreen, "center", true, a, 6);
+            }
+            c.restore();
+            break;
         }
     }
 
     
     
     
-    // Floating damage numbers. World-anchored, so each number keeps rising from
-    // the spot the hit actually landed - it stays readable even if the target
-    // dies or drives off mid-flight. Amounts are 0-100 of the target's max
-    // health (server-scaled), so a fifth of a life always reads as 20.
+    // Floating damage numbers. World-anchored. A combo holds at full strength
+    // until a second of silence, then fades. Words are picked for YOU vs THEM
+    // so "Nice!" never sits on your own head.
     function drawDamageNumbers(px, py, ratio) {
         const list = global.damageNumbers;
         if (!list || !list.length) return;
@@ -4959,82 +4980,179 @@ import * as tutorial from './tutorial.js';
         c.save();
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
+            const live = global.entities.find(e => e.id === d.id);
+            if (live) { d.x = live.x; d.y = live.y; }
             const age = now - d.born;
-            if (age >= DMG_DURATION_MS) { list.splice(i, 1); continue; }
-            const t = age / DMG_DURATION_MS;
+            const idle = now - (d.comboAt || d.born);
+            if (idle >= DMG_COMBO_HOLD_MS + DMG_FADE_OUT_MS) { list.splice(i, 1); continue; }
 
-            // fade in, hold, fade out. a number that appears at full opacity
-            // is what made the old ones look like they were stamped on.
             let fade;
-            if (t < 0.11) {
-                const u = t / 0.11;
+            if (age < DMG_FADE_IN_MS) {
+                const u = age / DMG_FADE_IN_MS;
                 fade = 1 - (1 - u) * (1 - u);
-            } else if (t < 0.58) {
+            } else if (idle < DMG_COMBO_HOLD_MS) {
                 fade = 1;
             } else {
-                const u = (t - 0.58) / 0.42;
+                const u = (idle - DMG_COMBO_HOLD_MS) / DMG_FADE_OUT_MS;
                 fade = 1 - u * u;
             }
 
-            // ease-out-back: start small, overshoot, settle.
             let pop;
-            if (t < 0.22) {
-                const u = t / 0.22;
-                const c1 = 1.70158, c3 = c1 + 1;
-                pop = 0.42 + 0.58 * (1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2));
+            if (age < DMG_POP_MS) {
+                const u = age / DMG_POP_MS;
+                if (u < 0.5) {
+                    const k = u / 0.5;
+                    pop = 0.06 + 1.42 * (1 - (1 - k) * (1 - k) * (1 - k));
+                } else {
+                    const k = (u - 0.5) / 0.5;
+                    pop = 1.48 - 0.48 * (k * k * (3 - 2 * k));
+                }
             } else {
                 pop = 1;
             }
+            if (idle >= DMG_COMBO_HOLD_MS) {
+                const u = (idle - DMG_COMBO_HOLD_MS) / DMG_FADE_OUT_MS;
+                pop *= 1 - 0.22 * u;
+            }
             if (d.punch) {
-                const pt = (now - d.punch) / 150;
-                if (pt < 1) pop *= 1 + 0.16 * (1 - pt) * (1 - pt);
+                const pt = (now - d.punch) / 160;
+                if (pt < 1) pop *= 1 + 0.28 * (1 - pt) * (1 - pt);
             }
 
-            const rise = DMG_RISE * (1 - Math.pow(1 - t, 2.5));
-            const x = ratio * d.x - px + halfW + d.jitter * 10 * ratio;
-            const y = ratio * d.y - py + halfH - (28 + rise) * ratio;
-            if (x < -80 || x > global.screenWidth + 80) continue;
-            if (y < -80 || y > global.screenHeight + 80) continue;
+            const riseT = Math.min(1, age / 900);
+            const rise = DMG_RISE * (1 - Math.pow(1 - riseT, 2.2));
+            const shake = (d.tier >= 1 ? 1.8 : 0.6) * pop * ratio;
+            const x = ratio * d.x - px + halfW + d.jitter * 10 * ratio + Math.sin(now / 40 + d.jitter) * shake;
+            const y = ratio * d.y - py + halfH - (32 + rise) * ratio + Math.cos(now / 33 + d.jitter) * shake * 0.4;
+            if (x < -100 || x > global.screenWidth + 100) continue;
+            if (y < -100 || y > global.screenHeight + 100) continue;
 
-            // damage you take is red. damage you deal is warm gold, hotter
-            // for nicer hits. green was the heal colour - never a crit.
             const tier = d.tier || 0;
-            const size = (15 + Math.min(9, d.amount * 0.09) + (tier >= 2 ? 5 : tier >= 1 ? 2.5 : 0)) * pop * ratio;
+            const combo = d.combo || 1;
+            const size = (22 + Math.min(18, d.amount * 0.2) + (tier >= 2 ? 8 : tier >= 1 ? 4 : 0) + Math.min(6, combo) + (d.wordBucket >= 10 ? 10 : d.wordBucket >= 5 ? 5 : 0)) * pop * ratio;
             const tint = d.self
-                ? "#FF4E4E"
-                : (tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF1A8");
+                ? (tier >= 2 ? "#FF2D2D" : "#FF5A52")
+                : (tier >= 2 ? "#FF9A1A" : tier >= 1 ? "#FFD24A" : "#FFF4C4");
 
-            // four-tick burst on the body for the first beat - the aha that
-            // still reads when the number itself is lost in the mess.
-            if (!d.self && age < 170) {
-                const ht = age / 170;
+            const ox = ratio * d.x - px + halfW;
+            const oy = ratio * d.y - py + halfH;
+            if (!d.self && age < 220) {
+                const ht = age / 220;
                 const a = (1 - ht) * (1 - ht) * fade;
-                const spread = (7 + 20 * ht) * ratio;
-                const ox = ratio * d.x - px + halfW;
-                const oy = ratio * d.y - py + halfH;
+                const spread = (10 + 36 * ht) * ratio;
                 c.save();
                 c.globalAlpha = a;
                 c.strokeStyle = tint;
-                c.lineWidth = Math.max(1.6, 2.1 * ratio);
+                c.lineWidth = Math.max(2, 2.8 * ratio);
                 c.lineCap = "round";
-                for (let k = 0; k < 4; k++) {
-                    const ang = Math.PI / 4 + k * Math.PI / 2;
+                for (let k = 0; k < 8; k++) {
+                    const ang = (k / 8) * Math.PI * 2 + 0.2;
                     const ca = Math.cos(ang), sa = Math.sin(ang);
                     c.beginPath();
-                    c.moveTo(ox + ca * spread * 0.42, oy + sa * spread * 0.42);
+                    c.moveTo(ox + ca * spread * 0.35, oy + sa * spread * 0.35);
                     c.lineTo(ox + ca * spread, oy + sa * spread);
                     c.stroke();
                 }
                 c.restore();
             }
 
-            if (tier >= 1) {
-                const label = tier >= 2 ? "Critical!" : "Nice!";
-                drawText(label, x, y - size * 0.92, size * 0.44, tint, "center", true, fade * 0.95, 8);
+            c.save();
+            c.globalAlpha = fade * 0.4;
+            c.fillStyle = tint;
+            c.beginPath();
+            c.ellipse(x, y, size * 1.7, size * 0.7, 0, 0, Math.PI * 2);
+            c.fill();
+            c.restore();
+
+            if (d.word) {
+                drawText(d.word, x, y - size * 1.05, size * 0.52, tint, "center", true, fade, 6);
             }
-            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade, 6);
+            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade, 5);
+            if (combo >= 2) {
+                drawText("x" + combo, x + size * 0.85, y + size * 0.15, size * 0.42, tint, "left", true, fade * 0.95, 6);
+            }
         }
         c.restore();
+    }
+
+    // Kill confirm: DEAD! + a skull planted on the body, pop, hold, fade.
+    function drawKillSkull(c, x, y, s) {
+        c.save();
+        c.translate(x, y);
+        c.scale(s, s);
+        c.fillStyle = "#fff8e8";
+        c.strokeStyle = "#1a1208";
+        c.lineWidth = 0.07;
+        c.lineJoin = "round";
+        c.beginPath();
+        c.arc(0, -0.18, 0.58, Math.PI * 0.12, Math.PI - Math.PI * 0.12);
+        c.lineTo(-0.42, 0.38);
+        c.lineTo(-0.42, 0.62);
+        c.lineTo(0.42, 0.62);
+        c.lineTo(0.42, 0.38);
+        c.closePath();
+        c.fill();
+        c.stroke();
+        c.fillStyle = "#141018";
+        c.beginPath();
+        c.ellipse(-0.2, -0.12, 0.15, 0.18, -0.15, 0, Math.PI * 2);
+        c.fill();
+        c.beginPath();
+        c.ellipse(0.2, -0.12, 0.15, 0.18, 0.15, 0, Math.PI * 2);
+        c.fill();
+        c.beginPath();
+        c.moveTo(0, 0.02);
+        c.lineTo(-0.09, 0.24);
+        c.lineTo(0.09, 0.24);
+        c.closePath();
+        c.fill();
+        c.strokeStyle = "#141018";
+        c.lineWidth = 0.055;
+        c.beginPath();
+        c.moveTo(-0.22, 0.42); c.lineTo(-0.22, 0.62);
+        c.moveTo(0, 0.42); c.lineTo(0, 0.62);
+        c.moveTo(0.22, 0.42); c.lineTo(0.22, 0.62);
+        c.stroke();
+        c.restore();
+    }
+    function drawKillBanners(px, py, ratio) {
+        const list = global.killBanners;
+        if (!list || !list.length) return;
+        const now = performance.now();
+        const c = ctx[2];
+        const halfW = global.screenWidth / 2, halfH = global.screenHeight / 2;
+        const HOLD = 1600, FADE = 700, DUR = HOLD + FADE;
+        for (let i = list.length - 1; i >= 0; i--) {
+            const d = list[i];
+            const age = now - d.born;
+            if (age >= DUR) { list.splice(i, 1); continue; }
+            let fade = 1;
+            if (age < 120) fade = age / 120;
+            else if (age > HOLD) fade = 1 - (age - HOLD) / FADE;
+            const pop = age < 280
+                ? (age < 140 ? 0.2 + 1.5 * (age / 140) : 1.7 - 0.7 * ((age - 140) / 140))
+                : 1;
+            let x = ratio * d.x - px + halfW;
+            let y = ratio * d.y - py + halfH;
+            x = Math.max(70, Math.min(global.screenWidth - 70, x));
+            y = Math.max(70, Math.min(global.screenHeight - 90, y));
+
+            c.save();
+            c.globalAlpha = fade * 0.55;
+            c.strokeStyle = "#ff3a3a";
+            c.lineWidth = 4 * ratio * pop;
+            const ring = (28 + age * 0.09) * ratio;
+            c.beginPath();
+            c.arc(x, y, ring, 0, Math.PI * 2);
+            c.stroke();
+            c.restore();
+
+            c.save();
+            c.globalAlpha = fade;
+            drawKillSkull(c, x, y - 18 * pop * ratio, 34 * pop * ratio);
+            c.restore();
+            drawText("DEAD!", x, y + 36 * pop * ratio, 28 * pop * ratio, "#FF2D2D", "center", true, fade, 5);
+        }
     }
 
     // Red edge vignette as your own health drops. Smoothed toward the target
@@ -5057,8 +5175,12 @@ import * as tutorial from './tutorial.js';
         const now = performance.now();
         const hurtAge = now - (global.hurtAt || -1e9);
         const hurt = hurtAge < 240 ? (1 - hurtAge / 240) * (global.hurtPower || 0.5) : 0;
+        const deadAge = now - (global.deadFlashAt || -1e9);
+        const dead = deadAge < 280 ? 1 - deadAge / 280 : 0;
+        const celeAge = now - (global.celebrateAt || -1e9);
+        const cele = celeAge < 260 ? 1 - celeAge / 260 : 0;
 
-        if (lowHpLevel < 0.004 && hurt < 0.01) return;
+        if (lowHpLevel < 0.004 && hurt < 0.01 && dead < 0.01 && cele < 0.01) return;
 
         const c = ctx[2];
         const w = global.screenWidth, h = global.screenHeight;
@@ -5085,6 +5207,20 @@ import * as tutorial from './tutorial.js';
             gd.addColorStop(0, "rgba(210,28,28,0)");
             gd.addColorStop(1, "rgba(210,28,28," + (0.22 * hurt).toFixed(3) + ")");
             c.fillStyle = gd;
+            c.fillRect(0, 0, w, h);
+            c.restore();
+        }
+        if (dead > 0.01) {
+            c.save();
+            c.globalAlpha = 0.28 * dead;
+            c.fillStyle = "#ff2d2d";
+            c.fillRect(0, 0, w, h);
+            c.restore();
+        }
+        if (cele > 0.01) {
+            c.save();
+            c.globalAlpha = 0.22 * cele;
+            c.fillStyle = "#efc74b";
             c.fillRect(0, 0, w, h);
             c.restore();
         }
@@ -6820,6 +6956,7 @@ import * as tutorial from './tutorial.js';
         // exactly over the bodies that took the hit. Drawn before the HUD so
         // the HUD always wins the overlap.
         drawDamageNumbers(px, py, ratio);
+        drawKillBanners(px, py, ratio);
         // World-anchored tutorial markers: drawn here so they share the exact
         // camera transform the entities just used, and sit above the world but
         // below the GUI. (The screen-space tutorial HUD draws later, in hook().)

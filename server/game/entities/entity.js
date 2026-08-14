@@ -1233,6 +1233,11 @@ class Entity extends EventEmitter {
                     if (this.settings.killMessage) {
                         instance.sendMessage("You " + this.settings.killMessage + " " + name + (killers.length > 1 ? " (with some help)." : "."));
                     }
+                    // kill confirm juice - tanks and bosses only, and only to
+                    // a real player. bots have no socket to celebrate on.
+                    if ((this.type === 'tank' || this.type === 'miniboss') && instance.socket) {
+                        instance.socket.talk('DEAD', Math.round(this.x), Math.round(this.y));
+                    }
                 }
                 // Prepare the next part of the next
                 killText = killText.slice(0, -4) + "killed you with ";

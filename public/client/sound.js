@@ -335,6 +335,24 @@ class GameSound {
         this._thump({ cut0: 900, cut1: 90, dur: 0.08 + f * 0.05, peak: (0.18 + 0.28 * f) * v });
         this._tone({ freq: 90 + 40 * f, type: 'sine', dur: 0.07, peak: 0.05 * f * v, attack: 0.002 });
     }
+
+    // You killed someone. A heavier slam plus a short rising sting.
+    combatKill() {
+        if (!this._ready() || !this._throttle('combatKill', 180)) return;
+        this._thump({ cut0: 1800, cut1: 80, dur: 0.16, peak: 0.55 });
+        this._thump({ cut0: 900, cut1: 70, dur: 0.2, peak: 0.32, delay: 0.04 });
+        this._tone({ freq: 220, type: 'sine', dur: 0.12, peak: 0.1, attack: 0.002 });
+        this._tone({ freq: 330, type: 'triangle', dur: 0.16, peak: 0.07, delay: 0.05, attack: 0.004 });
+    }
+
+    // Banked a milestone. Warm gold hit, not a jingle.
+    bankCelebrate() {
+        if (!this._ready() || !this._throttle('bankCelebrate', 400)) return;
+        this._thump({ cut0: 1600, cut1: 110, dur: 0.14, peak: 0.45 });
+        this._tone({ freq: 392, type: 'sine', dur: 0.22, peak: 0.12, attack: 0.006 });
+        this._tone({ freq: 523, type: 'sine', dur: 0.24, peak: 0.09, delay: 0.06, attack: 0.008 });
+        this._tone({ freq: 784, type: 'sine', dur: 0.28, peak: 0.06, delay: 0.12, attack: 0.01 });
+    }
 }
 
 export const gameSound = new GameSound();

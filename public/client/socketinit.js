@@ -440,11 +440,48 @@ function Status() {
     };
 }
 
-// Floating combat text. Repeated hits on the same body inside DMG_COMBINE_MS
-// merge into one growing number rather than stacking a tower of "-3"s - that
-// merge is what keeps a minigun burst or a drone swarm readable instead of
-// turning the target into a wall of digits.
-const DMG_COMBINE_MS = 220;
+// Floating combat text. Hits on the same body within DMG_COMBINE_MS of the
+// LAST hit merge into one growing combo. The window resets on every hit, so
+// a spray is one number that keeps climbing until you stop for a second.
+const DMG_COMBINE_MS = 1000;
+const DEALT_WORDS = {
+    1: ["HIT!", "WHACK!", "YES!", "BOOM!", "POW!", "SMACK!"],
+    3: ["NICE!", "SMASH!", "CLEAN!", "GOT 'EM!", "CRACKED!", "NAILED IT!", "WRECKED!"],
+    4: ["CRITICAL!", "DESTROYED!", "CRUSHING!", "SHREDDED!", "HUGE!", "DEMOLISHED!"],
+    5: ["OBLITERATED!", "DELETED!", "COOKED!", "ANNIHILATED!", "ERASED!"],
+    6: ["ON FIRE!", "UNSTOPPABLE!", "CHAINED!", "DON'T STOP!"],
+    10: ["FINISH THEM!", "SO CLOSE!", "END THEM!", "THEY'RE DONE!", "FINISH IT!"],
+};
+const TAKEN_WORDS = {
+    2: ["OW!", "OUCH!", "UGH!", "NGH!"],
+    3: ["OW!", "OOF!", "THAT HURT!", "YOW!"],
+    4: ["CRITICAL!", "CRUSHED!", "HEAVY HIT!", "NO!"],
+    5: ["I'M COOKED!", "DEVASTATING!", "NOOO!"],
+};
+function pickWord(arr) {
+    return arr[(Math.random() * arr.length) | 0];
+}
+function hitBucket(amount, taken, combo, hp) {
+    if (taken) {
+        if (amount >= 40) return 5;
+        if (amount >= 18) return 4;
+        if (amount >= 8) return 3;
+        return 2;
+    }
+    if (hp < 0.22) return 10;
+    if (amount >= 40) return 5;
+    if (amount >= 18) return 4;
+    if (combo >= 8) return 6;
+    if (amount >= 8) return 3;
+    return 1;
+}
+function assignHitWord(d, hp) {
+    const b = hitBucket(d.amount, d.self, d.combo || 1, hp);
+    if (b === d.wordBucket) return;
+    d.wordBucket = b;
+    const pool = d.self ? TAKEN_WORDS : DEALT_WORDS;
+    d.word = pickWord(pool[b] || pool[1]);
+}
 function punchCamera(amount, duration) {
     const set = config.graphical.shakeProperties.CameraShake;
     const now = Date.now();
@@ -467,23 +504,24 @@ function pushDamageNumber(targetId, amount, tier, taken) {
     // Out of view (or already gone) - nothing to anchor a number to.
     if (!target) return;
     const now = performance.now();
+    const hp = target.health || 0;
     const list = global.damageNumbers;
     for (let i = list.length - 1; i >= 0; i--) {
         const d = list[i];
         if (d.id !== targetId || d.self !== taken) continue;
-        // Entries for one body are appended in order, so the last match is the
-        // newest; if that one has aged out, so has everything before it.
-        if (now - d.born > DMG_COMBINE_MS) break;
-        // Deliberately not restamping born: the number keeps its original rise
-        // and fade and just counts up. A short punch scale is restamped so a
-        // burst that grows into Critical still feels like it landed.
+        // combo window is from the LAST hit, not the first - keep adding as
+        // long as you don't let a second of silence through.
+        if (now - d.comboAt > DMG_COMBINE_MS) break;
         d.amount += amount;
         d.tier = Math.max(d.tier, tier);
-        if (d.amount >= 18) d.tier = 2;
+        if (d.amount >= 18) d.tier = Math.max(d.tier, 2);
         else if (d.amount >= 8) d.tier = Math.max(d.tier, 1);
+        d.combo = (d.combo || 1) + 1;
+        d.comboAt = now;
         d.x = target.x;
         d.y = target.y;
         d.punch = now;
+        assignHitWord(d, hp);
         applyHitJuice(amount, d.tier, taken);
         return;
     }
@@ -495,23 +533,26 @@ function pushDamageNumber(targetId, amount, tier, taken) {
         tier,
         self: taken,
         born: now,
+        comboAt: now,
+        combo: 1,
         punch: 0,
         jitter: Math.random() * 2 - 1,
+        word: "",
+        wordBucket: -1,
     };
+    assignHitWord(entry, hp);
     list.push(entry);
     applyHitJuice(amount, tier, taken);
-    // Hard cap so a busy brawl can never grow this without bound.
-    if (list.length > 14) list.splice(0, list.length - 14);
+    if (list.length > 8) list.splice(0, list.length - 8);
 }
 function applyHitJuice(amount, tier, taken) {
     if (taken) {
         global.hurtAt = performance.now();
-        global.hurtPower = Math.min(1, 0.28 + amount / 70);
-        // chip doesn't kick the camera - a real chunk of life does.
-        if (amount >= 6 || tier >= 1) punchCamera(1.4 + Math.min(3.2, amount * 0.05), 100);
+        global.hurtPower = Math.min(1, 0.35 + amount / 55);
+        if (amount >= 6 || tier >= 1) punchCamera(1.8 + Math.min(4.5, amount * 0.07), 120);
         if (gameSound.combatHurt) gameSound.combatHurt(Math.min(1, amount / 40));
     } else {
-        if (tier >= 2) punchCamera(1.1, 70);
+        if (tier >= 1) punchCamera(0.9 + (tier >= 2 ? 1.4 : 0), 80);
         if (gameSound.combatHit) gameSound.combatHit(tier);
     }
 }
@@ -1032,28 +1073,46 @@ let incoming = async function(message, socket) {
             } break;
             case 'DMG': {
                 // Combat text: targetId, amount (0-100 of max hp), tier
-                // (0/1/2 = normal/Nice!/Critical!), taken (0 = we dealt it,
-                // 1 = we took it). The server only sends these to the two
-                // players in the exchange, so anything that arrives here is
-                // ours by definition.
+                // (0/1/2), taken (0 = we dealt it, 1 = we took it).
                 pushDamageNumber(m[0], m[1] | 0, m[2] | 0, !!(m[3] | 0));
+            } break;
+            case 'DEAD': {
+                // You just killed someone. Skull + DEAD! at their last spot.
+                const now = performance.now();
+                const list = global.killBanners;
+                list.push({ x: m[0] | 0, y: m[1] | 0, born: now });
+                if (list.length > 4) list.shift();
+                global.deadFlashAt = now;
+                punchCamera(5.5, 220);
+                if (gameSound.combatKill) gameSound.combatKill();
             } break;
             case 'MS': {
                 // Personal achievement: kind, threshold, bonus paid
                 const kind = m[0] | 0, at = m[1] | 0, bonus = m[2] | 0;
                 if (kind === 0) {
-                    // Banking a large sum can clear several rungs in one go.
-                    // Stamping each one a beat after the last makes them cascade
-                    // in instead of all snapping onto the screen in one frame.
                     const prev = global.milestones.length
                         ? global.milestones[global.milestones.length - 1].born
                         : -1e9;
+                    const bits = [];
+                    for (let i = 0; i < 32; i++) {
+                        bits.push({
+                            ang: Math.random() * Math.PI * 2,
+                            spd: 140 + Math.random() * 320,
+                            spin: (Math.random() - 0.5) * 10,
+                            size: 5 + Math.random() * 9,
+                            hue: Math.random() < 0.55 ? "#efc74b" : (Math.random() < 0.5 ? "#ffffff" : "#ff9a1a"),
+                        });
+                    }
                     global.milestones.push({
                         title: util.formatLargeNumber(at) + " BANKED",
-                        bonus: bonus > 0 ? "+" + util.formatLargeNumber(bonus) + " bonus" : "",
-                        born: Math.max(performance.now(), prev + 220),
+                        bonus: bonus > 0 ? "+" + util.formatLargeNumber(bonus) + " BONUS" : "",
+                        born: Math.max(performance.now(), prev + 400),
+                        bits,
                     });
                     if (global.milestones.length > 4) global.milestones.shift();
+                    punchCamera(6.5, 340);
+                    global.celebrateAt = performance.now();
+                    if (gameSound.bankCelebrate) gameSound.bankCelebrate();
                 }
             } break;
             case 'LA': {
