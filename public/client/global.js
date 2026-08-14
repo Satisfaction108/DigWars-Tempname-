@@ -318,6 +318,7 @@ const global = {
     // Floating combat text. Server-authored (DMG packets) and scaled to 100
     // so every tank reads the same: 20 means a fifth of their life.
     damageNumbers: [],
+    structureHits: [],
     killBanners: [],
     hurtAt: -1e9,
     hurtPower: 0,
@@ -508,6 +509,7 @@ const global = {
         global.messages = [];
         global.milestones = [];
         global.damageNumbers = [];
+        global.structureHits = [];
         global.killBanners = [];
         global.hurtAt = -1e9;
         global.hurtPower = 0;
@@ -547,6 +549,7 @@ const global = {
         global.messages = [];
         global.milestones = [];
         global.damageNumbers = [];
+        global.structureHits = [];
         global.killBanners = [];
         global.hurtAt = -1e9;
         global.hurtPower = 0;

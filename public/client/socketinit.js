@@ -521,6 +521,57 @@ function pushDamageNumber(targetId, amount, tier, taken) {
     applyHitJuice(amount, tier, taken);
     if (list.length > 8) list.splice(0, list.length - 8);
 }
+// Rock chips are individual - no combo, no callouts, no shake. Only the
+// person who landed the shot sees the number.
+global.pushRockDamage = (x, y, amount, ownerId) => {
+    if (ownerId !== gui.playerid) return;
+    if (!(amount >= 1)) return;
+    const now = performance.now();
+    const list = global.damageNumbers;
+    list.push({
+        id: 0,
+        x, y,
+        amount,
+        tier: 0,
+        self: false,
+        born: now,
+        comboAt: now,
+        combo: 1,
+        punch: 0,
+        jitter: Math.random() * 2 - 1,
+        word: "",
+        kind: "rock",
+        holdMs: 420,
+        fadeMs: 380,
+    });
+    if (list.length > 10) list.splice(0, list.length - 10);
+};
+function mockupOf(z) {
+    if (!z?.index) return null;
+    return global.mockups[parseInt(z.index.split("-")[0])] || null;
+}
+function spawnStructureHit(z) {
+    const m = mockupOf(z);
+    if (!m) return;
+    const chamber = m.className === "coreChamber" || m.name === "Core Chamber";
+    const outpost = m.className === "outpostBanner" || m.name === "Outpost";
+    if (!chamber && !outpost) return;
+    const camx = global.player?.cx?.animX ?? z.x;
+    const camy = global.player?.cy?.animY ?? z.y;
+    let dx = camx - z.x, dy = camy - z.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const size = z.size || (chamber ? 160 : 60);
+    const rim = size * (chamber ? 0.88 : 0.72);
+    const ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.4;
+    const list = global.structureHits;
+    list.push({
+        x: z.x + Math.cos(ang) * rim,
+        y: z.y + Math.sin(ang) * rim,
+        born: performance.now(),
+        scale: chamber ? 1.35 : 1.15,
+    });
+    if (list.length > 14) list.shift();
+}
 function applyHitJuice(amount, tier, taken) {
     const t = Math.min(1, Math.max(0, amount) / 100);
     punchCamera(0.55 + t * 4.9, 70 + t * 90);
@@ -673,6 +724,7 @@ const process = (z = {}) => {
         // costs at most one blink instead of a stuck-on flash.
         if (!isNew && hitFlash > (z.hitFlash || 0)) {
             z.render.hitAt = performance.now();
+            spawnStructureHit(z);
         }
         z.hitFlash = hitFlash;
 

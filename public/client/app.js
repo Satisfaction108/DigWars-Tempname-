@@ -4937,6 +4937,27 @@ import * as tutorial from './tutorial.js';
     
     
     
+    function drawHitTicks(c, ox, oy, ratio, age, tint, alpha) {
+        if (age < 0 || age >= HIT_TICK_MS || !(alpha > 0)) return;
+        const ht = age / HIT_TICK_MS;
+        const ha = (1 - ht) * alpha;
+        const spread = (5 + 12 * ht) * ratio;
+        c.save();
+        c.globalAlpha = ha;
+        c.strokeStyle = tint;
+        c.lineWidth = Math.max(1.5, 1.8 * ratio);
+        c.lineCap = "round";
+        for (let k = 0; k < 4; k++) {
+            const ang = Math.PI / 4 + k * Math.PI / 2;
+            const ca = Math.cos(ang), sa = Math.sin(ang);
+            c.beginPath();
+            c.moveTo(ox + ca * spread * 0.45, oy + sa * spread * 0.45);
+            c.lineTo(ox + ca * spread, oy + sa * spread);
+            c.stroke();
+        }
+        c.restore();
+    }
+
     // Floating damage numbers. World-anchored. A combo holds at full strength
     // until a second of silence, then fades. Words are picked for YOU vs THEM
     // so "Nice" never sits on your own head.
@@ -4951,20 +4972,22 @@ import * as tutorial from './tutorial.js';
         c.save();
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
-            const live = global.entities.find(e => e.id === d.id);
+            const live = d.kind === "rock" ? null : global.entities.find(e => e.id === d.id);
             if (live) { d.x = live.x; d.y = live.y; }
             const age = now - d.born;
             const idle = now - (d.comboAt || d.born);
-            if (idle >= DMG_COMBO_HOLD_MS + DMG_FADE_OUT_MS) { list.splice(i, 1); continue; }
+            const hold = d.holdMs ?? DMG_COMBO_HOLD_MS;
+            const fadeOut = d.fadeMs ?? DMG_FADE_OUT_MS;
+            if (idle >= hold + fadeOut) { list.splice(i, 1); continue; }
 
             let fade;
             if (age < DMG_FADE_IN_MS) {
                 const u = age / DMG_FADE_IN_MS;
                 fade = 1 - (1 - u) * (1 - u);
-            } else if (idle < DMG_COMBO_HOLD_MS) {
+            } else if (idle < hold) {
                 fade = 1;
             } else {
-                const u = (idle - DMG_COMBO_HOLD_MS) / DMG_FADE_OUT_MS;
+                const u = (idle - hold) / fadeOut;
                 fade = 1 - u * u;
             }
 
@@ -4981,8 +5004,8 @@ import * as tutorial from './tutorial.js';
             } else {
                 pop = 1;
             }
-            if (idle >= DMG_COMBO_HOLD_MS) {
-                const u = (idle - DMG_COMBO_HOLD_MS) / DMG_FADE_OUT_MS;
+            if (idle >= hold) {
+                const u = (idle - hold) / fadeOut;
                 pop *= 1 - 0.14 * u;
             }
             if (d.punch) {
@@ -4997,34 +5020,21 @@ import * as tutorial from './tutorial.js';
             if (x < -80 || x > global.screenWidth + 80) continue;
             if (y < -80 || y > global.screenHeight + 80) continue;
 
+            const rock = d.kind === "rock";
             const tier = d.tier || 0;
             const combo = d.combo || 1;
             const finish = d.word === "Finish";
-            const size = (15.5 + Math.min(8, d.amount * 0.1) + (tier >= 2 ? 3.5 : tier >= 1 ? 1.5 : 0) + (finish ? 3 : 0) + Math.min(3, combo * 0.25)) * pop * ratio;
-            const tint = d.self
-                ? "#FF5A52"
-                : (finish || tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF4C4");
+            const size = rock
+                ? (12.5 + Math.min(6, d.amount * 0.08)) * pop * ratio
+                : (15.5 + Math.min(8, d.amount * 0.1) + (tier >= 2 ? 3.5 : tier >= 1 ? 1.5 : 0) + (finish ? 3 : 0) + Math.min(3, combo * 0.25)) * pop * ratio;
+            const tint = rock
+                ? "#EDE4C8"
+                : d.self
+                    ? "#FF5A52"
+                    : (finish || tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF4C4");
 
-            if (!d.self && age < HIT_TICK_MS) {
-                const ht = age / HIT_TICK_MS;
-                const ha = (1 - ht) * fade;
-                const spread = (5 + 12 * ht) * ratio;
-                const ox = ratio * d.x - px + halfW;
-                const oy = ratio * d.y - py + halfH;
-                c.save();
-                c.globalAlpha = ha;
-                c.strokeStyle = tint;
-                c.lineWidth = Math.max(1.5, 1.8 * ratio);
-                c.lineCap = "round";
-                for (let k = 0; k < 4; k++) {
-                    const ang = Math.PI / 4 + k * Math.PI / 2;
-                    const ca = Math.cos(ang), sa = Math.sin(ang);
-                    c.beginPath();
-                    c.moveTo(ox + ca * spread * 0.45, oy + sa * spread * 0.45);
-                    c.lineTo(ox + ca * spread, oy + sa * spread);
-                    c.stroke();
-                }
-                c.restore();
+            if (!rock && !d.self && age < HIT_TICK_MS) {
+                drawHitTicks(c, ratio * d.x - px + halfW, ratio * d.y - py + halfH, ratio, age, tint, fade);
             }
 
             if (d.word) {
@@ -5032,11 +5042,34 @@ import * as tutorial from './tutorial.js';
             }
             const num = "-" + util.formatLargeNumber(Math.round(d.amount));
             drawText(num, x, y, size, tint, "center", true, fade, 5.5);
-            if (combo >= 2) {
+            if (!rock && combo >= 2) {
                 drawText("×" + combo, x, y + size * 0.78, size * 0.36, tint, "center", true, fade * 0.9, 6);
             }
         }
         c.restore();
+    }
+
+    function drawStructureHits(px, py, ratio) {
+        const list = global.structureHits;
+        if (!list || !list.length) return;
+        const now = performance.now();
+        const c = ctx[2];
+        const halfW = global.screenWidth / 2,
+              halfH = global.screenHeight / 2;
+        for (let i = list.length - 1; i >= 0; i--) {
+            const h = list[i];
+            const age = now - h.born;
+            if (age >= HIT_TICK_MS) { list.splice(i, 1); continue; }
+            drawHitTicks(
+                c,
+                ratio * h.x - px + halfW,
+                ratio * h.y - py + halfH,
+                ratio * (h.scale || 1),
+                age,
+                "#FFF4D0",
+                0.88
+            );
+        }
     }
 
     // Fallback skull if the svg hasn't loaded yet.
@@ -6948,6 +6981,7 @@ import * as tutorial from './tutorial.js';
         // exactly over the bodies that took the hit. Drawn before the HUD so
         // the HUD always wins the overlap.
         drawDamageNumbers(px, py, ratio);
+        drawStructureHits(px, py, ratio);
         drawKillBanners(px, py, ratio);
         // World-anchored tutorial markers: drawn here so they share the exact
         // camera transform the entities just used, and sit above the world but

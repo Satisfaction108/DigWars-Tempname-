@@ -1405,7 +1405,7 @@ class TerrainGrid {
     // Apply damage; queues a network delta. Rocks never heal, die once.
     
     
-    damageRock(rock, dmg, wx, wy, grind) {
+    damageRock(rock, dmg, wx, wy, grind, owner) {
         if (!rock || (!rock.alive && !rock.growing) || !(dmg > 0)) return false;
         
         
@@ -1443,6 +1443,12 @@ class TerrainGrid {
             const halfH = this.rows * this.cellSize / 2;
             ev.x = Math.round((wx + halfW) / this.cellSize * 100) / 100;
             ev.y = Math.round((wy + halfH) / this.cellSize * 100) / 100;
+        }
+        // Chip numbers (0-100 of this cell) go only to the shooter. Grind
+        // scrapes skip them - they would spam.
+        if (!grind && owner && rock.maxHealth > 0) {
+            ev.n = Math.max(1, Math.round(100 * dmg / rock.maxHealth));
+            ev.u = owner.id;
         }
         this.rockEvents.push(ev);
         return destroyed;

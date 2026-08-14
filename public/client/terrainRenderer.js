@@ -293,6 +293,7 @@ class TerrainRenderer {
             
             
             if (ev.hl) continue;
+            this._emitRockNumber(ev);
             if (ev.d && !this._rockDead.has(ev.k)) {
                 const cell = this._cellPolys.get(ev.k);
                 this._rockDead.add(ev.k);
@@ -368,10 +369,14 @@ class TerrainRenderer {
         }
     }
 
-    
-    
-    
-    
+    _emitRockNumber(ev) {
+        if (!ev.n || ev.g || ev.x === undefined || !this._world) return;
+        if (!this._onScreen(ev.x, ev.y)) return;
+        const w = this._world;
+        if (typeof global.pushRockDamage === "function")
+            global.pushRockDamage(ev.x * w.s - w.hw, ev.y * w.s - w.hh, ev.n | 0, ev.u);
+    }
+
     _beginGrowth(k, tier, gen, now, ax, ay) {
         
         

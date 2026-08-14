@@ -892,16 +892,27 @@ class gameHandler {
                 o.refreshSkills();
             }
             const upgradeIndex = o.botStatsFixed ? this.botUpgradeIndex(o) : ran.irandomRange(0, o.upgrades.length);
-            if (o.leftoverUpgrades && now >= (o.botNextUpgradeAt || 0) && upgradeIndex !== null && o.upgrade(upgradeIndex)) {
-                o.leftoverUpgrades--;
-                o.botDidUpgrade = true;
-                o.botNextUpgradeAt = now + 650 + Math.floor(Math.random() * 250);
-                if (!o.leftoverUpgrades) o.botSettleAt = now + 400;
-                if (o.botStatsFixed) this.configureBotStats(o);
+            // Entity.upgrade() does not return a success flag, so we watch the
+            // class id. A failed pick means this tank is done upgrading - dump
+            // the rest and let it go instead of waiting forever.
+            if (o.leftoverUpgrades && now >= (o.botNextUpgradeAt || 0)) {
+                const prev = o.defs?.[0];
+                if (upgradeIndex !== null) o.upgrade(upgradeIndex);
+                if (o.defs?.[0] !== prev) {
+                    o.leftoverUpgrades--;
+                    o.botDidUpgrade = true;
+                    o.botNextUpgradeAt = now + 650 + Math.floor(Math.random() * 250);
+                    if (!o.leftoverUpgrades) o.botSettleAt = now + 400;
+                    if (o.botStatsFixed) this.configureBotStats(o);
+                } else {
+                    o.leftoverUpgrades = 0;
+                    o.botSettleAt = now + (o.botDidUpgrade ? 400 : 0);
+                }
             }
-            if (!o.botArmed && now >= (o.botWakeAt || 0) && !o.leftoverUpgrades) {
-                if (o.botDidUpgrade && now < (o.botSettleAt || 0)) continue;
-                this.armBot(o);
+            if (!o.botArmed && now >= (o.botWakeAt || 0)) {
+                const settling = o.botDidUpgrade && now < (o.botSettleAt || 0);
+                const stuck = now >= (o.botWakeAt || 0) + 8000;
+                if ((!o.leftoverUpgrades && !settling) || stuck) this.armBot(o);
             }
         }
         
@@ -979,35 +990,21 @@ class gameHandler {
             .filter(b => b && b.isPlayer);
     }
 
-    // Where a bot should enter the world. Most arrive within walking distance
-    // of somebody, just outside view so they drive in rather than pop in. Some
-    // still spawn anywhere so the rest of the map keeps living.
+    // Base at match start. Once the team holds an outpost, mix home and pad
+    // so they don't all pour out of one hole - never the open map.
     botSpawnLocation(team) {
-        const fallback = () => getSpawnableArea(team, global.gameManager);
-        // Same mercy rule as the director: no spawning reinforcements around
-        // a player who is already struggling.
-        const humans = (global.gameManager.socketManager?.players || [])
-            .map(p => p && p.body)
-            .filter(b => b && !b.isDead?.() && !b.isGhost && b.isPlayer &&
-                !((b.socket?.botMercyUntil || 0) > Date.now()));
-        if (!humans.length || Math.random() < 0.25) return fallback();
-
-        const host = ran.choose(humans);
-        const room = global.gameManager.room;
-        const halfW = (room?.width || 6300) / 2, halfH = (room?.height || 6300) / 2;
-        for (let attempt = 0; attempt < 14; attempt++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 850 + Math.random() * 1100;
-            const x = host.x + Math.cos(angle) * dist;
-            const y = host.y + Math.sin(angle) * dist;
-            if (Math.abs(x) > halfW - 260 || Math.abs(y) > halfH - 260) continue;
-            // The enemy base tile kills on entry; a bot must never wake up there.
-            if (inEnemyBase(team, x, y)) continue;
-            const tg = global.gameManager.terrainGrid;
-            if (tg?.pointInRock && tg.pointInRock(x, y)) continue;
-            return { x, y };
-        }
-        return fallback();
+        const base = () => getSpawnableArea(team, global.gameManager);
+        const pads = typeof outposts.ownedBy === "function" ? outposts.ownedBy(team) : [];
+        if (!pads.length || Math.random() < 0.4) return base();
+        const pad = ran.choose(pads);
+        const a = Math.random() * Math.PI * 2;
+        const loc = {
+            x: pad.x + Math.cos(a) * (pad.r || 95) * 0.4,
+            y: pad.y + Math.sin(a) * (pad.r || 95) * 0.4,
+        };
+        global.gameManager.terrainGrid?.pushCircleFromVoronoi?.(loc, 60);
+        if (inEnemyBase(team, loc.x, loc.y)) return base();
+        return loc;
     }
 
     // Sit still and invuln until upgrades finish, then hand the tank its AI.
@@ -1702,7 +1699,7 @@ class gameHandler {
                                         const destroyed = _tg.damageRock(rock, dmg,
                                             instance.x - (instance.grindNx || 0) * r,
                                             instance.y - (instance.grindNy || 0) * r,
-                                            true);
+                                            true, instance);
                                         
                                         
                                         if (destroyed) instance.rocksMined = (instance.rocksMined || 0) + 1;
@@ -1750,7 +1747,7 @@ class gameHandler {
                         if (dmg > 0) {
                             mb.left -= dmg;
                             const wasGrowing = rock.growing;
-                            const destroyed = _tg.damageRock(rock, dmg, instance.x, instance.y);
+                            const destroyed = _tg.damageRock(rock, dmg, instance.x, instance.y, false, owner);
                             // breaking an ore cell erupts its gem payout -
                             
                             
