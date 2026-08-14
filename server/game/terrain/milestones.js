@@ -1,0 +1,52 @@
+// Personal achievement "dings" for Dig Wars.
+//
+// The base loop rewards once per mine→carry→bank cycle, so these fire small,
+// one-time congratulations as a miner's lifetime banked total climbs - the
+// same trick arras uses with levels, but tied to the gem economy instead of
+// XP. Every rung also pays a bonus straight into the player's bank, so the
+// popup is a real reward, not just a pat on the back.
+//
+// Progress is stored on the SOCKET (not the body) because banked gems survive
+// death; if it lived on the body, a respawned tank would re-collect every
+// rung it had already passed and farm the bonuses.
+
+const gems = require('./gems.js');
+
+// at: banked threshold that triggers the popup. bonus: gems paid on top.
+const BANK_MILESTONES = [
+    { at: 100,    bonus: 20 },
+    { at: 500,    bonus: 75 },
+    { at: 1500,   bonus: 200 },
+    { at: 5000,   bonus: 500 },
+    { at: 15000,  bonus: 1500 },
+    { at: 50000,  bonus: 10000 },
+    { at: 150000, bonus: 25000 },
+];
+
+// Called every time a player banks (vault.js). Fires every rung their total
+// has crossed, pays each bonus, and pushes the updated banked total once.
+function checkBanked(body) {
+    // Tutorial: the lesson HUD already guides the learner step by step, and a
+    // second set of reward toasts would talk over it. Real server only.
+    if (Config.tutorial || !body || !body.socket) return;
+    const sock = body.socket;
+    const total = (sock.gemBanked || 0) | 0;
+
+    let idx = sock._milestoneIdx;
+    if (idx === undefined) idx = 0;
+
+    let paid = false;
+    while (idx < BANK_MILESTONES.length && total >= BANK_MILESTONES[idx].at) {
+        const ms = BANK_MILESTONES[idx];
+        const cur = (sock.gemBanked || 0) | 0;
+        gems.setBanked(body, cur + ms.bonus);
+        sock.talk('MS', 0, ms.at, ms.bonus);
+        paid = true;
+        idx++;
+    }
+    sock._milestoneIdx = idx;
+
+    if (paid) gems.talkGems(body, 0);
+}
+
+module.exports = { checkBanked, BANK_MILESTONES };

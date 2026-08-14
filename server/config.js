@@ -137,6 +137,20 @@ module.exports = {
     // client UI no longer offers it; this also ignores the spawn flag.
     allow_incognito: false,
 
+    // DIG WARS: the war layer. War effort is a per-round team score fed by
+    // every gem a miner banks (plus a trickle for every outpost held). The
+    // first team to war_target wins the round; personal banked gems are
+    // never reset - only the round score. Victory pays every miner on the
+    // winning side a flat gem bonus into their personal bank.
+    // DISABLED FOR NOW - the whole layer (terrain/war.js + the war.add hooks
+    // in vault/outposts + the client war bar/banner) is parked until we come
+    // back to it. Flip this to true to re-enable.
+    war_enabled: false,
+    war_target: parseInt(process.env.WAR_TARGET, 10) || 25000,
+    war_outpost_trickle: 6,    // war points per second per owned outpost
+    war_win_bonus: 2000,       // gems added to each winner's personal bank
+    war_round_over_ms: 9000,   // victory screen length before the reset
+
     skill_cap: 9,
     tier_cap: 100,
     tier_multiplier: 15,

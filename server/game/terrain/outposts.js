@@ -1,6 +1,8 @@
 
 
 const gems = require('./gems.js');
+const war = require('./war.js');
+const milestones = require('./milestones.js');
 
 const PAD_RADIUS   = 95;
 const EFFICIENCY   = 0.8;     
@@ -204,6 +206,12 @@ function tick(players, dtMs) {
             
             socket.gemBanked = (socket.gemBanked || 0) + chunk * EFFICIENCY;
             body.bankedGems = socket.gemBanked;
+            // Personal achievements fire here too - outpost-banked gems count
+            // toward the same lifetime rungs as vault deposits.
+            milestones.checkBanked(body);
+            // War layer is parked (Config.war_enabled = false) - re-enable
+            // this hook when we come back to it.
+            // war.add(body.team, chunk * EFFICIENCY);
         }
         const done = d.remaining < 0.5;
         if (done) {

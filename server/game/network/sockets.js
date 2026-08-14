@@ -1584,7 +1584,12 @@ class socketManager {
                  data.color,
                  Math.ceil(65535 * data.health),
                  Math.round(65535 * data.shield),
-                 Math.round(255 * data.alpha)
+                 Math.round(255 * data.alpha),
+                 // NOTE: hit feedback fields are appended AFTER alpha on purpose.
+                 // perspective() rewrites this array by hardcoded index (alpha at
+                 // 14 here, 18 below), so nothing may be inserted before it.
+                 Math.round(255 * (data.hitFlash || 0)),
+                 data.maxHealth || 0
             );
         } else {
             output.push(
@@ -1605,7 +1610,9 @@ class socketManager {
                  data.invuln,
                  Math.ceil(65535 * data.health),
                  Math.round(65535 * data.shield),
-                 Math.round(255 * data.alpha)
+                 Math.round(255 * data.alpha),
+                 Math.round(255 * (data.hitFlash || 0)),
+                 data.maxHealth || 0
             );
             if (data.type & 0x04) {
                 output.push(

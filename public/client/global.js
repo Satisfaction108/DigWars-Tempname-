@@ -297,6 +297,28 @@ const global = {
         fullAt: -1e9,
         popups: [],
     },
+
+    // The war layer: per-round team score, win target and victory state.
+    // Fed by the server's 'WR' message once a second.
+    war: {
+        blue: 0,
+        red: 0,
+        target: 1,
+        over: false,
+        winner: 0,        // 0 none, 1 blue, 2 red
+        resetIn: 0,       // ms until the round resets (0 while active)
+        bonus: 0,         // gems paid to each winner on victory
+        at: -1e9,
+        victoryAt: -1e9,
+    },
+
+    // Personal milestone toasts ("★ 500 BANKED") - transient, client-side.
+    milestones: [],
+
+    // Floating damage numbers. Purely cosmetic and purely client-side: the
+    // amounts are derived from the health ratio and max health the entity
+    // update already carries, so no extra server traffic pays for them.
+    damageNumbers: [],
     
     
     leader: { id: -1, x: 0, y: 0, team: 0, at: -1e9 },
@@ -480,6 +502,8 @@ const global = {
         global.entities = [];
         global.roomSetup = [];
         global.messages = [];
+        global.milestones = [];
+        global.damageNumbers = [];
         global.metrics.latency = [];
         global.chats = {};
         global.metrics.rendertime = 0;
@@ -512,6 +536,8 @@ const global = {
         global.entities = [];
         global.roomSetup = [];
         global.messages = [];
+        global.milestones = [];
+        global.damageNumbers = [];
         global.metrics.latency = [];
         global.chats = {};
         global.metrics.rendertime = 0;

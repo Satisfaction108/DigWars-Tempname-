@@ -52,6 +52,11 @@ const config = {
         satchelWarning: true,
         leaderIndicators: true,
         warBar: true,
+        // Hit feedback. Separate toggles so a player who finds floating numbers
+        // noisy can drop them and still keep the blink, which carries the
+        // "that landed" read on its own.
+        damageNumbers: true,
+        hitFlash: true,
     }
   };
   export { config }

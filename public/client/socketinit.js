@@ -440,6 +440,46 @@ function Status() {
     };
 }
 
+// Floating combat text. Repeated hits on the same body inside DMG_COMBINE_MS
+// merge into one growing number rather than stacking a tower of "-3"s - that
+// merge is what keeps a minigun burst or a drone swarm readable instead of
+// turning the target into a wall of digits.
+const DMG_COMBINE_MS = 180;
+// Share of a body's max health that counts as a heavy hit. Scaling off max
+// health rather than a flat number keeps it meaningful for both a level 45
+// tank and a miniboss.
+const DMG_CRIT_FRACTION = 0.18;
+function pushDamageNumber(z, amount) {
+    if (!(amount >= 1)) return;
+    const now = performance.now();
+    const list = global.damageNumbers;
+    const critAt = z.maxHealthN * DMG_CRIT_FRACTION;
+    for (let i = list.length - 1; i >= 0; i--) {
+        const d = list[i];
+        if (d.id !== z.id) continue;
+        // Entries for one body are appended in order, so the last match is the
+        // newest; if that one has already aged out, so has everything before it.
+        if (now - d.born > DMG_COMBINE_MS) break;
+        d.amount += amount;
+        d.crit = d.amount >= critAt;
+        d.x = z.x;
+        d.y = z.y;
+        return;
+    }
+    list.push({
+        id: z.id,
+        x: z.x,
+        y: z.y,
+        amount,
+        crit: amount >= critAt,
+        self: z.id === gui.playerid,
+        born: now,
+        jitter: Math.random() * 2 - 1,
+    });
+    // Hard cap so a busy brawl can never grow this without bound.
+    if (list.length > 48) list.splice(0, list.length - 48);
+}
+
 const process = (z = {}) => {
     let isNew = z.facing == null;
 
@@ -511,6 +551,7 @@ const process = (z = {}) => {
         let invuln = type & 0x10 ? 0 : get.next();
         z.invuln = invuln ? z.invuln || Date.now() : 0;
 
+        let prevHealth = z.health;
         if (isNew) {
             z.health = get.next() / 65535;
             z.shield = get.next() / 65535;
@@ -520,14 +561,19 @@ const process = (z = {}) => {
             z.health = get.next() / 65535;
             z.shield = get.next() / 65535;
 
-            if (z.health < hh || z.shield < ss) {
-                z.render.status.set('injured');
-            } else if (z.render.status.getFade() !== 1) {
-
+            // Taking damage used to be inferred here and flashed white. The
+            // blink is now driven by the server's hitFlash field below, so this
+            // branch is only left to clear a stale death fade.
+            if (z.health >= hh && z.shield >= ss && z.render.status.getFade() !== 1) {
                 z.render.status.set('normal');
             }
         }
         z.alpha = get.next() / 255;
+        // Hit feedback. These mirror the two fields appended after alpha in the
+        // server's flatten() - the order here has to match it exactly.
+        let hitFlash = get.next() / 255;
+        z.maxHealthN = get.next();
+        z.healthN = z.health * z.maxHealthN;
         z.drawsHealth = !!(type & 0x02);
 
         if (type & 0x04) {
@@ -568,6 +614,21 @@ const process = (z = {}) => {
         } else if (z.render.status.getState() === 'invuln') {
             z.render.status.set('normal');
         }
+
+        // Server-driven red blink. We only take the rising edge of hitFlash and
+        // let the renderer animate its own eased decay from that stamp, so the
+        // blink looks identical whatever the tick rate does and a dropped packet
+        // costs at most one blink instead of a stuck-on flash.
+        if (!isNew && hitFlash > (z.hitFlash || 0)) {
+            z.render.hitAt = performance.now();
+            // Damage numbers ride the same edge. Named bodies only (players,
+            // bots, minibosses) so bullets and shattering rock don't bury the
+            // screen in numbers.
+            if (z.nameplate && z.maxHealthN > 0 && prevHealth > z.health) {
+                pushDamageNumber(z, (prevHealth - z.health) * z.maxHealthN);
+            }
+        }
+        z.hitFlash = hitFlash;
 
         z.render.health.set(z.health);
         z.render.shield.set(z.shield);
@@ -918,13 +979,45 @@ let incoming = async function(message, socket) {
                     list.push({ id: m[o], name: m[o + 1], x: m[o + 2], y: m[o + 3] });
                 }
                 global.teammates = list;
-            } break;
-            case 'TB': {
+            } break;            case 'TB': {
+                
                 
                 const tb = global.teamBanked;
                 tb.blue = m[0];
                 tb.red = m[1];
                 tb.at = performance.now();
+            } break;
+            case 'WR': {
+                // War state: blue, red, target, over(0/1), winner(0/1/2), resetIn ms, win bonus
+                const w = global.war;
+                const wasOver = w.over;
+                w.blue = m[0] | 0;
+                w.red = m[1] | 0;
+                w.target = m[2] | 0;
+                w.over = !!m[3];
+                w.winner = m[4] | 0;
+                w.resetIn = m[5] | 0;
+                w.bonus = m[6] | 0;
+                w.at = performance.now();
+                if (w.over && !wasOver) w.victoryAt = performance.now();
+            } break;
+            case 'MS': {
+                // Personal achievement: kind, threshold, bonus paid
+                const kind = m[0] | 0, at = m[1] | 0, bonus = m[2] | 0;
+                if (kind === 0) {
+                    // Banking a large sum can clear several rungs in one go.
+                    // Stamping each one a beat after the last makes them cascade
+                    // in instead of all snapping onto the screen in one frame.
+                    const prev = global.milestones.length
+                        ? global.milestones[global.milestones.length - 1].born
+                        : -1e9;
+                    global.milestones.push({
+                        title: util.formatLargeNumber(at) + " BANKED",
+                        bonus: bonus > 0 ? "+" + util.formatLargeNumber(bonus) + " bonus" : "",
+                        born: Math.max(performance.now(), prev + 220),
+                    });
+                    if (global.milestones.length > 4) global.milestones.shift();
+                }
             } break;
             case 'LA': {
                 

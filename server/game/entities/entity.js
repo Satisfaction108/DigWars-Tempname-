@@ -2,6 +2,11 @@ let EventEmitter = require('events');
 global.entitiesIdLog = 0;
 const forceTwiggle = ["autospin", "turnWithSpeed", "spin", "fastspin", "veryfastspin", "withMotion", "smoothWithMotion", "looseWithMotion"];
 const { combineStats } = require('../../lib/definitions/facilitators.js');
+// How long the server reports a body as freshly hit. The client starts its own
+// eased blink from the rising edge, so this only has to outlast a couple of
+// network ticks - long enough that the edge can't be missed, short enough that
+// rapid fire still reads as separate blinks.
+const HIT_FLASH_MS = 140;
 class Entity extends EventEmitter {
     constructor(position, master) {
         super();
@@ -784,6 +789,12 @@ class Entity extends EventEmitter {
             health: this.health.display(),
             shield: this.shield.display(),
             alpha: this.alpha,
+            // Hit feedback. hitFlash decays 1 -> 0 over HIT_FLASH_MS; the client
+            // only watches for the rising edge and animates its own smooth curve
+            // off it, so a dropped packet costs at most one blink. maxHealth lets
+            // the client turn the 0-1 health ratio into a real damage number.
+            hitFlash: this.hitAt ? Math.max(0, 1 - (Date.now() - this.hitAt) / HIT_FLASH_MS) : 0,
+            maxHealth: Math.round(this.health.max),
             facing: this.facing,
             vfacing: this.vfacing,
             twiggle: forceTwiggle.includes(this.facingType) || this.eastereggs.braindamage || 
@@ -1052,12 +1063,19 @@ class Entity extends EventEmitter {
                 let shieldDamage = this.shield.getDamage(this.damageReceived);
                 this.damageReceived -= shieldDamage;
                 this.shield.amount -= shieldDamage;
+                // A hit soaked entirely by shield still blinks - it just won't
+                // raise a damage number, since health never moved.
+                if (shieldDamage > 0) this.hitAt = Date.now();
             }
         }
         // Health damage
         if (this.damageReceived) {
             let healthDamage = this.health.getDamage(this.damageReceived);
             this.blend.amount = 1;
+            // Stamp the hit so the camera photo can report a decaying flash to
+            // the client. A timestamp rather than a per-tick decay keeps the
+            // blink the same length regardless of room speed.
+            this.hitAt = Date.now();
             this.health.amount -= healthDamage;
         }
         this.damageReceived = 0;

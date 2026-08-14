@@ -46,6 +46,7 @@ class gamemodeManager {
             if (Config.siege) this.gameSiege.loop();
             if (Config.mothership) this.gameMothership.loop();
             if (Config.tutorial) this.gameTutorial.loop();
+            if (Config.dig_wars) this.gameDigWars.loop();
             global.gameManager.lagLogger.mark();
             if (global.gameManager.lagLogger.totalTime > 100) {
                 console.log("Gamemode loop is taking a long time!");

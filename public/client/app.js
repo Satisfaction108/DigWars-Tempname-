@@ -12,6 +12,20 @@ import * as tutorial from './tutorial.js';
 (async function (util, global, config, Canvas, color, gameDraw, socketStuff) {
     let { socketInit, resync, gui, leaderboard, minimap, moveCompensation, lag, getNow } = socketStuff;
 
+    // ---- Hit feedback ----------------------------------------------------
+    // The blink is triggered by the server (entity.js stamps hitAt on damage and
+    // reports a decaying hitFlash); everything below is just how it's drawn.
+    // Kept a touch shorter than the server's HIT_FLASH_MS window so rapid fire
+    // reads as separate blinks rather than one long red smear.
+    const HIT_BLINK_MS = 120;
+    // Never a full repaint - the tank has to stay recognisably its team colour
+    // through the flash, or a firefight turns into a screen of red blobs.
+    const HIT_BLINK_STRENGTH = 0.72;
+    const HIT_BLINK_COLOR = "#FF3B30";
+    // Floating damage numbers.
+    const DMG_DURATION_MS = 900;
+    const DMG_RISE = 42;
+
     fetch("changelog.md", { cache: "no-cache" }).then(response => response.text()).then(response => {
         let a = [];
         for (let c of response.split("\n")) {
@@ -2100,6 +2114,16 @@ import * as tutorial from './tutorial.js';
             const statusColor = render.status.getColor();
             const blend = render.status.getBlend();
 
+            // Server-driven hit blink, eased on the client so it stays smooth
+            // between network ticks. The squared falloff gives a hard flash that
+            // trails off, which reads far better at this duration than a linear
+            // fade - a linear one looks like the tank is simply changing colour.
+            let hitBlend = 0;
+            if (config.game.hitFlash && render.hitAt) {
+                const ht = (performance.now() - render.hitAt) / HIT_BLINK_MS;
+                if (ht < 1) hitBlend = (1 - ht) * (1 - ht) * HIT_BLINK_STRENGTH;
+            }
+
             const sourceGuns = source.guns;
             const gunLength = sourceGuns.length;
 
@@ -2126,6 +2150,7 @@ import * as tutorial from './tutorial.js';
                     const gunAlpha = g.alpha === undefined ? 1 : g.alpha;
                     let mixedColor = gameDraw.mixColors(gunColor, statusColor, blend);
                     global.gameUpdate && instance.invuln !== 0 && 100 > (Date.now() - instance.invuln) % 200 && ((mixedColor = gameDraw.mixColors(gunColor, gameDraw.getColor(6), 0.3)));
+                    if (hitBlend > 0) mixedColor = gameDraw.mixColors(mixedColor, HIT_BLINK_COLOR, hitBlend);
                     gameDraw.setColor(context, mixedColor);
 
                     drawGun(
@@ -2154,6 +2179,7 @@ import * as tutorial from './tutorial.js';
                         blend
                     );
                     global.gameUpdate && instance.invuln !== 0 && 100 > (Date.now() - instance.invuln) % 200 && ((bodyColor = gameDraw.mixColors(gameDraw.modifyColor(instance.color, baseColor), gameDraw.getColor(6), 0.3)));
+                    if (hitBlend > 0) bodyColor = gameDraw.mixColors(bodyColor, HIT_BLINK_COLOR, hitBlend);
                     gameDraw.setColor(context, bodyColor);
 
                     const glow = m.glow;
@@ -4032,6 +4058,10 @@ import * as tutorial from './tutorial.js';
         }
     }
 
+    // Bottom of the top-centre message stack, refreshed every frame by
+    // drawMessages and read by drawMilestones so the two can't overlap.
+    let messageStackBottom = 0;
+
     function drawMessages(spacing, alcoveSize) {
 
         let height = 18;
@@ -4089,6 +4119,10 @@ import * as tutorial from './tutorial.js';
                 y += 23 * (3 - 2 * K) * K * K;
             }
         }
+        // Remember where the stack ended so the milestone cards can sit under
+        // it instead of on top of it - both live at top-centre, and Dig Wars
+        // broadcasts (emerald finds, war events) land here constantly.
+        messageStackBottom = y;
         ctx[2].globalAlpha = 1;
     }
 
@@ -4750,32 +4784,187 @@ import * as tutorial from './tutorial.js';
     
     let warBarFrac = 0.5;
     function drawTeamBankBar() {
-        const tb = global.teamBanked;
-        if (!tb || tb.at < 0 || !config.game.warBar) return;
-        const w = 440, h = 13,
-            x = (global.screenWidth - w) / 2,
+        const w = global.war;
+        if (!config.game.warBar || !w || !(w.target > 0)) return;
+        const now = performance.now();
+        if (w.at <= 0 || now - w.at > 6000) return; // no data yet, or stale
+        const bw = 440, h = 13,
+            x = (global.screenWidth - bw) / 2,
             y = global.screenHeight - 22 - h,
             cy = y + h / 2,
-            total = (tb.blue | 0) + (tb.red | 0);
-        
-        
-        warBarFrac += ((total > 0 ? tb.blue / total : 0.5) - warBarFrac) * 0.08;
+            blue = w.blue | 0, red = w.red | 0,
+            total = blue + red;
+
+        // Blue-vs-red share bar (who is ahead right now).
+        warBarFrac += ((total > 0 ? blue / total : 0.5) - warBarFrac) * 0.08;
         const f = Math.max(0, Math.min(1, warBarFrac));
-        const split = x + w * f;
-        drawBar(x, x + w, cy, h + config.graphical.barChunk, color.black);
+        const split = x + bw * f;
+        drawBar(x, x + bw, cy, h + config.graphical.barChunk, color.black);
         if (f > 0.003) drawBar(x, split, cy, h - 3, color.blue);
-        if (f < 0.997) drawBar(split, x + w, cy, h - 3, color.red);
+        if (f < 0.997) drawBar(split, x + bw, cy, h - 3, color.red);
         // tie mark at the centre, and a bright frontier notch at the split
-        drawBar(x + w / 2 - 0.8, x + w / 2 + 0.8, cy, h - 5, "rgba(0,0,0,0.35)");
+        drawBar(x + bw / 2 - 0.8, x + bw / 2 + 0.8, cy, h - 5, "rgba(0,0,0,0.35)");
         drawBar(split - 2.6, split + 2.6, cy, h + 2, color.black);
         drawBar(split - 1.4, split + 1.4, cy, h - 1, color.guiwhite);
-        drawText(util.formatLargeNumber(tb.blue | 0), x - 10, cy + 5, 13, color.blue, "right");
-        drawText(util.formatLargeNumber(tb.red | 0), x + w + 10, cy + 5, 13, color.red, "left");
+        drawText(util.formatLargeNumber(blue), x - 10, cy + 5, 13, color.blue, "right");
+        drawText(util.formatLargeNumber(red), x + bw + 10, cy + 5, 13, color.red, "left");
+
+        // Win-progress underline: how far the leading team is toward the target.
+        const lead = Math.max(blue, red);
+        const pf = Math.min(1, lead / w.target);
+        const leadColor = blue >= red ? color.blue : color.red;
+        if (pf > 0.004) drawBar(x, x + bw * pf, y + h + 8, 3.5, leadColor);
+        drawBar(x, x + bw, y + h + 8, 1.2, "rgba(0,0,0,0.4)");
+
+        const ahead = Math.abs(blue - red);
+        const aheadTxt = blue === red ? "dead even"
+            : (blue > red ? "Blue" : "Red") + " +" + util.formatLargeNumber(ahead);
+        drawText("WAR — first to " + util.formatLargeNumber(w.target) + " · " + aheadTxt,
+                 x + bw / 2, y + h + 24, 12, color.grey, "center");
+    }
+
+    // Full-screen victory/defeat banner while the war round is being decided.
+    function drawWarBanner() {
+        const w = global.war;
+        if (!w || !w.over || !config.game.warBar || global.died) return;
+        const now = performance.now();
+        const since = Math.max(0, now - (w.victoryAt || now));
+        const fade = Math.min(1, since / 450);
+        const isBlue = w.winner === 1;
+        const name = isBlue ? "BLUE" : "RED";
+        const col = isBlue ? color.blue : color.red;
+        const c = ctx[2];
+        const cx = global.screenWidth / 2, cy = global.screenHeight * 0.30;
+        c.save();
+        c.globalAlpha = fade;
+        // soft team-coloured wash over the whole screen
+        c.fillStyle = isBlue ? "rgba(30,70,170,0.20)" : "rgba(170,35,30,0.20)";
+        c.fillRect(0, 0, global.screenWidth, global.screenHeight);
+        // banner panel
+        const bw = Math.min(580, global.screenWidth - 60);
+        const bx = cx - bw / 2;
+        roundRectPath(c, bx, cy - 46, bw, 92, 14);
+        c.fillStyle = "rgba(16,17,22,0.95)";
+        c.fill();
+        c.lineWidth = 3;
+        c.strokeStyle = col;
+        c.stroke();
+        drawText(name + " TEAM WINS THE WAR", cx, cy - 12, 30, col, "center");
+        const secs = Math.max(0, Math.ceil((w.resetIn || 0) / 1000));
+        drawText("+" + util.formatLargeNumber(w.bonus || 0) + " gems for every " + name.toLowerCase() +
+                 " miner — new war in " + secs + "s", cx, cy + 26, 15, color.guiwhite, "center");
+        c.restore();
+    }
+
+    // Personal achievement popups - a gold card that slides down from the
+    // top, holds for a moment, then fades. Newest on top, max three at once.
+    function drawMilestones() {
+        const list = global.milestones;
+        if (!list || !list.length) return;
+        const now = performance.now();
+        const cx = global.screenWidth / 2;
+        const c = ctx[2];
+        const DUR = 3.0;      // seconds each popup stays on screen
+        // Sit clear of the message stack rather than at a fixed offset - a run
+        // of server broadcasts would otherwise print straight through the card.
+        const top = Math.max(56, messageStackBottom + 12);
+        let i = 0;
+        for (let k = list.length - 1; k >= 0 && i < 3; k--) {
+            const t = list[k];
+            const age = (now - t.born) / 1000;
+            if (age > DUR) { list.splice(k, 1); continue; }
+            // Staggered entries are stamped slightly in the future; skip them
+            // until their turn rather than drawing at a negative alpha.
+            if (age < 0) continue;
+
+            // slide-down + pop-in on entry, fade-out at the end
+            const inT = Math.min(1, age / 0.18);
+            const outT = Math.min(1, (DUR - age) / 0.45);
+            const a = Math.min(inT, outT);
+            const settle = 1 - Math.pow(1 - inT, 3);
+
+            const title = t.title;
+            const tw = measureText(title, 19);
+            const bw = t.bonus ? measureText(t.bonus, 13) : 0;
+            const lw = measureText("ACHIEVEMENT", 10);
+            const w = Math.max(tw, bw, lw) + 72;
+            const h = t.bonus ? 80 : 62;
+            const x = cx - w / 2;
+            const y = top + i * (h + 8) - 20 * (1 - settle);
+
+            c.save();
+            c.globalAlpha = a;
+            // card body
+            roundRectPath(c, x, y, w, h, 10);
+            c.fillStyle = "rgba(16,17,22,0.95)";
+            c.fill();
+            c.lineWidth = 2.5;
+            c.strokeStyle = "rgba(239,199,75,0.6)";
+            c.stroke();
+            // inner top shine
+            c.save();
+            c.globalAlpha = a * 0.5;
+            roundRectPath(c, x + 3, y + 3, w - 6, h * 0.5, 8);
+            c.fillStyle = "rgba(239,199,75,0.07)";
+            c.fill();
+            c.restore();
+            drawText("ACHIEVEMENT", cx, y + 20, 10, color.grey, "center", false, 1, 5.5);
+            drawText(title, cx, y + (t.bonus ? 44 : 40), 19, color.gold, "center", false, 1, 5.5);
+            if (t.bonus) {
+                drawText(t.bonus, cx, y + 66, 13, color.lgreen, "center", false, 1, 5.5);
+            }
+            c.restore();
+            i++;
+        }
     }
 
     
     
     
+    // Floating damage numbers. World-anchored, so each number keeps rising from
+    // the spot the hit actually landed - it stays readable even if the target
+    // dies or drives off mid-flight. Purely cosmetic: nothing here feeds back
+    // into game state, and every amount is derived from health data the entity
+    // update already carried, so it costs no extra server traffic.
+    function drawDamageNumbers(px, py, ratio) {
+        const list = global.damageNumbers;
+        if (!list || !list.length) return;
+        if (!config.game.damageNumbers) { list.length = 0; return; }
+        const now = performance.now();
+        const c = ctx[2];
+        const halfW = global.screenWidth / 2,
+              halfH = global.screenHeight / 2;
+        c.save();
+        for (let i = list.length - 1; i >= 0; i--) {
+            const d = list[i];
+            const age = now - d.born;
+            if (age >= DMG_DURATION_MS) { list.splice(i, 1); continue; }
+            const t = age / DMG_DURATION_MS;
+
+            // Quick pop on entry, then a decelerating drift upward. Opacity is
+            // held flat for the first half so the number is actually legible
+            // before it starts to go.
+            const pop = t < 0.14 ? 0.72 + 0.28 * (t / 0.14) : 1;
+            const fade = t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
+            const rise = DMG_RISE * (1 - Math.pow(1 - t, 2));
+
+            const x = ratio * d.x - px + halfW + d.jitter * 16 * ratio;
+            const y = ratio * d.y - py + halfH - (26 + rise) * ratio;
+            if (x < -80 || x > global.screenWidth + 80) continue;
+            if (y < -80 || y > global.screenHeight + 80) continue;
+
+            // Damage you take reads red, damage you deal reads white, so the two
+            // never get mixed up in a brawl. A heavy hit adds the green CRIT tag.
+            const size = (d.crit ? 21 : 15) * pop * ratio;
+            const tint = d.crit ? color.lgreen : (d.self ? "#FF5A4E" : color.guiwhite);
+            if (d.crit) {
+                drawText("CRIT", x, y - size * 0.95, size * 0.62, color.lgreen, "center", true, fade);
+            }
+            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade);
+        }
+        c.restore();
+    }
+
     function drawSatchelDanger() {
         const g = global.gems;
         if (!config.game.satchelWarning) return;
@@ -6502,6 +6691,10 @@ import * as tutorial from './tutorial.js';
         drawFloor(px, py, ratio, tick);
         drawEntities(px, py, ratio, tick, spacing);
         drawOutpostLabels(px, py, ratio);
+        // Same camera transform the entities just used, so the numbers sit
+        // exactly over the bodies that took the hit. Drawn before the HUD so
+        // the HUD always wins the overlap.
+        drawDamageNumbers(px, py, ratio);
         // World-anchored tutorial markers: drawn here so they share the exact
         // camera transform the entities just used, and sit above the world but
         // below the GUI. (The screen-space tutorial HUD draws later, in hook().)
@@ -6531,6 +6724,8 @@ import * as tutorial from './tutorial.js';
             drawSatchelDanger();
             drawTeamBankBar();
             drawMessages(spacing, alcoveSize);
+            drawMilestones();
+            drawWarBanner();
             if (global.GUIStatus.renderUpgrades) drawSkillBars(spacing, alcoveSize);
             if (global.GUIStatus.renderPlayerBars) {
                 drawSelfInfo(max);
