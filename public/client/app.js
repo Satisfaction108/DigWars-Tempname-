@@ -17,16 +17,14 @@ import * as tutorial from './tutorial.js';
     // reports a decaying hitFlash); everything below is just how it's drawn.
     // White, not red: a red flash vanishes on the red team in a brawl. Warm
     // white is the diep/valorant trick - it reads on every team colour.
-    const HIT_BLINK_MS = 160;
-    const HIT_BLINK_STRENGTH = 0.82;
+    const HIT_BLINK_MS = 180;
+    const HIT_BLINK_STRENGTH = 0.88;
     const HIT_BLINK_COLOR = "#FFF4E0";
-    // Floating combat text. Intro (fade + pop) is timed in real ms so a
-    // longer life doesn't slow the entrance. Combo hold is 1s from last hit.
-    const DMG_FADE_IN_MS = 140;
-    const DMG_POP_MS = 280;
-    const DMG_FADE_OUT_MS = 650;
+    const DMG_FADE_IN_MS = 120;
+    const DMG_POP_MS = 300;
+    const DMG_FADE_OUT_MS = 700;
     const DMG_COMBO_HOLD_MS = 1000;
-    const DMG_RISE = 64;
+    const DMG_RISE = 50;
     // Low-health vignette. Starts faint around half health and creeps inward
     // as you drop, so it reads as mounting pressure rather than a jump scare.
     const LOW_HP_START = 0.52;
@@ -4882,16 +4880,15 @@ import * as tutorial from './tutorial.js';
         c.restore();
     }
 
-    // Personal achievement toasts. Banked-gem rungs fire a celebration, not a
-    // quiet card - starburst, confetti, giant type, gold slam.
+    // Banked-gem rungs. A quiet gold beat - label, number, bonus - not a
+    // carnival. The pop is the reward; the rest of the HUD stays readable.
     function drawMilestones() {
         const list = global.milestones;
         if (!list || !list.length) return;
         const now = performance.now();
         const c = ctx[2];
-        const w = global.screenWidth, h = global.screenHeight;
-        const cx = w / 2, cy = h * 0.28;
-        const DUR = 2800;
+        const cx = global.screenWidth / 2, cy = global.screenHeight * 0.22;
+        const DUR = 2600;
 
         for (let k = list.length - 1; k >= 0; k--) {
             const t = list[k];
@@ -4900,63 +4897,31 @@ import * as tutorial from './tutorial.js';
             if (age < 0) continue;
 
             const inT = Math.min(1, age / 160);
-            const outT = age > DUR - 500 ? 1 - (age - (DUR - 500)) / 500 : 1;
-            const a = Math.min(1, inT) * Math.max(0, outT);
+            const outT = age > DUR - 480 ? 1 - (age - (DUR - 480)) / 480 : 1;
+            const a = inT * Math.max(0, outT);
             const pop = inT < 1
-                ? (inT < 0.5 ? 0.2 + 1.4 * (1 - Math.pow(1 - inT / 0.5, 3)) : 1.6 - 0.6 * ((inT - 0.5) / 0.5))
+                ? (inT < 0.5 ? 0.25 + 1.15 * (1 - Math.pow(1 - inT / 0.5, 3)) : 1.4 - 0.4 * ((inT - 0.5) / 0.5))
                 : 1;
-            const slam = age < 180 ? (1 - age / 180) : 0;
 
             c.save();
-            if (slam > 0.01) {
-                c.globalAlpha = slam * 0.35;
-                c.fillStyle = "#efc74b";
-                c.fillRect(0, 0, w, h);
-            }
-            c.globalAlpha = a * 0.22;
-            const gd = c.createRadialGradient(cx, cy, 20, cx, cy, Math.max(w, h) * 0.45);
-            gd.addColorStop(0, "rgba(239,199,75,0.55)");
-            gd.addColorStop(1, "rgba(239,199,75,0)");
-            c.fillStyle = gd;
-            c.fillRect(0, 0, w, h);
-
-            c.save();
-            c.translate(cx, cy);
-            c.globalAlpha = a * 0.55;
-            c.strokeStyle = "rgba(255,220,90,0.7)";
-            c.lineWidth = 3;
-            const rayN = 14;
-            for (let i = 0; i < rayN; i++) {
-                const ang = (i / rayN) * Math.PI * 2 + now * 0.0018;
-                const len = 70 + 90 * pop;
+            c.strokeStyle = color.gold;
+            c.lineCap = "round";
+            for (let r = 0; r < 2; r++) {
+                const ring = (32 + r * 18) + Math.min(90, age * (0.11 - r * 0.03));
+                c.globalAlpha = a * (0.55 - r * 0.22) * Math.max(0, 1 - age / 900);
+                c.lineWidth = 2.4 - r;
                 c.beginPath();
-                c.moveTo(Math.cos(ang) * 18, Math.sin(ang) * 18);
-                c.lineTo(Math.cos(ang) * len, Math.sin(ang) * len);
+                c.arc(cx, cy, ring * pop, 0, Math.PI * 2);
                 c.stroke();
             }
             c.restore();
 
-            if (t.bits) {
-                for (let i = 0; i < t.bits.length; i++) {
-                    const b = t.bits[i];
-                    const dist = b.spd * (age / 1000);
-                    const bx = cx + Math.cos(b.ang) * dist;
-                    const by = cy + Math.sin(b.ang) * dist + 40 * (age / DUR) * (age / DUR);
-                    c.save();
-                    c.globalAlpha = a * 0.95;
-                    c.translate(bx, by);
-                    c.rotate(b.ang + b.spin * age / 200);
-                    c.fillStyle = b.hue;
-                    c.fillRect(-b.size / 2, -b.size / 4, b.size, b.size / 2);
-                    c.restore();
-                }
-            }
-
+            c.save();
             c.globalAlpha = a;
-            drawText("JACKPOT", cx, cy - 52 * pop, 18 * pop, color.gold, "center", true, a, 7);
-            drawText(t.title, cx, cy + 4, 42 * pop, "#fff4c4", "center", true, a, 5);
+            drawText("BANKED", cx, cy - 34 * pop, 12, color.gold, "center", true, a, 7);
+            drawText(t.title, cx, cy + 2, 32 * pop, color.guiwhite, "center", true, a, 5);
             if (t.bonus) {
-                drawText(t.bonus, cx, cy + 48 * pop, 20 * pop, color.lgreen, "center", true, a, 6);
+                drawText(t.bonus, cx, cy + 34 * pop, 15, color.lgreen, "center", true, a, 6);
             }
             c.restore();
             break;
@@ -4968,7 +4933,7 @@ import * as tutorial from './tutorial.js';
     
     // Floating damage numbers. World-anchored. A combo holds at full strength
     // until a second of silence, then fades. Words are picked for YOU vs THEM
-    // so "Nice!" never sits on your own head.
+    // so "Nice" never sits on your own head.
     function drawDamageNumbers(px, py, ratio) {
         const list = global.damageNumbers;
         if (!list || !list.length) return;
@@ -5000,118 +4965,129 @@ import * as tutorial from './tutorial.js';
             let pop;
             if (age < DMG_POP_MS) {
                 const u = age / DMG_POP_MS;
-                if (u < 0.5) {
-                    const k = u / 0.5;
-                    pop = 0.06 + 1.42 * (1 - (1 - k) * (1 - k) * (1 - k));
+                if (u < 0.48) {
+                    const k = u / 0.48;
+                    pop = 0.18 + 1.22 * (1 - (1 - k) * (1 - k) * (1 - k));
                 } else {
-                    const k = (u - 0.5) / 0.5;
-                    pop = 1.48 - 0.48 * (k * k * (3 - 2 * k));
+                    const k = (u - 0.48) / 0.52;
+                    pop = 1.4 - 0.4 * (k * k * (3 - 2 * k));
                 }
             } else {
                 pop = 1;
             }
             if (idle >= DMG_COMBO_HOLD_MS) {
                 const u = (idle - DMG_COMBO_HOLD_MS) / DMG_FADE_OUT_MS;
-                pop *= 1 - 0.22 * u;
+                pop *= 1 - 0.14 * u;
             }
             if (d.punch) {
-                const pt = (now - d.punch) / 160;
-                if (pt < 1) pop *= 1 + 0.28 * (1 - pt) * (1 - pt);
+                const pt = (now - d.punch) / 150;
+                if (pt < 1) pop *= 1 + 0.22 * (1 - pt) * (1 - pt);
             }
 
-            const riseT = Math.min(1, age / 900);
+            const riseT = Math.min(1, age / 800);
             const rise = DMG_RISE * (1 - Math.pow(1 - riseT, 2.2));
-            const shake = (d.tier >= 1 ? 1.8 : 0.6) * pop * ratio;
-            const x = ratio * d.x - px + halfW + d.jitter * 10 * ratio + Math.sin(now / 40 + d.jitter) * shake;
-            const y = ratio * d.y - py + halfH - (32 + rise) * ratio + Math.cos(now / 33 + d.jitter) * shake * 0.4;
-            if (x < -100 || x > global.screenWidth + 100) continue;
-            if (y < -100 || y > global.screenHeight + 100) continue;
+            const x = ratio * d.x - px + halfW + d.jitter * 6 * ratio;
+            const y = ratio * d.y - py + halfH - (24 + rise) * ratio;
+            if (x < -80 || x > global.screenWidth + 80) continue;
+            if (y < -80 || y > global.screenHeight + 80) continue;
 
             const tier = d.tier || 0;
             const combo = d.combo || 1;
-            const size = (22 + Math.min(18, d.amount * 0.2) + (tier >= 2 ? 8 : tier >= 1 ? 4 : 0) + Math.min(6, combo) + (d.wordBucket >= 10 ? 10 : d.wordBucket >= 5 ? 5 : 0)) * pop * ratio;
+            const finish = d.word === "Finish";
+            const size = (15.5 + Math.min(8, d.amount * 0.1) + (tier >= 2 ? 3.5 : tier >= 1 ? 1.5 : 0) + (finish ? 3 : 0) + Math.min(3, combo * 0.25)) * pop * ratio;
             const tint = d.self
-                ? (tier >= 2 ? "#FF2D2D" : "#FF5A52")
-                : (tier >= 2 ? "#FF9A1A" : tier >= 1 ? "#FFD24A" : "#FFF4C4");
+                ? "#FF5A52"
+                : (finish || tier >= 2 ? "#FFB020" : tier >= 1 ? "#FFD24A" : "#FFF4C4");
 
-            const ox = ratio * d.x - px + halfW;
-            const oy = ratio * d.y - py + halfH;
-            if (!d.self && age < 220) {
-                const ht = age / 220;
-                const a = (1 - ht) * (1 - ht) * fade;
-                const spread = (10 + 36 * ht) * ratio;
+            if (!d.self && age < 150) {
+                const ht = age / 150;
+                const ha = (1 - ht) * (1 - ht) * fade;
+                const spread = (5 + 14 * ht) * ratio;
+                const ox = ratio * d.x - px + halfW;
+                const oy = ratio * d.y - py + halfH;
                 c.save();
-                c.globalAlpha = a;
+                c.globalAlpha = ha;
                 c.strokeStyle = tint;
-                c.lineWidth = Math.max(2, 2.8 * ratio);
+                c.lineWidth = Math.max(1.5, 1.8 * ratio);
                 c.lineCap = "round";
-                for (let k = 0; k < 8; k++) {
-                    const ang = (k / 8) * Math.PI * 2 + 0.2;
+                for (let k = 0; k < 4; k++) {
+                    const ang = Math.PI / 4 + k * Math.PI / 2;
                     const ca = Math.cos(ang), sa = Math.sin(ang);
                     c.beginPath();
-                    c.moveTo(ox + ca * spread * 0.35, oy + sa * spread * 0.35);
+                    c.moveTo(ox + ca * spread * 0.45, oy + sa * spread * 0.45);
                     c.lineTo(ox + ca * spread, oy + sa * spread);
                     c.stroke();
                 }
                 c.restore();
             }
 
-            c.save();
-            c.globalAlpha = fade * 0.4;
-            c.fillStyle = tint;
-            c.beginPath();
-            c.ellipse(x, y, size * 1.7, size * 0.7, 0, 0, Math.PI * 2);
-            c.fill();
-            c.restore();
-
             if (d.word) {
-                drawText(d.word, x, y - size * 1.05, size * 0.52, tint, "center", true, fade, 6);
+                drawText(d.word, x, y - size * 0.88, size * 0.46, tint, "center", true, fade, 6);
             }
-            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade, 5);
+            const num = "-" + util.formatLargeNumber(Math.round(d.amount));
+            drawText(num, x, y, size, tint, "center", true, fade, 5.5);
             if (combo >= 2) {
-                drawText("x" + combo, x + size * 0.85, y + size * 0.15, size * 0.42, tint, "left", true, fade * 0.95, 6);
+                drawText("×" + combo, x + size * 0.78, y + size * 0.06, size * 0.38, tint, "left", true, fade * 0.95, 6);
             }
         }
         c.restore();
     }
 
-    // Kill confirm: DEAD! + a skull planted on the body, pop, hold, fade.
+    // Kill confirm. Same visual language as the rest of the HUD: thick dark
+    // stroke, round joins, two circles for eyes. Not an svg paste-on.
     function drawKillSkull(c, x, y, s) {
+        const sw = Math.max(1.4, s * 0.09);
         c.save();
         c.translate(x, y);
-        c.scale(s, s);
-        c.fillStyle = "#fff8e8";
-        c.strokeStyle = "#1a1208";
-        c.lineWidth = 0.07;
         c.lineJoin = "round";
+        c.lineCap = "round";
+        c.fillStyle = color.guiwhite;
+        c.strokeStyle = color.black;
+        c.lineWidth = sw;
+
+        const cr = s * 0.42;
+        const cc = -s * 0.12;
+        const a0 = Math.PI * 0.22;
+        const a1 = Math.PI - a0;
+        const tx = Math.cos(a0) * cr;
+        const ty = cc + Math.sin(a0) * cr;
+        const jx = tx * 0.82;
+        const jb = s * 0.38;
+        const jr = s * 0.10;
+
         c.beginPath();
-        c.arc(0, -0.18, 0.58, Math.PI * 0.12, Math.PI - Math.PI * 0.12);
-        c.lineTo(-0.42, 0.38);
-        c.lineTo(-0.42, 0.62);
-        c.lineTo(0.42, 0.62);
-        c.lineTo(0.42, 0.38);
+        c.arc(0, cc, cr, a0, a1, true);
+        c.lineTo(-jx, jb - jr);
+        c.quadraticCurveTo(-jx, jb, -jx + jr, jb);
+        c.lineTo(jx - jr, jb);
+        c.quadraticCurveTo(jx, jb, jx, jb - jr);
+        c.lineTo(tx, ty);
         c.closePath();
         c.fill();
         c.stroke();
-        c.fillStyle = "#141018";
+
+        c.fillStyle = color.black;
+        const er = s * 0.10;
         c.beginPath();
-        c.ellipse(-0.2, -0.12, 0.15, 0.18, -0.15, 0, Math.PI * 2);
+        c.arc(-s * 0.14, cc - s * 0.01, er, 0, Math.PI * 2);
         c.fill();
         c.beginPath();
-        c.ellipse(0.2, -0.12, 0.15, 0.18, 0.15, 0, Math.PI * 2);
+        c.arc(s * 0.14, cc - s * 0.01, er, 0, Math.PI * 2);
         c.fill();
+
         c.beginPath();
-        c.moveTo(0, 0.02);
-        c.lineTo(-0.09, 0.24);
-        c.lineTo(0.09, 0.24);
+        c.moveTo(0, s * 0.04);
+        c.lineTo(-s * 0.05, s * 0.15);
+        c.lineTo(s * 0.05, s * 0.15);
         c.closePath();
         c.fill();
-        c.strokeStyle = "#141018";
-        c.lineWidth = 0.055;
+
+        c.lineWidth = sw * 0.8;
+        const t0 = s * 0.22, t1 = jb - sw * 0.35;
         c.beginPath();
-        c.moveTo(-0.22, 0.42); c.lineTo(-0.22, 0.62);
-        c.moveTo(0, 0.42); c.lineTo(0, 0.62);
-        c.moveTo(0.22, 0.42); c.lineTo(0.22, 0.62);
+        c.moveTo(-s * 0.09, t0); c.lineTo(-s * 0.09, t1);
+        c.moveTo(0, t0); c.lineTo(0, t1);
+        c.moveTo(s * 0.09, t0); c.lineTo(s * 0.09, t1);
         c.stroke();
         c.restore();
     }
@@ -5121,37 +5097,39 @@ import * as tutorial from './tutorial.js';
         const now = performance.now();
         const c = ctx[2];
         const halfW = global.screenWidth / 2, halfH = global.screenHeight / 2;
-        const HOLD = 1600, FADE = 700, DUR = HOLD + FADE;
+        const HOLD = 1400, FADE = 550, DUR = HOLD + FADE;
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
             const age = now - d.born;
             if (age >= DUR) { list.splice(i, 1); continue; }
             let fade = 1;
-            if (age < 120) fade = age / 120;
+            if (age < 90) fade = age / 90;
             else if (age > HOLD) fade = 1 - (age - HOLD) / FADE;
-            const pop = age < 280
-                ? (age < 140 ? 0.2 + 1.5 * (age / 140) : 1.7 - 0.7 * ((age - 140) / 140))
+            const pop = age < 240
+                ? (age < 110 ? 0.3 + 1.15 * (age / 110) : 1.45 - 0.45 * ((age - 110) / 130))
                 : 1;
             let x = ratio * d.x - px + halfW;
             let y = ratio * d.y - py + halfH;
-            x = Math.max(70, Math.min(global.screenWidth - 70, x));
-            y = Math.max(70, Math.min(global.screenHeight - 90, y));
+            x = Math.max(50, Math.min(global.screenWidth - 50, x));
+            y = Math.max(50, Math.min(global.screenHeight - 60, y));
 
             c.save();
-            c.globalAlpha = fade * 0.55;
-            c.strokeStyle = "#ff3a3a";
-            c.lineWidth = 4 * ratio * pop;
-            const ring = (28 + age * 0.09) * ratio;
-            c.beginPath();
-            c.arc(x, y, ring, 0, Math.PI * 2);
-            c.stroke();
+            c.strokeStyle = color.guiwhite;
+            c.lineCap = "round";
+            for (let r = 0; r < 2; r++) {
+                c.globalAlpha = fade * (0.55 - r * 0.22) * Math.max(0, 1 - age / 700);
+                c.lineWidth = (2.2 - r * 0.6) * ratio;
+                c.beginPath();
+                c.arc(x, y, ((14 + r * 10) + age * (0.07 - r * 0.02)) * ratio * pop, 0, Math.PI * 2);
+                c.stroke();
+            }
             c.restore();
 
             c.save();
             c.globalAlpha = fade;
-            drawKillSkull(c, x, y - 18 * pop * ratio, 34 * pop * ratio);
+            drawKillSkull(c, x, y - 10 * pop * ratio, 24 * pop * ratio);
             c.restore();
-            drawText("DEAD!", x, y + 36 * pop * ratio, 28 * pop * ratio, "#FF2D2D", "center", true, fade, 5);
+            drawText("DEAD", x, y + 26 * pop * ratio, 15 * pop * ratio, color.guiwhite, "center", true, fade, 5.5);
         }
     }
 
@@ -5176,9 +5154,9 @@ import * as tutorial from './tutorial.js';
         const hurtAge = now - (global.hurtAt || -1e9);
         const hurt = hurtAge < 240 ? (1 - hurtAge / 240) * (global.hurtPower || 0.5) : 0;
         const deadAge = now - (global.deadFlashAt || -1e9);
-        const dead = deadAge < 280 ? 1 - deadAge / 280 : 0;
+        const dead = deadAge < 220 ? 1 - deadAge / 220 : 0;
         const celeAge = now - (global.celebrateAt || -1e9);
-        const cele = celeAge < 260 ? 1 - celeAge / 260 : 0;
+        const cele = celeAge < 240 ? 1 - celeAge / 240 : 0;
 
         if (lowHpLevel < 0.004 && hurt < 0.01 && dead < 0.01 && cele < 0.01) return;
 
@@ -5210,17 +5188,21 @@ import * as tutorial from './tutorial.js';
             c.fillRect(0, 0, w, h);
             c.restore();
         }
-        if (dead > 0.01) {
+        if (cele > 0.01) {
             c.save();
-            c.globalAlpha = 0.28 * dead;
-            c.fillStyle = "#ff2d2d";
+            const gd = c.createRadialGradient(w / 2, h / 2, r * 0.5, w / 2, h / 2, r);
+            gd.addColorStop(0, "rgba(239,199,75,0)");
+            gd.addColorStop(1, "rgba(239,199,75," + (0.16 * cele).toFixed(3) + ")");
+            c.fillStyle = gd;
             c.fillRect(0, 0, w, h);
             c.restore();
         }
-        if (cele > 0.01) {
+        if (dead > 0.01) {
             c.save();
-            c.globalAlpha = 0.22 * cele;
-            c.fillStyle = "#efc74b";
+            const gd = c.createRadialGradient(w / 2, h / 2, r * 0.58, w / 2, h / 2, r);
+            gd.addColorStop(0, "rgba(255,255,255,0)");
+            gd.addColorStop(1, "rgba(255,255,255," + (0.14 * dead).toFixed(3) + ")");
+            c.fillStyle = gd;
             c.fillRect(0, 0, w, h);
             c.restore();
         }

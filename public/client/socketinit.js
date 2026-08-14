@@ -444,43 +444,20 @@ function Status() {
 // LAST hit merge into one growing combo. The window resets on every hit, so
 // a spray is one number that keeps climbing until you stop for a second.
 const DMG_COMBINE_MS = 1000;
-const DEALT_WORDS = {
-    1: ["HIT!", "WHACK!", "YES!", "BOOM!", "POW!", "SMACK!"],
-    3: ["NICE!", "SMASH!", "CLEAN!", "GOT 'EM!", "CRACKED!", "NAILED IT!", "WRECKED!"],
-    4: ["CRITICAL!", "DESTROYED!", "CRUSHING!", "SHREDDED!", "HUGE!", "DEMOLISHED!"],
-    5: ["OBLITERATED!", "DELETED!", "COOKED!", "ANNIHILATED!", "ERASED!"],
-    6: ["ON FIRE!", "UNSTOPPABLE!", "CHAINED!", "DON'T STOP!"],
-    10: ["FINISH THEM!", "SO CLOSE!", "END THEM!", "THEY'RE DONE!", "FINISH IT!"],
-};
-const TAKEN_WORDS = {
-    2: ["OW!", "OUCH!", "UGH!", "NGH!"],
-    3: ["OW!", "OOF!", "THAT HURT!", "YOW!"],
-    4: ["CRITICAL!", "CRUSHED!", "HEAVY HIT!", "NO!"],
-    5: ["I'M COOKED!", "DEVASTATING!", "NOOO!"],
-};
-function pickWord(arr) {
-    return arr[(Math.random() * arr.length) | 0];
-}
-function hitBucket(amount, taken, combo, hp) {
+function hitWord(amount, taken, hp) {
     if (taken) {
-        if (amount >= 40) return 5;
-        if (amount >= 18) return 4;
-        if (amount >= 8) return 3;
-        return 2;
+        if (amount >= 18) return "Critical!";
+        if (amount >= 8) return "Ow";
+        return "";
     }
-    if (hp < 0.22) return 10;
-    if (amount >= 40) return 5;
-    if (amount >= 18) return 4;
-    if (combo >= 8) return 6;
-    if (amount >= 8) return 3;
-    return 1;
+    if (hp < 0.2) return "Finish";
+    if (amount >= 40) return "Crushing!";
+    if (amount >= 18) return "Critical!";
+    if (amount >= 8) return "Nice";
+    return "";
 }
 function assignHitWord(d, hp) {
-    const b = hitBucket(d.amount, d.self, d.combo || 1, hp);
-    if (b === d.wordBucket) return;
-    d.wordBucket = b;
-    const pool = d.self ? TAKEN_WORDS : DEALT_WORDS;
-    d.word = pickWord(pool[b] || pool[1]);
+    d.word = hitWord(d.amount, d.self, hp);
 }
 function punchCamera(amount, duration) {
     const set = config.graphical.shakeProperties.CameraShake;
@@ -538,7 +515,6 @@ function pushDamageNumber(targetId, amount, tier, taken) {
         punch: 0,
         jitter: Math.random() * 2 - 1,
         word: "",
-        wordBucket: -1,
     };
     assignHitWord(entry, hp);
     list.push(entry);
@@ -549,10 +525,10 @@ function applyHitJuice(amount, tier, taken) {
     if (taken) {
         global.hurtAt = performance.now();
         global.hurtPower = Math.min(1, 0.35 + amount / 55);
-        if (amount >= 6 || tier >= 1) punchCamera(1.8 + Math.min(4.5, amount * 0.07), 120);
+        if (amount >= 8 || tier >= 1) punchCamera(1.6 + Math.min(3.2, amount * 0.05), 110);
         if (gameSound.combatHurt) gameSound.combatHurt(Math.min(1, amount / 40));
     } else {
-        if (tier >= 1) punchCamera(0.9 + (tier >= 2 ? 1.4 : 0), 80);
+        if (tier >= 1) punchCamera(tier >= 2 ? 1.6 : 0.8, 80);
         if (gameSound.combatHit) gameSound.combatHit(tier);
     }
 }
@@ -1083,7 +1059,7 @@ let incoming = async function(message, socket) {
                 list.push({ x: m[0] | 0, y: m[1] | 0, born: now });
                 if (list.length > 4) list.shift();
                 global.deadFlashAt = now;
-                punchCamera(5.5, 220);
+                punchCamera(4.8, 200);
                 if (gameSound.combatKill) gameSound.combatKill();
             } break;
             case 'MS': {
@@ -1093,24 +1069,13 @@ let incoming = async function(message, socket) {
                     const prev = global.milestones.length
                         ? global.milestones[global.milestones.length - 1].born
                         : -1e9;
-                    const bits = [];
-                    for (let i = 0; i < 32; i++) {
-                        bits.push({
-                            ang: Math.random() * Math.PI * 2,
-                            spd: 140 + Math.random() * 320,
-                            spin: (Math.random() - 0.5) * 10,
-                            size: 5 + Math.random() * 9,
-                            hue: Math.random() < 0.55 ? "#efc74b" : (Math.random() < 0.5 ? "#ffffff" : "#ff9a1a"),
-                        });
-                    }
                     global.milestones.push({
-                        title: util.formatLargeNumber(at) + " BANKED",
-                        bonus: bonus > 0 ? "+" + util.formatLargeNumber(bonus) + " BONUS" : "",
+                        title: util.formatLargeNumber(at),
+                        bonus: bonus > 0 ? "+" + util.formatLargeNumber(bonus) : "",
                         born: Math.max(performance.now(), prev + 400),
-                        bits,
                     });
                     if (global.milestones.length > 4) global.milestones.shift();
-                    punchCamera(6.5, 340);
+                    punchCamera(4.5, 260);
                     global.celebrateAt = performance.now();
                     if (gameSound.bankCelebrate) gameSound.bankCelebrate();
                 }
