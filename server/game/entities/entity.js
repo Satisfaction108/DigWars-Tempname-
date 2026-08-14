@@ -7,6 +7,10 @@ const { combineStats } = require('../../lib/definitions/facilitators.js');
 // network ticks - long enough that the edge can't be missed, short enough that
 // rapid fire still reads as separate blinks.
 const HIT_FLASH_MS = 140;
+// Share of a body's max health that a single hit has to take off to read as a
+// heavy one. Scaled off max health rather than a flat number so it stays
+// meaningful for both a level 45 tank and a miniboss.
+const DMG_CRIT_FRACTION = 0.18;
 class Entity extends EventEmitter {
     constructor(position, master) {
         super();
@@ -1034,6 +1038,44 @@ class Entity extends EventEmitter {
         }
     }
 
+    // Combat text routing. A number is only ever sent to the two people in the
+    // exchange: whoever landed the hit, and whoever took it. Deriving these on
+    // the client from health deltas instead looks fine one-on-one and falls
+    // apart in a real fight - every bot and teammate shooting the same target
+    // stacks their damage onto your screen too, so a 100 HP tank visibly eats
+    // 300+ in popups. Only the server knows who actually dealt what.
+    reportDamageNumber(amount) {
+        // Tanks and minibosses only. Numbers floating over bullets, drones, food
+        // and rock are noise, and bailing here first also keeps this off the hot
+        // path for the hundreds of bullets taking chip damage every tick.
+        if (this.type !== 'tank' && this.type !== 'miniboss') return;
+        if (!(amount >= 1)) return;
+        const rounded = Math.round(amount);
+        const crit = this.health.max > 0 && amount >= this.health.max * DMG_CRIT_FRACTION ? 1 : 0;
+
+        // Whoever landed it: first thing in the collision array that actually
+        // deals damage, walked up to the tank that owns it (bullet -> drone ->
+        // player). Multi-source ticks attribute to one source rather than
+        // splitting, which keeps the numbers honest for the person reading them.
+        let attacker = null;
+        for (let i = 0; i < this.collisionArray.length; i++) {
+            const inst = this.collisionArray[i];
+            if (inst.type === 'wall' || !inst.damage) continue;
+            let m = inst.master, hops = 0;
+            while (m && m.master && m.master !== m && hops++ < 4) m = m.master;
+            attacker = m;
+            break;
+        }
+        if (attacker && attacker.socket && attacker !== this) {
+            attacker.socket.talk('DMG', this.id, rounded, crit, 0);
+        }
+        // Only a real player body reports damage taken - a player's drone or
+        // trap getting chipped is not "you got hit".
+        if (this.socket) {
+            this.socket.talk('DMG', this.id, rounded, crit, 1);
+        }
+    }
+
     contemplationOfMortality() {
         if (this.invuln || this.godmode) {
             this.damageReceived = 0;
@@ -1077,6 +1119,7 @@ class Entity extends EventEmitter {
             // blink the same length regardless of room speed.
             this.hitAt = Date.now();
             this.health.amount -= healthDamage;
+            this.reportDamageNumber(healthDamage);
         }
         this.damageReceived = 0;
 

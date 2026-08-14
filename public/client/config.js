@@ -57,6 +57,7 @@ const config = {
         // "that landed" read on its own.
         damageNumbers: true,
         hitFlash: true,
+        lowHealthVignette: true,
     }
   };
   export { config }

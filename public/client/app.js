@@ -22,9 +22,15 @@ import * as tutorial from './tutorial.js';
     // through the flash, or a firefight turns into a screen of red blobs.
     const HIT_BLINK_STRENGTH = 0.72;
     const HIT_BLINK_COLOR = "#FF3B30";
-    // Floating damage numbers.
-    const DMG_DURATION_MS = 900;
-    const DMG_RISE = 42;
+    // Floating damage numbers. Short and quick on purpose - combat text is
+    // meant to be read out of the corner of your eye and then get out of the
+    // way, so it clears well before the next exchange lands.
+    const DMG_DURATION_MS = 720;
+    const DMG_RISE = 34;
+    // Low-health vignette. Starts feathering in well before it's fatal so it
+    // reads as mounting pressure rather than a jump scare at 5%.
+    const LOW_HP_START = 0.4;
+    const LOW_HP_FULL = 0.08;
 
     fetch("changelog.md", { cache: "no-cache" }).then(response => response.text()).then(response => {
         let a = [];
@@ -4944,24 +4950,63 @@ import * as tutorial from './tutorial.js';
             // Quick pop on entry, then a decelerating drift upward. Opacity is
             // held flat for the first half so the number is actually legible
             // before it starts to go.
-            const pop = t < 0.14 ? 0.72 + 0.28 * (t / 0.14) : 1;
-            const fade = t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
-            const rise = DMG_RISE * (1 - Math.pow(1 - t, 2));
+            // Overshoot on entry, settle back to 1. The tiny scale punch is what
+            // makes a hit feel like it landed; a plain fade-in reads as limp.
+            const pop = t < 0.16
+                ? 1.26 - 0.26 * Math.pow(t / 0.16, 0.6)
+                : 1;
+            const fade = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+            const rise = DMG_RISE * (1 - Math.pow(1 - t, 3));
 
-            const x = ratio * d.x - px + halfW + d.jitter * 16 * ratio;
-            const y = ratio * d.y - py + halfH - (26 + rise) * ratio;
+            const x = ratio * d.x - px + halfW + d.jitter * 11 * ratio;
+            const y = ratio * d.y - py + halfH - (24 + rise) * ratio;
             if (x < -80 || x > global.screenWidth + 80) continue;
             if (y < -80 || y > global.screenHeight + 80) continue;
 
             // Damage you take reads red, damage you deal reads white, so the two
-            // never get mixed up in a brawl. A heavy hit adds the green CRIT tag.
-            const size = (d.crit ? 21 : 15) * pop * ratio;
+            // are never confused mid-fight. A heavy hit turns green and picks up
+            // a small CRIT tag above it. Stroke is passed as a high ratio, which
+            // drawText reads as a fine outline - enough to stay legible over pale
+            // floor and dark rock alike without the chunky arras outline.
+            const size = (d.crit ? 19 : 14.5) * pop * ratio;
             const tint = d.crit ? color.lgreen : (d.self ? "#FF5A4E" : color.guiwhite);
             if (d.crit) {
-                drawText("CRIT", x, y - size * 0.95, size * 0.62, color.lgreen, "center", true, fade);
+                drawText("CRIT", x, y - size * 0.92, size * 0.5, color.lgreen, "center", true, fade * 0.9, 8);
             }
-            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade);
+            drawText("-" + util.formatLargeNumber(Math.round(d.amount)), x, y, size, tint, "center", true, fade, 7);
         }
+        c.restore();
+    }
+
+    // Red edge vignette as your own health drops. Smoothed toward the target
+    // rather than tracking health directly, so a burst of chip damage feathers
+    // in instead of strobing, and the pulse quickens as it gets worse.
+    let lowHpLevel = 0;
+    function drawLowHealthVignette() {
+        let target = 0;
+        if (config.game.lowHealthVignette && !global.died && global.gameStart) {
+            const me = global.entities.find(e => e.id === gui.playerid);
+            if (me && me.health < LOW_HP_START) {
+                const k = (LOW_HP_START - me.health) / (LOW_HP_START - LOW_HP_FULL);
+                target = Math.max(0, Math.min(1, k));
+            }
+        }
+        lowHpLevel += (target - lowHpLevel) * 0.08;
+        if (lowHpLevel < 0.004) return;
+
+        const c = ctx[2];
+        const w = global.screenWidth, h = global.screenHeight;
+        const r = Math.hypot(w, h) / 2;
+        // Heartbeat: ~1s at the threshold tightening to ~0.45s at death's door.
+        const period = 1000 - 550 * lowHpLevel;
+        const pulse = 0.5 + 0.5 * Math.sin(performance.now() / (period / (2 * Math.PI)));
+        const peak = (0.16 + 0.30 * lowHpLevel) * (0.78 + 0.22 * pulse);
+        c.save();
+        const gd = c.createRadialGradient(w / 2, h / 2, r * (0.72 - 0.22 * lowHpLevel), w / 2, h / 2, r);
+        gd.addColorStop(0, "rgba(196,24,24,0)");
+        gd.addColorStop(1, "rgba(196,24,24," + peak.toFixed(3) + ")");
+        c.fillStyle = gd;
+        c.fillRect(0, 0, w, h);
         c.restore();
     }
 
@@ -6721,6 +6766,7 @@ import * as tutorial from './tutorial.js';
         if (global.gamepadMode) drawCrosshair();
         if (global.GUIStatus.renderGUI) {
             updateMapSmoothing();
+            drawLowHealthVignette();
             drawSatchelDanger();
             drawTeamBankBar();
             drawMessages(spacing, alcoveSize);

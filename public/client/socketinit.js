@@ -445,39 +445,42 @@ function Status() {
 // merge is what keeps a minigun burst or a drone swarm readable instead of
 // turning the target into a wall of digits.
 const DMG_COMBINE_MS = 180;
-// Share of a body's max health that counts as a heavy hit. Scaling off max
-// health rather than a flat number keeps it meaningful for both a level 45
-// tank and a miniboss.
-const DMG_CRIT_FRACTION = 0.18;
-function pushDamageNumber(z, amount) {
+// Damage the server attributed to or against us. targetId locates the body to
+// float the number over; taken=true means we were the one hit.
+function pushDamageNumber(targetId, amount, crit, taken) {
     if (!(amount >= 1)) return;
+    const target = global.entities.find(e => e.id === targetId);
+    // Out of view (or already gone) - nothing to anchor a number to.
+    if (!target) return;
     const now = performance.now();
     const list = global.damageNumbers;
-    const critAt = z.maxHealthN * DMG_CRIT_FRACTION;
     for (let i = list.length - 1; i >= 0; i--) {
         const d = list[i];
-        if (d.id !== z.id) continue;
+        if (d.id !== targetId || d.self !== taken) continue;
         // Entries for one body are appended in order, so the last match is the
-        // newest; if that one has already aged out, so has everything before it.
+        // newest; if that one has aged out, so has everything before it.
         if (now - d.born > DMG_COMBINE_MS) break;
+        // Deliberately not restamping born: the number keeps its original rise
+        // and fade and just counts up. Restamping would snap it back down every
+        // merge, and under sustained fire it would never leave the screen.
         d.amount += amount;
-        d.crit = d.amount >= critAt;
-        d.x = z.x;
-        d.y = z.y;
+        d.crit = d.crit || crit;
+        d.x = target.x;
+        d.y = target.y;
         return;
     }
     list.push({
-        id: z.id,
-        x: z.x,
-        y: z.y,
+        id: targetId,
+        x: target.x,
+        y: target.y,
         amount,
-        crit: amount >= critAt,
-        self: z.id === gui.playerid,
+        crit,
+        self: taken,
         born: now,
         jitter: Math.random() * 2 - 1,
     });
     // Hard cap so a busy brawl can never grow this without bound.
-    if (list.length > 48) list.splice(0, list.length - 48);
+    if (list.length > 32) list.splice(0, list.length - 32);
 }
 
 const process = (z = {}) => {
@@ -551,7 +554,6 @@ const process = (z = {}) => {
         let invuln = type & 0x10 ? 0 : get.next();
         z.invuln = invuln ? z.invuln || Date.now() : 0;
 
-        let prevHealth = z.health;
         if (isNew) {
             z.health = get.next() / 65535;
             z.shield = get.next() / 65535;
@@ -621,12 +623,6 @@ const process = (z = {}) => {
         // costs at most one blink instead of a stuck-on flash.
         if (!isNew && hitFlash > (z.hitFlash || 0)) {
             z.render.hitAt = performance.now();
-            // Damage numbers ride the same edge. Named bodies only (players,
-            // bots, minibosses) so bullets and shattering rock don't bury the
-            // screen in numbers.
-            if (z.nameplate && z.maxHealthN > 0 && prevHealth > z.health) {
-                pushDamageNumber(z, (prevHealth - z.health) * z.maxHealthN);
-            }
         }
         z.hitFlash = hitFlash;
 
@@ -1000,6 +996,13 @@ let incoming = async function(message, socket) {
                 w.bonus = m[6] | 0;
                 w.at = performance.now();
                 if (w.over && !wasOver) w.victoryAt = performance.now();
+            } break;
+            case 'DMG': {
+                // Combat text: targetId, amount, crit, taken(0 = we dealt it,
+                // 1 = we took it). The server only sends these to the two
+                // players in the exchange, so anything that arrives here is
+                // ours by definition.
+                pushDamageNumber(m[0], m[1] | 0, !!(m[2] | 0), !!(m[3] | 0));
             } break;
             case 'MS': {
                 // Personal achievement: kind, threshold, bonus paid
