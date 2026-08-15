@@ -166,11 +166,11 @@ function acquireRock(wantOre) {
     const r = util.getRatio() || 1;
     const span = Math.min(SW(), SH());
     const ideal = (span * 0.24) / r;
-    const near = (span * 0.09) / r;
     // Soft preference, not a hard window: you spawn inside a cleared base
     // pocket, so the closest rock can be well outside the viewport. Score by
     // distance from ideal and always return the best candidate - if it starts
     // off-screen the edge arrow walks you to it, which is the point.
+    const tooClose = 50; // overlapping the cell, not "already nearby"
     let best = null, bestScore = Infinity;
     const keys = wantOre ? t._ore.keys() : t._rockHealth.keys();
     for (const k of keys) {
@@ -179,8 +179,10 @@ function acquireRock(wantOre) {
         if (!rk) continue;
         if (!inArena(rk.x, rk.y)) continue;
         const d = Math.hypot(rk.x - px, rk.y - py);
-        if (d < near) continue;
-        const score = Math.abs(d - ideal) + (d > ideal ? 0 : 400);
+        if (d < tooClose) continue;
+        // Nearby is fine — skipping close rocks is how the marker jumped to
+        // a far cell and the teleport then dumped you even farther from it.
+        const score = Math.abs(d - ideal) + (d > ideal * 2 ? (d - ideal) * 0.25 : 0);
         if (score < bestScore) { bestScore = score; best = rk; }
     }
     if (!best && wantOre) return acquireRock(false);
@@ -333,6 +335,7 @@ const state = {
     // come back flying our colours.
     outpostHurt: 0,
     outpostMine: false,
+    outpostDust: false,
 };
 
 function snapshot() {
@@ -365,6 +368,7 @@ function snapshot() {
     state.mapOpened = false;
     state.outpostHurt = 0;
     state.outpostMine = false;
+    state.outpostDust = false;
 }
 
 // ── objectives ─────────────────────────────────────────────────────────
@@ -564,25 +568,43 @@ const ALL_STEPS = [
         // screen the card is talking about.
         ui: "hp",
         target: () => ({ kind: "self" }),
-        progress: () => clamp((T() - state.stepAt) / 5000, 0, 1),
-        // Five seconds of actually watching it, or Next for anyone who has
+        progress: () => clamp((T() - state.stepAt) / 15000, 0, 1),
+        // Fifteen seconds of actually watching it, or Next for anyone who has
         // seen enough. Regeneration is slow enough that waiting for a full bar
         // is a wait, not a lesson.
         next: true,
-        done: () => T() - state.stepAt > 5000,
+        done: () => T() - state.stepAt > 15000,
+    },
+    {
+        id: "ping",
+        label: "Mark an enemy",
+        hint: () => global.mobile
+            ? "Your team cannot see what you see. *Point at the dummy* and drop an *enemy marker* (the red diamond). On a phone, *Next* if you have no ping key."
+            : "Your team cannot see what you see. *Point at the dummy* and press {{KEY_AUTO_ALT}} - a red diamond appears that *everyone on your team can see*. Use this when you spot someone.",
+        onEnter: () => { tut("heal"); tut("dummy"); },
+        acquire: () => {
+            const b = practiceBot("Dummy");
+            return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
+        },
+        revalidate: () => {
+            const b = practiceBot("Dummy");
+            return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
+        },
+        progress: () => (state.pingSeen || global.enemyPings.length > (state.base.pings || 0)) ? 1 : 0,
+        done: () => state.pingSeen || global.enemyPings.length > (state.base.pings || 0),
+        next: true,
     },
     {
         id: "ready",
         label: "First fight",
         title: "READY?",
-        hint: () => "Next up is a target that cannot fight back - a chance to practise aiming and holding fire with nothing at stake. You are patched up. *Press Go when you want it.*",
-        // Nothing on a timer: the bot arrives when they say so, not while they
-        // are still reading. Go is the ONLY way out of this step.
+        hint: () => "Next up is a target that cannot fight back - a chance to practise aiming and holding fire with nothing at stake. You are patched up. *Press Next when you want it.*",
+        // Nothing on a timer: the dummy arrives when they say so, not while they
+        // are still reading. Next is the ONLY way out of this step.
         onEnter: () => tut("heal"),
         target: () => ({ kind: "self" }),
         next: true,
-        nextLabel: "Go!",
-        onDone: () => { tut("heal"); tut("dummy"); },
+        onDone: () => tut("heal"),
         done: () => false,
         noTimeout: true,
     },
@@ -590,6 +612,7 @@ const ALL_STEPS = [
         id: "dummy",
         label: "Destroy the dummy",
         hint: () => "It cannot shoot back. *Point your cursor at it and hold left click*.",
+        onEnter: () => { tut("heal"); tut("dummy"); },
         acquire: () => {
             const b = practiceBot("Dummy");
             return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
@@ -601,10 +624,22 @@ const ALL_STEPS = [
         done: () => state.dummySeen && !botAlive("Dummy"),
     },
     {
+        id: "readyFight",
+        label: "A real opponent",
+        title: "READY?",
+        hint: () => "This one *shoots back*. It is a Basic with almost no health — it can chip you, it should not kill you. *Press Go when you want it.*",
+        onEnter: () => tut("heal"),
+        target: () => ({ kind: "self" }),
+        next: true,
+        nextLabel: "Go!",
+        onDone: () => { tut("heal"); tut("fighter"); },
+        done: () => false,
+        noTimeout: true,
+    },
+    {
         id: "fighter",
         label: "Beat a real opponent",
-        hint: () => "A Penta Shot like yours, but with a *much thinner stat spread*. It shoots back. *Circle it, keep firing*, and use your health bar to decide when to back off.",
-        onEnter: () => tut("fighter"),
+        hint: () => "A Basic with a thin stat spread. It shoots back. *Circle it, keep firing*, and use your health bar to decide when to back off.",
         acquire: () => {
             const b = practiceBot("Rookie");
             return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
@@ -633,21 +668,24 @@ const ALL_STEPS = [
         // to be at a nice stand-off as the learner moved - you could never
         // tell which rock you were supposed to be shooting.
         onEnter: () => {
-            tut("goto", "rocks");
             state.lockedRock = null;
-            // What the satchel held BEFORE any of this. The collect objective
-            // measures against this rather than against its own arrival, so a
-            // learner who drove over the gems the instant the rock burst has
-            // already satisfied it - rather than being asked to go and collect
-            // gems that are in their pocket.
             state.rockBaseCarried = global.gems.carried;
         },
         acquire: () => {
             if (state.lockedRock && rockAlive(terr(), state.lockedRock.k)) return state.lockedRock;
-            // wantOre: the gems step immediately after has to have something
-            // to collect, and a plain rock drops dust.
             const r = acquireRock(true);
-            if (r) state.lockedRock = { kind: "rock", ...r };
+            if (r) {
+                state.lockedRock = { kind: "rock", ...r };
+                // Land next to THIS rock. A generic "rocks" landmark can sit on
+                // the far side of the wall from the cell we just marked.
+                const px = global.player.renderx, py = global.player.rendery;
+                const dx = px - r.x, dy = py - r.y;
+                const d = Math.hypot(dx, dy) || 1;
+                const standOff = 150;
+                if (d > 220) {
+                    tut("gotoxy", r.x + (dx / d) * standOff, r.y + (dy / d) * standOff);
+                }
+            }
             return state.lockedRock;
         },
         progress: () => {
@@ -696,7 +734,7 @@ const ALL_STEPS = [
         id: "bank",
         allow: "bank",
         label: "Bank your gems",
-        hint: () => "*Carried gems drop when you die - banked gems are yours forever.* Park on your vault pad and *wait for the bar to finish*.",
+        hint: () => "*Carried gems drop when you die. Banked gems stay yours.* Drive onto *your vault pad*, press *DEPOSIT*, and wait until the bar finishes and your satchel is empty.",
         onEnter: () => tut("goto", "vault"),
         acquire: () => {
             const v = nearestVault();
@@ -864,6 +902,22 @@ const ALL_STEPS = [
         subtitle: "A real outpost has twenty times that health and someone defending it. Bring friends.",
         card: true,
         done: () => T() - state.stepAt > 4600,
+    },
+    {
+        id: "outpostBank",
+        allow: "bank",
+        label: "Bank at the outpost",
+        hint: () => "Outposts let you cash out in the field, but you only get *80%* of what you put in. We put *200 gem dust* in your satchel. Drive onto *your outpost pad*, press *DEPOSIT*, and wait until the bar finishes.",
+        onEnter: () => {
+            tut("gems", 200);
+            const p = (global.tutorialPlot || {}).outpost;
+            const px = global.player.renderx, py = global.player.rendery;
+            if (p && Math.hypot(px - p.x, py - p.y) > 220) tut("goto", "outpost");
+        },
+        acquire: () => landmark("outpost", "vault", 95),
+        revalidate: () => landmark("outpost", "vault", 95),
+        progress: () => state.outpostDust ? clamp((200 - global.gems.carried) / 200, 0, 1) : 0,
+        done: () => state.outpostDust && global.gems.carried === 0 && global.gems.banked > state.base.banked,
     },
     {
         id: "chamber",
@@ -1237,6 +1291,7 @@ function update() {
             if (o.t === myTeam()) state.outpostMine = true;
         }
     }
+    if (s.id === "outpostBank" && (global.gems.carried | 0) >= 150) state.outpostDust = true;
 
     // Our own health, for the regeneration lesson.
     const me = global.entities.find(e => e.id === gui.playerid);
@@ -1755,70 +1810,42 @@ function trackedText(c, str, cx, y, size, color, track, alpha) {
     }
 }
 
-// The four ore tiers. Drawn as the ACTUAL gem entities - looked up in the
-// mockup table by the LABEL the server gives them and rendered with the game's
-// own drawEntity - so the card cannot drift away from what really drops. A
-// hand-drawn approximation is exactly the thing a learner then fails to
-// recognise in the world.
+// The four ore tiers. Drawn with the same baked gem sprites the world uses
+// (glow, facet, sparkle, palette) so the card matches what actually drops.
 const GEM_LEGEND = [
-    { label: "Copper",     worth: "15",  scale: 0.80 },
-    { label: "Azurite",    worth: "30",  scale: 0.92 },
-    { label: "Core Shard", worth: "150", scale: 1.06 },
-    { label: "Emerald",    worth: "500", scale: 1.22 },
+    { label: "Copper",     worth: "15",  cls: "gemPickupCopper",  size: 16 },
+    { label: "Azurite",    worth: "30",  cls: "gemPickupVein",    size: 20 },
+    { label: "Core Shard", worth: "150", cls: "gemPickupShard",   size: 30 },
+    { label: "Emerald",    worth: "500", cls: "gemPickupEmerald", size: 34 },
 ];
-
-// Mockup index for a gem, by name. Indices are assigned as the server builds
-// its class table and are not stable across builds, so never hard-code them.
-const gemIndexCache = new Map();
-function gemIndex(label) {
-    if (gemIndexCache.has(label)) return gemIndexCache.get(label);
-    let found = null;
-    const mk = global.mockups || [];
-    for (const key of Object.keys(mk)) {
-        const m = mk[key];
-        if (m && m.name === label) { found = String(m.index != null ? m.index : key); break; }
-    }
-    if (found) gemIndexCache.set(label, found);
-    return found;
-}
 
 function drawGemLegend(c, cx, y, alpha) {
     const S = US();
-    const draw = window.dwDrawEntity;
-    const slot = Math.min(SW() * 0.21, 122 * S);
+    const drawGem = window.dwDrawGem;
+    const slot = Math.min(SW() * 0.20, 118 * S);
     const n = GEM_LEGEND.length;
     let x = cx - (n - 1) * slot / 2;
-    const R = 21 * S;
+    const unit = Math.min(0.95 * S, (slot * 0.30) / 34);
+    const maxBody = 34 * unit;
     const wob = T() / 620;
+    const labelY = y + maxBody * 1.55 + 16 * S;
+    const worthY = labelY + 18 * S;
 
     for (let i = 0; i < n; i++) {
         const g = GEM_LEGEND[i];
-        const rr = R * g.scale * (1 + 0.04 * Math.sin(wob + i));
-
-        let img = null;
-        const idx = gemIndex(g.label);
-        if (idx && draw) {
-            try { img = util.requestEntityImage(idx, "16 0 1 0 false"); } catch (e) { img = null; }
-        }
-        if (img && img.size) {
-            c.save();
-            c.globalAlpha = alpha;
-            // drawEntity signature mirrors the upgrade-menu call site:
-            // (baseColor, x, y, picture, ratio, alpha, scale, lineWidthMult,
-            //  rot, turretsObeyRot, assignedContext)
+        const bodyPx = g.size * unit;
+        let drew = false;
+        if (drawGem) {
             try {
-                draw(img.color, x, y, img, 1, alpha, (rr * 2) / img.size,
-                     1, wob * 0.4 + i, true, c);
-            } catch (e) { img = null; }
-            c.restore();
+                drawGem(c, x, y, bodyPx, alpha, wob * 0.4 + i, g.cls);
+                drew = true;
+            } catch (e) { drew = false; }
         }
-        if (!img) {
-            // Mockups not in yet (or a renderer that refused): a plain dot
-            // holds the slot rather than dropping the row to three gems.
+        if (!drew) {
             c.save();
             c.globalAlpha = alpha * 0.5;
             c.fillStyle = `rgba(${PALE},.5)`;
-            c.beginPath(); c.arc(x, y, rr * 0.6, 0, Math.PI * 2); c.fill();
+            c.beginPath(); c.arc(x, y, bodyPx * 0.45, 0, Math.PI * 2); c.fill();
             c.restore();
         }
 
@@ -1829,14 +1856,14 @@ function drawGemLegend(c, cx, y, alpha) {
         c.textBaseline = "middle";
         c.lineWidth = 3;
         c.strokeStyle = "rgba(0,0,0,.7)";
-        c.strokeText(g.label, x, y + R * 1.35 + 18 * S);
+        c.strokeText(g.label, x, labelY);
         c.fillStyle = `rgba(${PALE},.95)`;
-        c.fillText(g.label, x, y + R * 1.35 + 18 * S);
+        c.fillText(g.label, x, labelY);
 
         c.font = `800 ${11 * S}px ${FONT}`;
-        c.strokeText(g.worth, x, y + R * 1.35 + 34 * S);
+        c.strokeText(g.worth, x, worthY);
         c.fillStyle = `rgba(${GOLD},.9)`;
-        c.fillText(g.worth, x, y + R * 1.35 + 34 * S);
+        c.fillText(g.worth, x, worthY);
         c.restore();
         x += slot;
     }
@@ -1850,7 +1877,7 @@ function drawTitleCard(c, s) {
         ? 1 - smooth((T() - state.completedAt) / 560) : 1;
     const a = inA * outA;
     if (a <= 0) return;
-    const cx = SW() / 2, cy = SH() * (global.mobile ? 0.32 : 0.36);
+    const cx = SW() / 2, cy = SH() * (s.gems ? (global.mobile ? 0.24 : 0.28) : (global.mobile ? 0.32 : 0.36));
 
     // vignette so the card reads over a busy cavern
     const g = c.createRadialGradient(cx, cy, 0, cx, cy, Math.max(SW(), SH()) * 0.72);
@@ -1874,6 +1901,7 @@ function drawTitleCard(c, s) {
     c.stroke();
 
     const subtitle = typeof s.subtitle === "function" ? s.subtitle() : s.subtitle;
+    let subBottom = cy + size * 0.72;
     if (subtitle) {
         c.globalAlpha = a * smooth((t - 320) / 700);
         c.font = `500 ${15 * S}px ${FONT}`;
@@ -1881,12 +1909,19 @@ function drawTitleCard(c, s) {
         c.textBaseline = "middle";
         c.lineWidth = 3;
         c.strokeStyle = "rgba(0,0,0,.6)";
-        c.strokeText(subtitle, cx, cy + size * 0.72 + 22 * S);
-        c.fillStyle = `rgba(${PALE},.92)`;
-        c.fillText(subtitle, cx, cy + size * 0.72 + 22 * S);
+        const subMax = Math.min(SW() * 0.72, 420 * S);
+        const subLines = layout(c, tokenize(subtitle), subMax, S);
+        const subH = 20 * S;
+        let sy = cy + size * 0.72 + 22 * S;
+        for (const line of subLines) {
+            drawLine(c, line, cx, sy, S);
+            sy += subH;
+        }
+        subBottom = sy;
     }
     if (s.gems) {
-        drawGemLegend(c, cx, cy + size * 0.72 + 86 * S, a * smooth((t - 520) / 700));
+        // Sit well below the subtitle so names never ride on top of the gems.
+        drawGemLegend(c, cx, subBottom + 52 * S, a * smooth((t - 520) / 700));
     }
     c.restore();
 }
@@ -2314,7 +2349,7 @@ export function hook() {
         // park the skip control under the title card; no skipping the outro.
         // Cards carrying the gem legend need the extra room or the buttons
         // land on top of the gems they are illustrating.
-        layoutSkip(SH() * (s.gems ? 0.68 : 0.46));
+        layoutSkip(SH() * (s.gems ? 0.82 : 0.46));
         showSkip(!s.final);
         refreshNav();
     } else {

@@ -703,6 +703,11 @@ class socketManager {
                         tut.teleport(socket, m[1]);
                         break;
 
+                    // Land next to a specific world point (the marked rock).
+                    case "gotoxy":
+                        tut.teleportTo(socket, parseFloat(m[1]), parseFloat(m[2]));
+                        break;
+
                     // Force a command toggle (the drone chapter switches
                     // auto-fire off so drones visibly recall on release).
                     case "cmd":

@@ -943,10 +943,13 @@ class Entity extends EventEmitter {
     }
 
     damageMultiplier() {
+        let m = 1;
         switch (this.type) {
-            case 'swarm': return 0.25 + 1.5 * util.clamp(this.range / (this.RANGE + 1), 0, 1);
-            default: return 1;
+            case 'swarm': m = 0.25 + 1.5 * util.clamp(this.range / (this.RANGE + 1), 0, 1); break;
+            default: m = 1;
         }
+        if (this.tutorialChipDamage) m *= this.tutorialChipDamage;
+        return m;
     }
 
     move() { global.runMove(this) };

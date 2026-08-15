@@ -3564,6 +3564,13 @@ import * as tutorial from './tutorial.js';
         c.drawImage(spr.canvas, -h, -h, h * 2, h * 2);
         c.restore();
     }
+    // Tutorial ore-tier card: same baked sprite the world gems use, sized in
+    // pixels so the legend cannot drift into a mockup/icon version.
+    window.dwDrawGem = function (c, x, y, bodyPx, alpha, facing, cls) {
+        const pal = GEM_SPRITE_PAL[cls] || GEM_SPRITE_PAL.gemPickupVein;
+        const isize = pal.size || 16;
+        drawContainedGem(c, x, y, bodyPx / isize, alpha, isize, facing, cls);
+    };
 
     function drawEntities(px, py, ratio, tick) {
         if (global.advanced.blackout.active) {

@@ -568,15 +568,63 @@ function spawnStructureHit(z) {
     const chamber = m.className === "coreChamber" || m.name === "Core Chamber";
     const outpost = m.className === "outpostBanner" || m.name === "Outpost";
     if (!chamber && !outpost) return;
-    const camx = global.player?.cx?.animX ?? z.x;
-    const camy = global.player?.cy?.animY ?? z.y;
-    let dx = camx - z.x, dy = camy - z.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const size = z.size || (chamber ? 160 : 60);
-    const rim = size * (chamber ? 0.88 : 0.72);
-    const ang = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.4;
-    const hx = z.x + Math.cos(ang) * rim;
-    const hy = z.y + Math.sin(ang) * rim;
+
+    let cx = z.x, cy = z.y, rim;
+    if (chamber) {
+        const ch = (global.chambers || []).find(c => Math.hypot(c.x - z.x, c.y - z.y) < 80);
+        if (ch) { cx = ch.x; cy = ch.y; }
+        const st = ch && (global.chamberState || []).find(s => s.id === ch.id);
+        const scale = (st && st.st === 2) ? Math.max(0.05, st.s || 1) : 1;
+        // Outer face of the ring (radius 160), not 0.88×size which lands
+        // inside the hollow pocket where the treasury gems sit.
+        rim = (ch ? ch.r : 160) * scale;
+    } else {
+        rim = (z.size || 60) * 0.72;
+    }
+
+    const snapToRim = (x, y) => {
+        const dx = x - cx, dy = y - cy;
+        const d = Math.hypot(dx, dy) || 1;
+        return { x: cx + dx / d * rim, y: cy + dy / d * rim };
+    };
+
+    // Prefer a live projectile sitting on the rim — that's the collision.
+    let best = 48, hx = null, hy = null;
+    for (const e of global.entities) {
+        if (!e || e.id === z.id || e.id === gui.playerid) continue;
+        if (e.drawsHealth || e.nameplate) continue;
+        if ((e.size || 99) > 28) continue;
+        const err = Math.abs(Math.hypot(e.x - cx, e.y - cy) - rim);
+        if (err < best) { best = err; hx = e.x; hy = e.y; }
+    }
+
+    if (hx == null) {
+        // Aim ray vs the ring, else the face toward the tank.
+        const px = global.player.renderx, py = global.player.rendery;
+        const aim = global.player.target;
+        const adx = aim ? aim.x : 0, ady = aim ? aim.y : 0;
+        const al = Math.hypot(adx, ady);
+        if (al > 4) {
+            // |P + t D - C| = rim, smallest t > 0.
+            const dx = adx / al, dy = ady / al;
+            const fx = px - cx, fy = py - cy;
+            const b = fx * dx + fy * dy;
+            const c = fx * fx + fy * fy - rim * rim;
+            const disc = b * b - c;
+            if (disc >= 0) {
+                const t = -b - Math.sqrt(disc);
+                if (t > 0) { hx = px + dx * t; hy = py + dy * t; }
+            }
+        }
+        if (hx == null) {
+            const p = snapToRim(px, py);
+            hx = p.x; hy = p.y;
+        }
+    } else {
+        const p = snapToRim(hx, hy);
+        hx = p.x; hy = p.y;
+    }
+
     if (window.terrainRenderer && window.terrainRenderer.addHitMarker)
         window.terrainRenderer.addHitMarker(hx, hy);
 }

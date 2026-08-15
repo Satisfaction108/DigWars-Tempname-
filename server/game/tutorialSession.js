@@ -114,7 +114,7 @@ function clearBots(plotIndex) {
 // Shared setup for both practice targets. They are real tanks on the enemy
 // team so damage, health bars, death and gem drops all behave exactly as they
 // will in a real match - the tutorial teaches the real game, not a mock of it.
-function baseTarget(loc, name) {
+function baseTarget(loc, name, opts = {}) {
     const o = new Entity(loc);
     o.define(Config.spawn_class);
     o.refreshBodyAttributes();
@@ -125,22 +125,17 @@ function baseTarget(loc, name) {
     o.name = name;
     o.isBot = true;
     o.isTutorialBot = true;
-    // Practice targets are lesson props, not competitors.
     o.settings.leaderboardable = false;
-    // View-based activation would freeze these before the learner arrives.
     o.alwaysActive = true;
 
-    // Level up to the same tier the learner spawns at, so the health bar and
-    // the damage numbers match what a real opponent looks like. A level-1
-    // target would die to a single shot and teach nothing.
+    const cap = opts.level != null ? opts.level : Config.level_cap_cheat;
     o.skill.reset();
-    while (o.skill.level < Config.level_cap_cheat) {
+    while (o.skill.level < cap) {
         o.skill.score += o.skill.levelScore;
         o.skill.maintain();
     }
     o.refreshBodyAttributes();
 
-    // Dig Wars tanks carry a satchel; without one these drop nothing on death.
     if (Config.dig_wars) require('./terrain/gems.js').initSatchel(o);
     return o;
 }
@@ -224,11 +219,10 @@ function spawnDummy(plotIndex) {
 
 // The first opponent that shoots back.
 //
-// It is a Penta Shot, same as the learner, on a deliberately thin stat spread
-// rather than a blank one: an opponent with no stats at all dies to a sneeze
-// and teaches nothing about aiming or backing off. Display-order stats, which
-// setStats maps onto the raw skill array.
-const FIGHTER_STATS = [3, 3, 4, 5, 5, 5, 5, 1, 0, 0];
+// A Basic on a thin stat spread: people were dying to the old Penta Shot
+// practice target, which taught panic instead of backing off. It should chip
+// the health bar, not empty it.
+const FIGHTER_STATS = [0, 0, 3, 1, 0, 1, 4, 3, 0, 0];
 
 function spawnFighter(plotIndex) {
   try {
@@ -236,16 +230,21 @@ function spawnFighter(plotIndex) {
     if (!slot) return null;
     if (slot.fighter && !slot.fighter.isDead()) return slot.fighter;
 
-    const o = baseTarget(besidePlayer(plotIndex, 520, 140), 'Rookie');
-    o.define('pentaShot');
-    // io_tutorialDuelist, not the full bot brain: see controllers.js for why.
+    const o = baseTarget(besidePlayer(plotIndex, 520, 140), 'Rookie', { level: 8 });
+    // Stay a Basic. baseTarget already defined spawn_class.
     o.define({ CONTROLLERS: ["tutorialDuelist"] }, false, false, false);
     o.tutorialFoe = (owners[plotIndex] && owners[plotIndex].player)
         ? owners[plotIndex].player.body : null;
     o.botStatsFixed = true;
     o.botRespawnsRemaining = 0;
     setStats(o, FIGHTER_STATS);
+    o.HEALTH = 8;
+    o.SHIELD = 0;
+    o.DAMAGE = 0.2;
     o.refreshBodyAttributes();
+    // Outgoing shots (and rams) are scaled again so a stray volley cannot
+    // dump a learner. ~12% of a Basic's already-nerfed bullet.
+    o.tutorialChipDamage = 0.12;
     slot.fighter = o;
     return o;
   } catch (e) { util.warn("tutorial: fighter spawn failed - " + (e && e.message)); return null; }
@@ -321,9 +320,26 @@ function teleport(socket, key) {
     // Land beside a structure rather than inside it: dropping a tank on top of
     // a chamber ring wedges it in the collision geometry.
     const off = (key === 'outpost' || key === 'chamberRed' || key === 'chamberBlue') ? -260 : 0;
+    teleportTo(socket, p.x + off, p.y);
+}
+
+// Glide to an explicit world point, clamped to this learner's arena. Used when
+// the client has already picked the marked rock and needs to land next to THAT
+// cell, not a generic landmark that can be on the other side of the wall.
+function teleportTo(socket, x, y) {
+    const i = plotOf(socket);
+    const body = socket && socket.player && socket.player.body;
+    if (i < 0 || !body || body.isDead()) return;
+    x = +x; y = +y;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const r = plots.plotRect(i);
+    const m = 90;
+    x = Math.max(r.x0 + m, Math.min(r.x1 - m, x));
+    y = Math.max(r.y0 + m, Math.min(r.y1 - m, y));
+    if (Math.hypot(body.x - x, body.y - y) < 120) return;
     body._tutorialGlide = {
         fromX: body.x, fromY: body.y,
-        toX: p.x + off, toY: p.y,
+        toX: x, toY: y,
         at: Date.now(),
     };
 }
@@ -542,7 +558,7 @@ module.exports = {
     spawnDummy, spawnFighter, clearBots,
     lockUpgrades, unlockUpgrades, upgradeAllowed, morph,
     setAllowed, allows, allowsStat,
-    setStats, fillStats, grantPoints, teleport, setCommand, heal,
+    setStats, fillStats, grantPoints, teleport, teleportTo, setCommand, heal,
     tickLeash, tickReap, tickBaseGuard, tickGlide,
     plotCount: plots.plotCount,
     plotPoint: plots.plotPoint,
