@@ -230,20 +230,18 @@ function spawnFighter(plotIndex) {
     if (!slot) return null;
     if (slot.fighter && !slot.fighter.isDead()) return slot.fighter;
 
-    const o = baseTarget(besidePlayer(plotIndex, 520, 140), 'Rookie', { level: 8 });
-    // Stay a Basic. baseTarget already defined spawn_class.
+    const o = baseTarget(besidePlayer(plotIndex, 520, 140), 'Rookie');
+    // Stay a Basic. baseTarget already defined spawn_class and levels to 45
+    // so the tank is the same size as a real opponent.
     o.define({ CONTROLLERS: ["tutorialDuelist"] }, false, false, false);
     o.tutorialFoe = (owners[plotIndex] && owners[plotIndex].player)
         ? owners[plotIndex].player.body : null;
     o.botStatsFixed = true;
     o.botRespawnsRemaining = 0;
     setStats(o, FIGHTER_STATS);
-    o.HEALTH = 8;
-    o.SHIELD = 0;
-    o.DAMAGE = 0.2;
     o.refreshBodyAttributes();
-    // Outgoing shots (and rams) are scaled again so a stray volley cannot
-    // dump a learner. ~12% of a Basic's already-nerfed bullet.
+    // Outgoing shots (and rams) are scaled so a stray volley cannot dump a
+    // learner. A level-45 Basic with this spread can chip the bar, not empty it.
     o.tutorialChipDamage = 0.12;
     slot.fighter = o;
     return o;
@@ -315,11 +313,14 @@ function teleport(socket, key) {
     const i = plotOf(socket);
     const body = socket && socket.player && socket.player.body;
     if (i < 0 || !body || body.isDead()) return;
+    const ALIAS = { vault: "vaultBlue" };
+    const layoutKey = ALIAS[key] || key;
     let p;
-    try { p = plots.plotPoint(i, key); } catch (e) { return; }
+    try { p = plots.plotPoint(i, layoutKey); } catch (e) { return; }
     // Land beside a structure rather than inside it: dropping a tank on top of
-    // a chamber ring wedges it in the collision geometry.
-    const off = (key === 'outpost' || key === 'chamberRed' || key === 'chamberBlue') ? -260 : 0;
+    // a chamber ring wedges it in the collision geometry. The vault pad is
+    // meant to be stood on, so it gets no offset.
+    const off = (layoutKey === "outpost" || layoutKey === "chamberRed" || layoutKey === "chamberBlue") ? -260 : 0;
     teleportTo(socket, p.x + off, p.y);
 }
 

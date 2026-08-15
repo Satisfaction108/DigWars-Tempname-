@@ -577,41 +577,20 @@ const ALL_STEPS = [
     },
     {
         id: "ping",
-        label: "Mark an enemy",
+        label: "Place an enemy marker",
         hint: () => global.mobile
-            ? "Your team cannot see what you see. *Point at the dummy* and drop an *enemy marker* (the red diamond). On a phone, *Next* if you have no ping key."
-            : "Your team cannot see what you see. *Point at the dummy* and press {{KEY_AUTO_ALT}} - a red diamond appears that *everyone on your team can see*. Use this when you spot someone.",
-        onEnter: () => { tut("heal"); tut("dummy"); },
-        acquire: () => {
-            const b = practiceBot("Dummy");
-            return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
-        },
-        revalidate: () => {
-            const b = practiceBot("Dummy");
-            return b ? { kind: "point", id: b.id, x: b.x, y: b.y } : null;
-        },
+            ? "Press *Enemy Marker* to drop a red diamond your whole team can see. On a phone, *Next* if you have no ping key."
+            : "Press *Enemy Marker* ({{KEY_AUTO_ALT}}) to drop a red diamond *your whole team can see*. Point wherever you want it and press the key.",
+        onEnter: () => tut("heal"),
+        target: () => ({ kind: "self" }),
         progress: () => (state.pingSeen || global.enemyPings.length > (state.base.pings || 0)) ? 1 : 0,
         done: () => state.pingSeen || global.enemyPings.length > (state.base.pings || 0),
         next: true,
     },
     {
-        id: "ready",
-        label: "First fight",
-        title: "READY?",
-        hint: () => "Next up is a target that cannot fight back - a chance to practise aiming and holding fire with nothing at stake. You are patched up. *Press Next when you want it.*",
-        // Nothing on a timer: the dummy arrives when they say so, not while they
-        // are still reading. Next is the ONLY way out of this step.
-        onEnter: () => tut("heal"),
-        target: () => ({ kind: "self" }),
-        next: true,
-        onDone: () => tut("heal"),
-        done: () => false,
-        noTimeout: true,
-    },
-    {
         id: "dummy",
-        label: "Destroy the dummy",
-        hint: () => "It cannot shoot back. *Point your cursor at it and hold left click*.",
+        label: "Destroy the practice dummy",
+        hint: () => "It cannot shoot back and it does not move. *Point your cursor at it and hold left click*.",
         onEnter: () => { tut("heal"); tut("dummy"); },
         acquire: () => {
             const b = practiceBot("Dummy");
@@ -627,7 +606,7 @@ const ALL_STEPS = [
         id: "readyFight",
         label: "A real opponent",
         title: "READY?",
-        hint: () => "This one *shoots back*. It is a Basic with almost no health — it can chip you, it should not kill you. *Press Go when you want it.*",
+        hint: () => "Next you will fight a *moving bot that shoots back*. It is a Basic — it can chip you, it should not kill you. *Press Go when you want it.*",
         onEnter: () => tut("heal"),
         target: () => ({ kind: "self" }),
         next: true,
@@ -735,7 +714,11 @@ const ALL_STEPS = [
         allow: "bank",
         label: "Bank your gems",
         hint: () => "*Carried gems drop when you die. Banked gems stay yours.* Drive onto *your vault pad*, press *DEPOSIT*, and wait until the bar finishes and your satchel is empty.",
-        onEnter: () => tut("goto", "vault"),
+        onEnter: () => {
+            const v = nearestVault();
+            const px = global.player.renderx, py = global.player.rendery;
+            if (!v || Math.hypot(px - v.x, py - v.y) > 180) tut("goto", "vault");
+        },
         acquire: () => {
             const v = nearestVault();
             return v ? { kind: "vault", x: v.x, y: v.y, r: v.r || 95 } : null;
@@ -950,6 +933,7 @@ const ALL_STEPS = [
         label: "Yours and theirs",
         title: "TWO CHAMBERS, TWO JOBS",
         hint: () => "There is one of these per team. *Break the red one* - and *defend the blue one*, because the enemy wants your 4000 just as badly. Bank what you take before somebody takes it back off your corpse.",
+        onEnter: () => tut("goto", "chamberBlue"),
         acquire: () => landmark("chamberBlue", "point"),
         revalidate: () => landmark("chamberBlue", "point"),
         next: true,
@@ -1837,7 +1821,7 @@ function drawGemLegend(c, cx, y, alpha) {
         let drew = false;
         if (drawGem) {
             try {
-                drawGem(c, x, y, bodyPx, alpha, wob * 0.4 + i, g.cls);
+                drawGem(c, x, y, bodyPx, alpha, wob * 0.4, g.cls);
                 drew = true;
             } catch (e) { drew = false; }
         }
@@ -1867,6 +1851,7 @@ function drawGemLegend(c, cx, y, alpha) {
         c.restore();
         x += slot;
     }
+    return worthY;
 }
 
 function drawTitleCard(c, s) {
@@ -1921,9 +1906,10 @@ function drawTitleCard(c, s) {
     }
     if (s.gems) {
         // Sit well below the subtitle so names never ride on top of the gems.
-        drawGemLegend(c, cx, subBottom + 52 * S, a * smooth((t - 520) / 700));
+        subBottom = drawGemLegend(c, cx, subBottom + 52 * S, a * smooth((t - 520) / 700));
     }
     c.restore();
+    return subBottom;
 }
 
 // the objective card: label, hint, progress pips
@@ -2202,7 +2188,11 @@ function handBackFocus() {
 function layoutSkip(atY) {
     if (!skipBar) return;
     const k = window.innerHeight / Math.max(1, SH());
-    skipBar.style.top = Math.round(atY * k + 8) + "px";
+    const barH = skipBar.offsetHeight || 40;
+    const pad = 16;
+    const maxTop = window.innerHeight - barH - pad;
+    const top = Math.max(pad, Math.min(maxTop, Math.round(atY * k + pad)));
+    skipBar.style.top = top + "px";
 }
 function showSkip(on) {
     if (!skipBar) return;
@@ -2345,11 +2335,12 @@ export function hook() {
     c.textBaseline = "middle";
     if (s && s.card) {
         hideDomStep();
-        drawTitleCard(c, s);
-        // park the skip control under the title card; no skipping the outro.
-        // Cards carrying the gem legend need the extra room or the buttons
-        // land on top of the gems they are illustrating.
-        layoutSkip(SH() * (s.gems ? 0.82 : 0.46));
+        const cardBottom = drawTitleCard(c, s);
+        // Park skip/next under the actual title + subtitle (and gem row),
+        // not at a fixed fraction of the screen - that overlap on short
+        // viewports and on the long "never touch a base" card.
+        const S = US();
+        layoutSkip((cardBottom || SH() * 0.42) + 22 * S);
         showSkip(!s.final);
         refreshNav();
     } else {
