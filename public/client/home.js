@@ -66,6 +66,13 @@
         return localStorage.getItem(TUT_DONE_KEY) === '1';
     }
 
+    // Local `node index.js` is for iterating on the live game. Nest / production
+    // still force first-run Play into the tutorial so newcomers get taught.
+    function isLocalHost() {
+        var h = location.hostname;
+        return h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    }
+
     function launchTutorial(btn) {
         if (btn) { btn.disabled = true; }
         fetch('/getTutorialServer.json')
@@ -87,6 +94,8 @@
                 g.serverPath = sv.proxyPath || "";
                 g.tutorialMode = true;    // read by client/tutorial.js
                 g.tutorialPlot = null;    // set only by the tutorial server
+                g.launchingTutorial = true;
+                location.hash = '#tut';
                 g.startGame();
 
                 // The tutorial server listens on its own port. If that port is
@@ -125,10 +134,12 @@
         if (badge && !tutorialCompleted()) badge.hidden = false;
         btn.onclick = function () { launchTutorial(btn); };
 
-        // First-ever visit: Play routes into the tutorial once, so a brand-new
-        // player cannot walk into a live match without ever being taught.
+        // First-ever visit on nest/production: Play routes into the tutorial
+        // once, so a brand-new player cannot walk into a live match without
+        // ever being taught. Skip that hijack on localhost so Play hits the
+        // Dig Wars worker (with bots) and the URL's #dw is actually #dw.
         var start = document.getElementById('startButton');
-        if (start && !tutorialCompleted()) {
+        if (start && !tutorialCompleted() && !isLocalHost()) {
             start.addEventListener('click', function firstRun(e) {
                 if (tutorialCompleted()) return;
                 e.preventDefault();

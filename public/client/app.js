@@ -1107,6 +1107,14 @@ import * as tutorial from './tutorial.js';
 
         if (global.gameLoading) return;
         global.gameLoading = true;
+        // Play must not inherit a leftover /tut path or tutorial overlay from
+        // a previous click. Only launchTutorial() sets launchingTutorial.
+        if (!global.launchingTutorial) {
+            global.tutorialMode = false;
+            global.tutorialPlot = null;
+            global.serverPath = "";
+        }
+        global.launchingTutorial = false;
         if (global.mobile) {
             var d = document.body;
             d.requestFullscreen ? d.requestFullscreen()
