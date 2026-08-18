@@ -310,7 +310,7 @@ class TerrainRenderer {
                     this._spawnShatter(cell, now + delay, tier);
                     if (onscreen) {
                         global.hitStop = Date.now() + delay;
-                        this._shake(tier ? 9 : 8, 400, delay);
+                        this._shake(tier ? 5 : 4, 240, delay);
                     }
                     if (this._world) {
                         const w = this._world;
@@ -511,7 +511,7 @@ class TerrainRenderer {
         this._spawnShatter(cell, now + delay, 0);
         if (onscreen) {
             global.hitStop = Date.now() + delay;
-            this._shake(7, 350, delay);
+            this._shake(4, 220, delay);
         }
     }
 
