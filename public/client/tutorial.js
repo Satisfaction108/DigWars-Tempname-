@@ -95,21 +95,21 @@ function canSound() {
 function sfxObjective() {
     if (!canSound()) return;
     try {
-        gameSound._tone({ freq: 523.25, type: "sine", dur: 0.13, peak: 0.13, attack: 0.003 });
-        gameSound._tone({ freq: 783.99, type: "sine", dur: 0.20, peak: 0.11, delay: 0.08, attack: 0.004 });
-        gameSound._ring({ freqs: [1046.5, 1568], dur: 0.14, peak: 0.05, delay: 0.08 });
+        gameSound._tone({ freq: 392, type: "sine", dur: 0.16, peak: 0.1, attack: 0.012 });
+        gameSound._tone({ freq: 587.33, type: "sine", dur: 0.22, peak: 0.08, delay: 0.08, attack: 0.016 });
+        gameSound._ring({ freqs: [784, 1175], dur: 0.2, peak: 0.035, delay: 0.1 });
     } catch (e) { }
 }
 function sfxAdvance() {
     if (!canSound()) return;
-    try { gameSound._tone({ freq: 330, type: "triangle", dur: 0.07, peak: 0.05, attack: 0.002 }); }
+    try { gameSound._tone({ freq: 330, type: "sine", dur: 0.09, peak: 0.045, attack: 0.01 }); }
     catch (e) { }
 }
 function sfxFinale() {
     if (!canSound()) return;
     try {
-        gameSound._ring({ freqs: [261.6, 392, 523.25], dur: 0.5, peak: 0.13 });
-        gameSound._tone({ freq: 783.99, type: "sine", dur: 0.5, peak: 0.09, delay: 0.16, attack: 0.02 });
+        gameSound._ring({ freqs: [261.6, 329.63, 392], dur: 0.55, peak: 0.11 });
+        gameSound._tone({ freq: 523.25, type: "sine", dur: 0.5, peak: 0.07, delay: 0.16, attack: 0.03 });
     } catch (e) { }
 }
 

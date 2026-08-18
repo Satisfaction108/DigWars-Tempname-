@@ -1,39 +1,37 @@
-// Dig Wars sound system — procedural foley, synthesized live.
+// Dig Wars sound system — stylized, ear-friendly foley.
 //
-// The design language is the modern-game "physical impact" (think
-// Fortnite harvesting): every sound is a NOISE TRANSIENT shaped by a
-// fast-closing lowpass filter (the "whud" of a real hit), plus a quiet
-// damped material ring and scattered debris grains. Nothing is a musical
-// note — no blips, no pews, no drums. Every call gets random variation
-// so rapid fire never loops.
+// Design: Fortnite-like punch (layered sub + body + air) without realistic
+// stone/metal and without sci-fi lasers. Every event is a rounded mid-low
+// "tok / foomp / bloom" built from sines and brown/pink noise. No white-noise
+// gravel, no 1ms clicks, no 3kHz ice-picks, no pebble grains.
 //
-// Everything runs through one master compressor so a bullet-storm stays
-// smooth instead of clipping into mess. All world-positioned sounds are
-// attenuated by distance from the camera and lightly stereo-panned, with
-// per-sound throttles and global busy-ducking.
+// Master bus high-cuts the fatiguing band so a bullet-storm stays soft.
+// World sounds are distance-attenuated and stereo-panned, with throttles
+// and busy-ducking so mining never turns into a machine gun.
 //
 // Console API: gameSound.setVolume(0..1), gameSound.mute()
 import { global } from "./global.js";
 
 const VOLUME_KEY = 'dw_soundVolume';
 
-// MASTER KILL SWITCH — sound is disabled for now. Flip to true to bring
-// the whole foley system back; every call site stays wired.
+// MASTER KILL SWITCH — flip to false to silence everything; call sites stay wired.
 const SOUND_ENABLED = true;
+
+const jit = (n, amt = 0.06) => n * (1 - amt + Math.random() * amt * 2);
 
 class GameSound {
     constructor() {
         this.ctx     = null;
         this.master  = null;
-        this._noise  = null;      // shared 1s noise buffer
-        this._last   = {};        // per-name last-play time (throttle)
-        this._recent = [];        // timestamps of recent plays (busy ducking)
+        this._pink   = null;
+        this._brown  = null;
+        this._last   = {};
+        this._recent = [];
         let v = parseFloat(localStorage.getItem(VOLUME_KEY));
-        this.volume  = isNaN(v) ? 0.75 : v;
+        this.volume  = isNaN(v) ? 0.7 : v;
         this._hookGesture();
     }
 
-    // Browsers only allow audio after a user gesture.
     _hookGesture() {
         const kick = () => { this._init(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); };
         for (const ev of ['pointerdown', 'keydown', 'touchstart'])
@@ -46,23 +44,68 @@ class GameSound {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return;
         this.ctx = new AC();
-        // master gain -> gentle compressor -> out. The compressor is what
-        // keeps overlapping sounds soft instead of harsh.
+
+        // gain -> highshelf (cut harsh air) -> gentle lowpass ceiling -> compressor -> out
         this.master = this.ctx.createGain();
         this.master.gain.value = this.volume;
+
+        const shelf = this.ctx.createBiquadFilter();
+        shelf.type = 'highshelf';
+        shelf.frequency.value = 2200;
+        shelf.gain.value = -12;
+
+        const air = this.ctx.createBiquadFilter();
+        air.type = 'lowpass';
+        air.frequency.value = 4800;
+        air.Q.value = 0.45;
+
         const comp = this.ctx.createDynamicsCompressor();
-        comp.threshold.value = -20;
-        comp.knee.value      = 24;
-        comp.ratio.value     = 6;
-        comp.attack.value    = 0.004;
-        comp.release.value   = 0.18;
-        this.master.connect(comp);
+        comp.threshold.value = -26;
+        comp.knee.value      = 30;
+        comp.ratio.value     = 3.2;
+        comp.attack.value    = 0.01;
+        comp.release.value   = 0.28;
+
+        this.master.connect(shelf);
+        shelf.connect(air);
+        air.connect(comp);
         comp.connect(this.ctx.destination);
-        // shared noise buffer
+
+        this._pink  = this._makeNoise('pink');
+        this._brown = this._makeNoise('brown');
+    }
+
+    _makeNoise(kind) {
         const len = this.ctx.sampleRate;
-        this._noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-        const d = this._noise.getChannelData(0);
-        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        if (kind === 'brown') {
+            let last = 0;
+            for (let i = 0; i < len; i++) {
+                last += (Math.random() * 2 - 1) * 0.014;
+                last *= 0.996;
+                d[i] = last;
+            }
+        } else {
+            // Paul Kellet pink
+            let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+            for (let i = 0; i < len; i++) {
+                const w = Math.random() * 2 - 1;
+                b0 = 0.99886 * b0 + w * 0.0555179;
+                b1 = 0.99332 * b1 + w * 0.0750759;
+                b2 = 0.96900 * b2 + w * 0.1538520;
+                b3 = 0.86650 * b3 + w * 0.3104856;
+                b4 = 0.55000 * b4 + w * 0.5329522;
+                b5 = -0.7616 * b5 - w * 0.0168980;
+                d[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362;
+                b6 = w * 0.115926;
+            }
+        }
+        let peak = 0;
+        for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(d[i]));
+        const g = peak > 0 ? 0.9 / peak : 1;
+        for (let i = 0; i < len; i++) d[i] *= g;
+        return buf;
     }
 
     setVolume(v) {
@@ -72,10 +115,8 @@ class GameSound {
     }
     mute() { this.setVolume(0); }
 
-    // ── internals ───────────────────────────────────────────────────────────
     _ready() { return this.ctx && this.ctx.state === 'running' && this.volume > 0; }
 
-    // distance/pan from the camera; null = inaudible
     _spatial(x, y) {
         const lx = global.player ? global.player.renderx : 0;
         const ly = global.player ? global.player.rendery : 0;
@@ -83,7 +124,6 @@ class GameSound {
         const d  = Math.hypot(dx, dy);
         const MAXD = 3200;
         if (d > MAXD) return null;
-        // smooth rolloff: full inside ~500, fading to 0 at MAXD
         const t   = Math.max(0, (d - 500) / (MAXD - 500));
         const vol = (1 - t) * (1 - t);
         const pan = Math.max(-0.75, Math.min(0.75, dx / 1600));
@@ -97,20 +137,22 @@ class GameSound {
         return true;
     }
 
-    // when lots of sounds fire at once, everything gets quieter together
     _busyGain() {
         const now = performance.now();
-        this._recent = this._recent.filter(t => now - t < 220);
+        this._recent = this._recent.filter(t => now - t < 280);
         this._recent.push(now);
-        return 1 / Math.sqrt(Math.max(1, this._recent.length * 0.55));
+        return 1 / Math.sqrt(Math.max(1, this._recent.length * 0.75));
     }
 
-    _out(pan, when, dur, peak, attack = 0.005) {
-        // gain envelope -> panner -> master; returns the gain node to feed
+    // Rounded envelope: never a click. Attack is the difference between
+    // "tok" and "clack".
+    _out(pan, when, dur, peak, attack = 0.008) {
         const g = this.ctx.createGain();
+        const a = Math.max(0.005, attack);
+        const d = Math.max(a + 0.02, dur);
         g.gain.setValueAtTime(0.0001, when);
-        g.gain.linearRampToValueAtTime(peak, when + attack);
-        g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+        g.gain.linearRampToValueAtTime(Math.max(0.0001, peak), when + a);
+        g.gain.exponentialRampToValueAtTime(0.0001, when + d);
         let node = g;
         if (this.ctx.createStereoPanner) {
             const p = this.ctx.createStereoPanner();
@@ -122,236 +164,249 @@ class GameSound {
         return g;
     }
 
-    _tone({ freq, glideTo, type = 'sine', dur = 0.1, peak = 0.2, pan = 0, delay = 0, attack = 0.005 }) {
+    _tone({ freq, glideTo, type = 'sine', dur = 0.1, peak = 0.2, pan = 0, delay = 0, attack = 0.008 }) {
         const t0 = this.ctx.currentTime + delay;
         const o  = this.ctx.createOscillator();
-        o.type = type;
-        o.frequency.setValueAtTime(freq, t0);
-        if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, t0 + dur);
+        o.type = type === 'sawtooth' || type === 'square' ? 'triangle' : type;
+        const f0 = Math.max(40, jit(freq, 0.03));
+        o.frequency.setValueAtTime(f0, t0);
+        if (glideTo) o.frequency.exponentialRampToValueAtTime(Math.max(40, glideTo), t0 + dur);
         o.connect(this._out(pan, t0, dur, peak, attack));
         o.start(t0);
-        o.stop(t0 + dur + 0.02);
+        o.stop(t0 + dur + 0.03);
     }
 
-    _hiss({ dur = 0.08, peak = 0.15, lowpass = 900, pan = 0, delay = 0, attack = 0.004, rate = 1 }) {
+    // Soft air: brown (whoosh/weight) or pink (a little presence). Always
+    // band-limited in the mids — never a slamming lowpass on white noise.
+    _puff({ kind = 'brown', cut = 600, cutTo, Q = 0.7, dur = 0.08, peak = 0.1,
+            pan = 0, delay = 0, attack = 0.01, rate = 1 } = {}) {
         const t0 = this.ctx.currentTime + delay;
         const s  = this.ctx.createBufferSource();
-        s.buffer = this._noise;
-        s.playbackRate.value = rate;
+        s.buffer = kind === 'pink' ? this._pink : this._brown;
         s.loop = true;
+        s.playbackRate.value = jit(rate, 0.08);
         const f = this.ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.frequency.value = lowpass;
-        f.Q.value = 0.6;
+        f.type = 'bandpass';
+        f.Q.value = Q;
+        const c0 = Math.max(80, jit(cut, 0.08));
+        f.frequency.setValueAtTime(c0, t0);
+        if (cutTo) f.frequency.exponentialRampToValueAtTime(Math.max(80, cutTo), t0 + dur);
         s.connect(f);
         f.connect(this._out(pan, t0, dur, peak, attack));
         s.start(t0);
-        s.stop(t0 + dur + 0.02);
+        s.stop(t0 + dur + 0.03);
     }
 
-    // The physical impact: noise through a lowpass whose cutoff SLAMS shut.
-    // This is how real hits sound — bright for a few milliseconds, then
-    // instantly muffled. The backbone of every sound below.
-    _thump({ cut0 = 2500, cut1 = 300, dur = 0.07, peak = 0.4, pan = 0, delay = 0 }) {
-        const t0 = this.ctx.currentTime + delay;
-        const s  = this.ctx.createBufferSource();
-        s.buffer = this._noise;
-        s.loop = true;
-        s.playbackRate.value = 0.9 + Math.random() * 0.2;
-        const f = this.ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.Q.value = 0.8;
-        f.frequency.setValueAtTime(cut0 * (0.9 + Math.random() * 0.2), t0);
-        f.frequency.exponentialRampToValueAtTime(Math.max(60, cut1), t0 + dur);
-        s.connect(f);
-        f.connect(this._out(pan, t0, dur, peak, 0.001));
-        s.start(t0);
-        s.stop(t0 + dur + 0.02);
-    }
-
-    // Quiet damped "material ring": a couple of inharmonic partials with a
-    // very fast decay — the stony body under the noise, kept short and low
-    // so it never reads as a drum or a note.
-    _ring({ freqs = [180, 292], dur = 0.06, peak = 0.1, pan = 0, delay = 0 }) {
-        const d = 0.96 + Math.random() * 0.08;
+    // Quiet harmonic bloom. Slow attack so it never reads as a clack.
+    _ring({ freqs = [180, 270], dur = 0.12, peak = 0.08, pan = 0, delay = 0 } = {}) {
+        const d = jit(1, 0.03);
         for (let i = 0; i < freqs.length; i++) {
-            this._tone({ freq: freqs[i] * d, type: 'sine', dur: dur * (1 - i * 0.2),
-                         peak: peak / (i + 1), pan, delay, attack: 0.001 });
+            this._tone({
+                freq: freqs[i] * d,
+                type: 'sine',
+                dur: dur * (1 - i * 0.12),
+                peak: peak / (i + 1.4),
+                pan, delay,
+                attack: 0.012,
+            });
         }
     }
 
-    // Debris: a scatter of tiny random noise taps trailing an impact.
-    _grains({ n = 4, span = 0.2, cutLo = 500, cutHi = 1800, peak = 0.08, pan = 0, delay = 0 }) {
-        for (let i = 0; i < n; i++) {
-            this._hiss({ dur: 0.02 + Math.random() * 0.025,
-                         peak: peak * (0.5 + Math.random() * 0.5),
-                         lowpass: cutLo + Math.random() * (cutHi - cutLo),
-                         pan: pan + (Math.random() - 0.5) * 0.2,
-                         delay: delay + Math.random() * span, attack: 0.001 });
-        }
+    // The Fortnite-style punch, stylized: felt sub + rounded body drop +
+    // a whisper of brown air. Used by breaks, hurts, kills — never by chips.
+    _impact({ pan = 0, v = 1, sub = 72, body = 170, bodyTo = 88, air = 480,
+              weight = 0.28, dur = 0.14 } = {}) {
+        this._tone({ freq: sub, glideTo: sub * 0.7, type: 'sine', dur: dur * 1.15,
+                     peak: 0.22 * weight * v, pan, attack: 0.01 });
+        this._tone({ freq: body, glideTo: bodyTo, type: 'sine', dur,
+                     peak: 0.32 * weight * v, pan, attack: 0.008 });
+        this._puff({ kind: 'brown', cut: air, cutTo: air * 0.45, Q: 0.65,
+                     dur: dur * 0.85, peak: 0.12 * weight * v, pan, attack: 0.012 });
+    }
+
+    // Compatibility aliases so tutorial / console never hit the old gravel synth.
+    _hiss(opts = {}) {
+        this._puff({
+            kind: 'brown',
+            cut: opts.lowpass ? opts.lowpass * 0.45 : 550,
+            dur: opts.dur, peak: (opts.peak || 0.1) * 0.6,
+            pan: opts.pan, delay: opts.delay, attack: Math.max(0.01, opts.attack || 0.01),
+        });
+    }
+    _thump(opts = {}) {
+        this._impact({
+            pan: opts.pan || 0, v: 1,
+            body: Math.max(90, (opts.cut1 || 200) * 0.7),
+            bodyTo: 70,
+            air: Math.min(900, (opts.cut0 || 800) * 0.35),
+            weight: (opts.peak || 0.3) * 0.7,
+            dur: opts.dur || 0.1,
+        });
     }
 
 
-    // ── game sounds (world coordinates) ─────────────────────────────────────
+    // ── game sounds ─────────────────────────────────────────────────────────
 
-    // Bullet chips a rock: a compact physical "chk" — bright noise snapping
-    // shut over a faint stony ring, with a chip or two of debris. The ring
-    // tightens (rises) as the rock's damage stage climbs, so progress is
-    // audible but stays physical, never musical.
+    // Mining chip: a hollow wooden "tok". Progress brightens the body a little,
+    // never the noise. Soft/graze hits are almost a murmur.
     rockHit(x, y, stage = 0, soft = false) {
-        if (!this._ready() || !this._throttle('rockHit', soft ? 110 : 40)) return;
+        if (!this._ready() || !this._throttle('rockHit', soft ? 130 : 55)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol * this._busyGain() * (soft ? 0.35 : 1);
-        const st = 1 + stage * 0.1;
-        this._thump({ cut0: 2600 * st, cut1: 350, dur: 0.055, peak: 0.55 * v, pan: sp.pan });
-        this._ring({ freqs: [165 * st, 262 * st], dur: 0.055, peak: 0.09 * v, pan: sp.pan });
-        this._grains({ n: 2, span: 0.06, cutLo: 700, cutHi: 2000, peak: 0.07 * v, pan: sp.pan, delay: 0.02 });
+        const v = sp.vol * this._busyGain() * (soft ? 0.28 : 1);
+        const st = 1 + stage * 0.07;
+        this._tone({
+            freq: 196 * st, glideTo: 128 * st, type: 'sine',
+            dur: 0.07, peak: 0.16 * v, pan: sp.pan, attack: 0.007,
+        });
+        this._puff({
+            kind: 'brown', cut: 620 * st, cutTo: 340, Q: 0.6,
+            dur: 0.05, peak: 0.055 * v, pan: sp.pan, attack: 0.01,
+        });
     }
 
-    // Rock destroyed: a real crumble — a deep muffled crunch, a low body,
-    // and a shower of debris grains settling over a quarter second.
+    // Rock gone: a cushioned bloom — tension releasing, not a crumble.
     rockBreak(x, y) {
-        if (!this._ready() || !this._throttle('rockBreak', 70)) return;
+        if (!this._ready() || !this._throttle('rockBreak', 80)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
         const v = sp.vol * this._busyGain();
-        this._thump({ cut0: 2000, cut1: 140, dur: 0.13, peak: 0.6 * v, pan: sp.pan });
-        this._thump({ cut0: 900, cut1: 110, dur: 0.16, peak: 0.35 * v, pan: sp.pan, delay: 0.05 });
-        this._ring({ freqs: [95, 148], dur: 0.12, peak: 0.14 * v, pan: sp.pan });
-        this._grains({ n: 7, span: 0.24, cutLo: 400, cutHi: 1600, peak: 0.11 * v, pan: sp.pan, delay: 0.04 });
+        this._impact({ pan: sp.pan, v, sub: 64, body: 148, bodyTo: 72,
+                       air: 420, weight: 0.42, dur: 0.18 });
+        this._tone({ freq: 98, type: 'sine', dur: 0.22, peak: 0.08 * v,
+                     pan: sp.pan, delay: 0.04, attack: 0.02 });
     }
 
-    // A gun fired somewhere in view: a soft muffled "thoop" — a small filter
-    // snap with a whisper of low air. Texture, not an event.
+    // Gun: a muted air pulse. Texture in a fight, never a pew and never a clap.
     shoot(x, y, power = 1) {
-        if (!this._ready() || !this._throttle('shoot', 55)) return;
+        if (!this._ready() || !this._throttle('shoot', 60)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
         const v = sp.vol * this._busyGain();
-        const p = Math.min(1.6, 0.5 + (power || 1) * 0.5);
-        this._thump({ cut0: 1000, cut1: 220, dur: 0.045, peak: 0.10 * p * v, pan: sp.pan });
-        this._tone({ freq: 105, type: 'sine', dur: 0.04, peak: 0.03 * p * v, pan: sp.pan, attack: 0.002 });
+        const p = Math.min(1.5, 0.55 + (power || 1) * 0.4);
+        this._puff({
+            kind: 'brown', cut: 520, cutTo: 280, Q: 0.75,
+            dur: 0.055, peak: 0.07 * p * v, pan: sp.pan, attack: 0.008,
+        });
+        this._tone({
+            freq: 92, glideTo: 64, type: 'sine',
+            dur: 0.05, peak: 0.045 * p * v, pan: sp.pan, attack: 0.008,
+        });
     }
 
-    // Ore rock destroyed: the usual crumble plus a glassy crystalline ring —
-    // still physical (broken mineral, not a jingle), brighter per tier so a
-    // shard find is audible across a tunnel.
+    // Ore: the same bloom, plus a warm harmonic glow (fifths, not broken glass).
     oreBreak(x, y, tier = 1) {
-        if (!this._ready() || !this._throttle('oreBreak', 70)) return;
+        if (!this._ready() || !this._throttle('oreBreak', 80)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
         const v = sp.vol * this._busyGain();
-        this._thump({ cut0: 2200, cut1: 150, dur: 0.12, peak: 0.55 * v, pan: sp.pan });
-        // inharmonic glassy partials — pitch and shimmer climb with the tier
-        const base = 620 + tier * 240;
-        this._ring({ freqs: [base, base * 1.53, base * 2.11], dur: 0.16 + tier * 0.04,
-                     peak: 0.10 * v, pan: sp.pan, delay: 0.03 });
-        this._grains({ n: 5 + tier * 2, span: 0.3, cutLo: 1200, cutHi: 4200,
-                       peak: 0.09 * v, pan: sp.pan, delay: 0.05 });
+        const t = Math.max(1, Math.min(4, tier | 0));
+        this._impact({ pan: sp.pan, v, sub: 68, body: 160, bodyTo: 80,
+                       air: 500, weight: 0.36, dur: 0.16 });
+        const base = 330 + t * 55;
+        this._ring({
+            freqs: [base, base * 1.5],
+            dur: 0.22 + t * 0.03,
+            peak: 0.07 * v,
+            pan: sp.pan,
+            delay: 0.03,
+        });
     }
 
-    // You picked up a gem. The one deliberately melodic sound in the game —
-    // a tiny glass "plink" whose pitch climbs while you chain pickups, so
-    // hoovering a fresh pile plays a little rising run. Local player only.
+    // Gem: the one melodic beat. Soft bell, pentatonic chain, no hiss.
     gemPickup(combo = 0) {
-        if (!this._ready()) return;
-        if (!this._throttle('gem', 45)) return;
-        // pentatonic steps keep any chain musical, capped an octave up
+        if (!this._ready() || !this._throttle('gem', 50)) return;
         const steps = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
         const st = steps[Math.min(combo, steps.length - 1)];
-        const f  = 880 * Math.pow(2, st / 12);
-        this._tone({ freq: f, type: 'sine', dur: 0.09, peak: 0.16, attack: 0.002 });
-        this._tone({ freq: f * 2, type: 'sine', dur: 0.05, peak: 0.05, attack: 0.002 });
-        this._hiss({ dur: 0.03, peak: 0.05, lowpass: 6000, attack: 0.001 });
+        const f  = 659.25 * Math.pow(2, st / 12);
+        this._tone({ freq: f, type: 'sine', dur: 0.16, peak: 0.12, attack: 0.01 });
+        this._tone({ freq: f * 1.5, type: 'sine', dur: 0.12, peak: 0.035, delay: 0.012, attack: 0.014 });
     }
 
-    // Vault channel running: a soft mechanical ratchet tick — the sound of
-    // dust pouring into the bank, one notch at a time.
+    // Vault trickle: a tiny wooden clock tick.
     depositTick() {
-        if (!this._ready() || !this._throttle('depositTick', 90)) return;
-        this._thump({ cut0: 1900, cut1: 500, dur: 0.025, peak: 0.10 });
-        this._tone({ freq: 340, type: 'triangle', dur: 0.03, peak: 0.035, attack: 0.001 });
+        if (!this._ready() || !this._throttle('depositTick', 95)) return;
+        this._tone({ freq: 246, glideTo: 196, type: 'sine', dur: 0.04, peak: 0.055, attack: 0.006 });
     }
 
-    // Deposit complete: the vault seals — a heavy soft clunk with a warm
-    // low chime. Wealth is safe now.
+    // Vault seals: warm low bloom + a major-third chime.
     depositDone() {
         if (!this._ready() || !this._throttle('depositDone', 400)) return;
-        this._thump({ cut0: 1200, cut1: 90, dur: 0.14, peak: 0.5 });
-        this._ring({ freqs: [110, 165], dur: 0.16, peak: 0.14 });
-        this._tone({ freq: 440, type: 'sine', dur: 0.22, peak: 0.10, delay: 0.10, attack: 0.01 });
-        this._tone({ freq: 660, type: 'sine', dur: 0.20, peak: 0.06, delay: 0.16, attack: 0.01 });
+        this._impact({ sub: 70, body: 132, bodyTo: 78, air: 380, weight: 0.38, dur: 0.18 });
+        this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.09, delay: 0.08, attack: 0.02 });
+        this._tone({ freq: 494, type: 'sine', dur: 0.26, peak: 0.055, delay: 0.14, attack: 0.024 });
     }
 
-    // Satchel hit the cap: a firm double knock, low and unmissable but calm.
+    // Satchel cap: two soft knocks, like knuckles on a desk.
     satchelFull() {
         if (!this._ready() || !this._throttle('satchelFull', 1500)) return;
-        this._thump({ cut0: 900, cut1: 120, dur: 0.09, peak: 0.4 });
-        this._thump({ cut0: 900, cut1: 120, dur: 0.11, peak: 0.45, delay: 0.13 });
-        this._tone({ freq: 196, type: 'sine', dur: 0.12, peak: 0.08, delay: 0.13 });
+        this._tone({ freq: 164, glideTo: 110, type: 'sine', dur: 0.09, peak: 0.14, attack: 0.008 });
+        this._tone({ freq: 174, glideTo: 116, type: 'sine', dur: 0.11, peak: 0.16, delay: 0.14, attack: 0.008 });
     }
 
-    // Something died in view. Size decides the weight of the impact — all
-    // of them muffled physical hits, scaled from a flick to a soft whump.
+    // Death in view: size = weight of the bloom. Always muffled.
     die(x, y, size = 20) {
         if (!this._ready()) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
         if (size <= 22) {
-            if (!this._throttle('dieS', 60)) return;
+            if (!this._throttle('dieS', 70)) return;
             const v = sp.vol * this._busyGain();
-            this._thump({ cut0: 1600, cut1: 400, dur: 0.03, peak: 0.10 * v, pan: sp.pan });
+            this._puff({ kind: 'brown', cut: 480, cutTo: 240, dur: 0.05,
+                         peak: 0.06 * v, pan: sp.pan, attack: 0.012 });
         } else if (size <= 55) {
-            if (!this._throttle('dieM', 90)) return;
+            if (!this._throttle('dieM', 100)) return;
             const v = sp.vol * this._busyGain();
-            this._thump({ cut0: 1800, cut1: 250, dur: 0.07, peak: 0.32 * v, pan: sp.pan });
-            this._ring({ freqs: [140, 215], dur: 0.06, peak: 0.07 * v, pan: sp.pan });
+            this._impact({ pan: sp.pan, v, sub: 80, body: 150, bodyTo: 90,
+                           air: 400, weight: 0.26, dur: 0.12 });
         } else {
-            if (!this._throttle('dieL', 140)) return;
+            if (!this._throttle('dieL', 150)) return;
             const v = sp.vol * this._busyGain();
-            this._thump({ cut0: 1400, cut1: 100, dur: 0.15, peak: 0.45 * v, pan: sp.pan });
-            this._ring({ freqs: [80, 128], dur: 0.14, peak: 0.12 * v, pan: sp.pan });
-            this._grains({ n: 4, span: 0.16, cutLo: 300, cutHi: 1000, peak: 0.09 * v, pan: sp.pan, delay: 0.04 });
+            this._impact({ pan: sp.pan, v, sub: 58, body: 128, bodyTo: 64,
+                           air: 360, weight: 0.4, dur: 0.2 });
         }
     }
 
-    // You landed a hit. A bright tick that climbs with the tier so a
-    // Critical! is a different sound from chip, without becoming a jingle.
+    // Landed a hit: a rounded mid tick. Crits add a fifth, still in the mids.
     combatHit(tier = 0) {
-        if (!this._ready() || !this._throttle('combatHit', 40)) return;
+        if (!this._ready() || !this._throttle('combatHit', 45)) return;
         const t = Math.max(0, Math.min(2, tier | 0));
         const v = this._busyGain();
-        this._thump({ cut0: 3200 + t * 700, cut1: 700, dur: 0.028, peak: 0.16 * v });
-        this._tone({ freq: 1560 + t * 420, type: 'sine', dur: 0.045 + t * 0.015, peak: 0.055 * v, attack: 0.001 });
-        if (t >= 2) this._tone({ freq: 2340, type: 'triangle', dur: 0.06, peak: 0.04 * v, delay: 0.012, attack: 0.002 });
+        const f = 620 + t * 90;
+        this._tone({ freq: f, glideTo: f * 0.82, type: 'sine',
+                     dur: 0.055 + t * 0.015, peak: 0.09 * v, attack: 0.006 });
+        this._puff({ kind: 'pink', cut: 900, cutTo: 520, Q: 0.7,
+                     dur: 0.035, peak: 0.04 * v, attack: 0.008 });
+        if (t >= 2) this._tone({ freq: f * 1.5, type: 'sine', dur: 0.07,
+                                 peak: 0.035 * v, delay: 0.01, attack: 0.01 });
     }
 
-    // You got hit. A muffled thud; heavier when the chunk of life is bigger.
+    // Took a hit: cushioned thud, heavier with the chunk of life lost.
     combatHurt(frac = 0.3) {
-        if (!this._ready() || !this._throttle('combatHurt', 55)) return;
+        if (!this._ready() || !this._throttle('combatHurt', 60)) return;
         const f = Math.max(0.15, Math.min(1, frac));
         const v = this._busyGain();
-        this._thump({ cut0: 900, cut1: 90, dur: 0.08 + f * 0.05, peak: (0.18 + 0.28 * f) * v });
-        this._tone({ freq: 90 + 40 * f, type: 'sine', dur: 0.07, peak: 0.05 * f * v, attack: 0.002 });
+        this._impact({
+            v, sub: 62, body: 120 + 20 * f, bodyTo: 68,
+            air: 340, weight: 0.22 + 0.22 * f, dur: 0.12 + f * 0.06,
+        });
     }
 
-    // You killed someone. A heavier slam plus a short rising sting.
+    // You got the kill: deeper bloom + a short warm lift. Satisfying, not mean.
     combatKill() {
         if (!this._ready() || !this._throttle('combatKill', 180)) return;
-        this._thump({ cut0: 1800, cut1: 80, dur: 0.16, peak: 0.55 });
-        this._thump({ cut0: 900, cut1: 70, dur: 0.2, peak: 0.32, delay: 0.04 });
-        this._tone({ freq: 220, type: 'sine', dur: 0.12, peak: 0.1, attack: 0.002 });
-        this._tone({ freq: 330, type: 'triangle', dur: 0.16, peak: 0.07, delay: 0.05, attack: 0.004 });
+        this._impact({ sub: 56, body: 138, bodyTo: 66, air: 380, weight: 0.48, dur: 0.2 });
+        this._tone({ freq: 246, type: 'sine', dur: 0.16, peak: 0.08, delay: 0.05, attack: 0.016 });
+        this._tone({ freq: 330, type: 'sine', dur: 0.2, peak: 0.05, delay: 0.1, attack: 0.02 });
     }
 
-    // Banked a milestone. Warm gold hit, not a jingle.
+    // Banked a milestone: gold triad, slow attacks, no noise hit.
     bankCelebrate() {
         if (!this._ready() || !this._throttle('bankCelebrate', 400)) return;
-        this._thump({ cut0: 1600, cut1: 110, dur: 0.14, peak: 0.45 });
-        this._tone({ freq: 392, type: 'sine', dur: 0.22, peak: 0.12, attack: 0.006 });
-        this._tone({ freq: 523, type: 'sine', dur: 0.24, peak: 0.09, delay: 0.06, attack: 0.008 });
-        this._tone({ freq: 784, type: 'sine', dur: 0.28, peak: 0.06, delay: 0.12, attack: 0.01 });
+        this._tone({ freq: 98, type: 'sine', dur: 0.18, peak: 0.1, attack: 0.016 });
+        this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.1, delay: 0.04, attack: 0.02 });
+        this._tone({ freq: 494, type: 'sine', dur: 0.3, peak: 0.07, delay: 0.1, attack: 0.024 });
+        this._tone({ freq: 587, type: 'sine', dur: 0.34, peak: 0.045, delay: 0.16, attack: 0.03 });
     }
 }
 
