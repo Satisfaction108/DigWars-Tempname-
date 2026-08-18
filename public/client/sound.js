@@ -19,7 +19,7 @@ const VOLUME_KEY = 'dw_soundVolume';
 
 // MASTER KILL SWITCH — sound is disabled for now. Flip to true to bring
 // the whole foley system back; every call site stays wired.
-const SOUND_ENABLED = false;
+const SOUND_ENABLED = true;
 
 class GameSound {
     constructor() {
