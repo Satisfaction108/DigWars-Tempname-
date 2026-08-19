@@ -413,6 +413,21 @@ const GunContainer = n => {
         length: a.length,
     };
 };
+
+function gunIsDrone(z, gunIndex) {
+    const idx = z && z.index;
+    if (idx == null || !global.mockups) return false;
+    const parts = String(idx).split("-");
+    let n = 0;
+    for (const part of parts) {
+        const mock = global.mockups[parseInt(part, 10)];
+        if (!mock || !mock.guns) continue;
+        if (gunIndex < n + mock.guns.length) return !!mock.guns[gunIndex - n].drone;
+        n += mock.guns.length;
+    }
+    return false;
+}
+
 function Status() {
     let statState = 'normal',
         statTime = getNow();
@@ -627,6 +642,7 @@ function spawnStructureHit(z) {
 
     if (window.terrainRenderer && window.terrainRenderer.addHitMarker)
         window.terrainRenderer.addHitMarker(hx, hy);
+    if (gameSound.rockHit) gameSound.rockHit(hx, hy, 0, false);
 }
 function applyHitJuice(amount, tier, taken) {
     const t = Math.min(1, Math.max(0, amount) / 100);
@@ -820,8 +836,10 @@ const process = (z = {}) => {
         z.guns.setConfig(i, {color, alpha, strokeWidth, borderless, drawFill, drawAbove, length, width, aspect, angle, direction, offset});
         if (time > global.player.lastUpdate - global.metrics.rendergap) {
             z.guns.fire(i, power);
-            // soft shot pop, spatialised (turret sub-entities have no x/y)
-            if (z.x !== undefined) gameSound.shoot(z.x, z.y, power);
+            if (z.x !== undefined) {
+                if (gunIsDrone(z, i)) gameSound.droneSpawn(z.x, z.y);
+                else gameSound.shoot(z.x, z.y, power);
+            }
         }
     }
 
@@ -1097,16 +1115,30 @@ let incoming = async function(message, socket) {
                 try { global.tutorialPlot = JSON.parse(m[0]); } catch (e) { }
             } break;
             case 'OP': {
-                
-                
-                
-                try { global.outpostState = JSON.parse(m[0]); } catch (e) {  }
+                let next = [];
+                try { next = JSON.parse(m[0]); } catch (e) { break; }
+                const prev = global.outpostState || [];
+                if (prev.length) {
+                    for (const s of next) {
+                        const old = prev.find(p => p.id === s.id);
+                        if (old && s.t && s.t !== old.t && gameSound.bankCelebrate)
+                            gameSound.bankCelebrate();
+                    }
+                }
+                global.outpostState = next;
             } break;
             case 'CC': {
-                
-                
-                
-                try { global.chamberState = JSON.parse(m[0]); } catch (e) {  }
+                let next = [];
+                try { next = JSON.parse(m[0]); } catch (e) { break; }
+                const prev = global.chamberState || [];
+                if (prev.length) {
+                    for (const s of next) {
+                        const old = prev.find(p => p.id === s.id);
+                        if (old && s.st === 1 && old.st !== 1 && gameSound.bankCelebrate)
+                            gameSound.bankCelebrate();
+                    }
+                }
+                global.chamberState = next;
             } break;
             case 'OU': {
                 
@@ -1256,7 +1288,7 @@ let incoming = async function(message, socket) {
                 v.total = m[1];
                 if (v.total > 0 && v.remaining > 0) {
                     if (config.game.gemSounds) gameSound.depositTick();
-                } else if (wasActive && v.total > 0 && v.remaining <= 0) {
+                } else if (wasActive && v.remaining <= 0 && (v.total > 0 || m[1] > 0)) {
                     v.doneAt = performance.now();
                     v.total = 0;
                     v.remaining = 0;

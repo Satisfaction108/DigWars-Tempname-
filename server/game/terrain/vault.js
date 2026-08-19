@@ -6,7 +6,7 @@ const milestones = require('./milestones.js');
 
 const PAD_RADIUS   = 95;    
 const DEPOSIT_RATE = 300;   
-const PROGRESS_MS  = 100;   
+const PROGRESS_MS  = 50;   
 
 let vaults = null;
 
@@ -138,17 +138,18 @@ function tick(actors, dtMs) {
         milestones.checkBanked(body);
 
         const done = d.remaining < 0.5;
+        if (done || now - d.lastTalk >= PROGRESS_MS) {
+            if (!done) d.lastTalk = now;
+            gems.updateSatchel(body);
+            gems.talkGems(body, 0);
+            if (done && body.socket) body.socket.talk('VP', 0, d.total);
+            else talkProgress(body);
+        }
         if (done) {
             body.vaultDeposit = null;
             body.carriedGems = Math.round(body.carriedGems);
             const banked = body.socket ? (body.socket.gemBanked || 0) : (body.botBanked || 0);
             setBanked(body, Math.round(banked));
-        }
-        if (done || now - d.lastTalk >= PROGRESS_MS) {
-            if (!done) d.lastTalk = now;
-            gems.updateSatchel(body);
-            gems.talkGems(body, 0);
-            talkProgress(body);
         }
     }
 }

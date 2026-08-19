@@ -7,7 +7,7 @@ const milestones = require('./milestones.js');
 const PAD_RADIUS   = 95;
 const EFFICIENCY   = 0.8;     
 const DEPOSIT_RATE = 300;     
-const PROGRESS_MS  = 100;
+const PROGRESS_MS  = 50;
 const MIN_DEPOSIT  = 15;
 const HEAL_FRAC_PS = 0.005;   
 const HEAL_GRACE_MS = 5000;   
@@ -212,6 +212,13 @@ function tick(players, dtMs) {
             war.add(body.team, chunk * EFFICIENCY);
         }
         const done = d.remaining < 0.5;
+        if (done || now - d.lastTalk >= PROGRESS_MS) {
+            if (!done) d.lastTalk = now;
+            gems.updateSatchel(body);
+            gems.talkGems(body, 0);
+            if (done && socket) socket.talk('VP', 0, d.total);
+            else talkOutpostProgress(body);
+        }
         if (done) {
             body.outpostDeposit = null;
             body.carriedGems = Math.round(body.carriedGems);
@@ -219,12 +226,6 @@ function tick(players, dtMs) {
                 socket.gemBanked = Math.round(socket.gemBanked);
                 body.bankedGems = socket.gemBanked;
             }
-        }
-        if (done || now - d.lastTalk >= PROGRESS_MS) {
-            if (!done) d.lastTalk = now;
-            gems.updateSatchel(body);
-            gems.talkGems(body, 0);
-            talkOutpostProgress(body);
         }
     }
 }

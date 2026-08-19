@@ -1,5 +1,21 @@
+function isDroneProjectileType(type) {
+    if (type == null) return false;
+    if (Array.isArray(type)) return type.some(isDroneProjectileType);
+    if (typeof type === "string") {
+        const t = type.toLowerCase();
+        return t === "drone" || t === "minion" || t === "swarm" || t === "satellite" || t.includes("drone") || t.includes("minion") || t.includes("swarm");
+    }
+    if (typeof type === "object") {
+        if (isDroneProjectileType(type.TYPE)) return true;
+        const label = (type.LABEL || "").toString().toLowerCase();
+        return label === "drone" || label === "minion" || label === "swarm" || label === "satellite";
+    }
+    return false;
+}
+
 class MockupEntityGun {
     constructor(info) {
+        this.drone = false;
         this.colorUnboxed = {
             base: 16,
             hueShift: 0,
@@ -34,6 +50,9 @@ class MockupEntityGun {
             if (info.PROPERTIES.BORDERLESS != null) this.borderless = info.PROPERTIES.BORDERLESS;
             if (info.PROPERTIES.DRAW_FILL != null) this.drawFill = info.PROPERTIES.DRAW_FILL;
             if (info.PROPERTIES.DRAW_ABOVE) this.drawAbove = info.PROPERTIES.DRAW_ABOVE;
+            const calc = info.PROPERTIES.STAT_CALCULATOR;
+            if (calc === "drone" || calc === "necro" || calc === "swarm") this.drone = true;
+            if (isDroneProjectileType(info.PROPERTIES.TYPE)) this.drone = true;
         }
         let position = info.POSITION;
         if (Array.isArray(position)) {

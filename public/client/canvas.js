@@ -3,6 +3,7 @@ import { util } from "./util.js";
 import { config } from "./config.js";
 import * as socketStuff from "./socketinit.js";
 import { AdvancedRecorder } from "./recorder.js";
+import { gameSound } from "./sound.js";
 let { gui } = socketStuff;
 
 class Canvas {
@@ -331,27 +332,36 @@ class Canvas {
                     if (event.keyCode >= 97 && event.keyCode <= 105) skill = event.keyCode - 97;
                     else if (event.keyCode === 96) skill = 9;
                 }
-                if (skill >= 0) this.socket.talk('x', skill, 1 * global.statMaxing);
+                if (skill >= 0) {
+                    this.socket.talk('x', skill, 1 * global.statMaxing);
+                    gameSound.buildUpgrade();
+                }
             }
             if (global.canUpgrade) {
                 switch (event.keyCode) {
                     case global.KEY_CHOOSE_1:
                         this.socket.talk("U", 0, parseInt(gui.upgrades[0][0]));
+                        gameSound.uiClick();
                         break;
                     case global.KEY_CHOOSE_2:
                         this.socket.talk("U", 1, parseInt(gui.upgrades[1][0]));
+                        gameSound.uiClick();
                         break;
                     case global.KEY_CHOOSE_3:
                         this.socket.talk("U", 2, parseInt(gui.upgrades[2][0]));
+                        gameSound.uiClick();
                         break;
                     case global.KEY_CHOOSE_4:
                         this.socket.talk("U", 3, parseInt(gui.upgrades[3][0]));
+                        gameSound.uiClick();
                         break;
                     case global.KEY_CHOOSE_5:
                         this.socket.talk("U", 4, parseInt(gui.upgrades[4][0]));
+                        gameSound.uiClick();
                         break;
                     case global.KEY_CHOOSE_6:
                         this.socket.talk("U", 5, parseInt(gui.upgrades[5][0]));
+                        gameSound.uiClick();
                         break;
                 }
             }
@@ -447,6 +457,7 @@ class Canvas {
                 let upgradeCheck = global.clickables.upgrade.check(mpos);
                 if (statIndex !== -1) {
                     this.socket.talk('x', statIndex, 0);
+                    gameSound.buildUpgrade();
                 } else if (
                     !global.dailyTankAd.renderUI &&
                     global.clickables.optionsMenu.toggleBoxes.check(mpos) == -1 &&
@@ -513,6 +524,7 @@ class Canvas {
                     global.optionsMenu_Anim.switchMenu_button.set(-40);
                     global.optionsMenu_Anim.mainMenu.set(25);
                     global.optionsMenu_Anim.isOpened = true;
+                    gameSound.uiClick();
                     break;
                 }
                 if (optionsMenu_Switch === 1 ||
@@ -520,12 +532,14 @@ class Canvas {
                     global.optionsMenu_Anim.switchMenu_button.set(0);
                     global.optionsMenu_Anim.mainMenu.set(-500);
                     global.optionsMenu_Anim.isOpened = false;
+                    gameSound.uiClick();
                     break;
                 }
                 if (optionsMenu_tabClick !== -1) {
                     global.optionsMenu_Anim.activeTab = optionsMenu_tabClick;
                     global.optionsMenu_Anim.tabOffset.set(optionsMenu_tabClick);
                     global.optionsMenu_Anim.mainMenuHeight.set(global.optionsMenu_Anim.tabs[optionsMenu_tabClick][1]);
+                    gameSound.uiClick();
                     break;
                 }
                 // Dig Wars vault panel: 10 deposit (reads the typed input),
@@ -540,6 +554,7 @@ class Canvas {
                     } else if (vaultClick === 11) {
                         this.socket.talk('vc');
                     }
+                    gameSound.uiClick();
                     break;
                 }
                 if (optionsMenu_toggleBox !== -1) {
@@ -548,6 +563,7 @@ class Canvas {
                     box.value = !box.value;
                     if (doc) doc.checked = box.value;
                     if (doc) util.submitToLocalStorage(box.id);
+                    gameSound.uiClick();
                     break;
                 }
                 let optionsMenu_themeClick = (global.optionsMenu_Anim.isOpened && global.optionsMenu_Anim.activeTab === 1 && global.optionsMenu_Anim.themeClickables) ? global.optionsMenu_Anim.themeClickables.check(mpos) : -1;
@@ -559,6 +575,7 @@ class Canvas {
                         sel.dispatchEvent(new Event("change"));
                         util.submitToLocalStorage("optColors");
                     }
+                    gameSound.uiClick();
                     break;
                 }
                 // Stop dragging class tree
@@ -567,16 +584,19 @@ class Canvas {
                 }
                 if (global.clickables.classTreeClose.check(mpos) === 0) {
                     global.tankTree("exit");
+                    gameSound.uiClick();
                     break;
                 }
                 
                 // Check zoom buttons
                 if (global.clickables.classTreeZoomIn.check(mpos) === 0) {
                     global.targetTreeScale = Math.min(global.targetTreeScale * 1.2, 8);
+                    gameSound.uiClick();
                     break;
                 }
                 if (global.clickables.classTreeZoomOut.check(mpos) === 1) {
                     global.targetTreeScale = Math.max(global.targetTreeScale / 1.2, 0.5);
+                    gameSound.uiClick();
                     break;
                 }
                 
@@ -597,22 +617,31 @@ class Canvas {
                 }
                 if (respawnCheck !== -1 && !global.disconnected) {
                     this.respawn();
+                    gameSound.uiClick();
                 } else
                 if (reconnectCheck !== -1) {
                     if (global.disconnected) global.reconnect();
+                    gameSound.uiClick();
                 } else
                 if (exitGame !== -1) {
                     if (global.disconnected || (global.died && !global.cannotRespawn)) global.exit();
+                    gameSound.uiClick();
                 } else 
-                if (upgradeIndex !== -1 && upgradeIndex < gui.upgrades.length && !global.dailyTankAd.renderUI) this.socket.talk('U', upgradeIndex, parseInt(gui.upgrades[upgradeIndex][0]));
-                else if (dailyTankUpgrade == true && !global.dailyTankAd.renderUI) {
+                if (upgradeIndex !== -1 && upgradeIndex < gui.upgrades.length && !global.dailyTankAd.renderUI) {
+                    this.socket.talk('U', upgradeIndex, parseInt(gui.upgrades[upgradeIndex][0]));
+                    gameSound.uiClick();
+                } else if (dailyTankUpgrade == true && !global.dailyTankAd.renderUI) {
                     this.socket.talk('U', JSON.stringify([{isDailyUpgrade: true, tank: gui.dailyTank.tank}]), "null");
+                    gameSound.uiClick();
                 } else if (dailyTankAd == true) {
                     this.socket.talk("DTA"); // Request to get an ad
+                    gameSound.uiClick();
                 } else if (dailyTankCloseAd == true && global.dailyTankAd.renderUI) {
                     this.socket.talk("DTAD");
+                    gameSound.uiClick();
                 } else if (global.clickables.skipUpgrades.check(mpos) !== -1) {
                     global.clearUpgrades();
+                    gameSound.uiClick();
                 } else this.socket.cmd.set(primaryFire, false);
                 break;
             case 1:
@@ -800,6 +829,7 @@ class Canvas {
                 let id = touch.identifier;
                 let buttonIndex = global.clickables.mobileButtons.check(mpos);
                 if (buttonIndex !== -1) {
+                    gameSound.uiClick();
                     switch (buttonIndex) {
                         case 0:
                             global.clickables.mobileButtons.active = !global.clickables.mobileButtons.active;
@@ -869,16 +899,22 @@ class Canvas {
                     let reconnectCheck = global.clickables.reconnect.check(mpos);
                     if (reconnectCheck !== -1) {
                         if (global.disconnected) global.reconnect();
+                        gameSound.uiClick();
                     } else if (exitGame !== -1) {
                         if (global.disconnected || global.died) global.exit();
-                    } else if (statIndex !== -1) this.socket.talk("x", statIndex, 0);
-                    else if (global.clickables.skipUpgrades.check(mpos) !== -1)
+                        gameSound.uiClick();
+                    } else if (statIndex !== -1) {
+                        this.socket.talk("x", statIndex, 0);
+                        gameSound.buildUpgrade();
+                    } else if (global.clickables.skipUpgrades.check(mpos) !== -1) {
                         global.clearUpgrades();
-                    else {
+                        gameSound.uiClick();
+                    } else {
                         let upgradeIndex = global.clickables.upgrade.check(mpos);
-                        if (upgradeIndex !== -1)
+                        if (upgradeIndex !== -1) {
                             this.socket.talk("U", upgradeIndex, parseInt(gui.upgrades[upgradeIndex][0]));
-                        else {
+                            gameSound.uiClick();
+                        } else {
                             let onLeft = mpos.x < this.cv.width / 2;
                             if (this.movementTouch === null && onLeft) {
                                 this.movementTouch = id;

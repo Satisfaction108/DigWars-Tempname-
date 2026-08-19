@@ -3595,8 +3595,19 @@ import * as tutorial from './tutorial.js';
             // passes - skip the entity so it never paints a second octagon over
             // the pad (its custom HP bar lives in drawOutposts too). Core
             // chamber boulders are drawn by drawChambers the same way.
-            if (isOutpostBannerEntity(instance)) continue;
-            if (isCoreChamberEntity(instance)) continue;
+            if (isOutpostBannerEntity(instance) || isCoreChamberEntity(instance)) {
+                const rst = instance.render.status.getFade();
+                if (rst < 1 && !instance.deathSounded) {
+                    instance.deathSounded = true;
+                    const x = instance.render.x || instance.x;
+                    const y = instance.render.y || instance.y;
+                    if (isCoreChamberEntity(instance)) gameSound.oreBreak(x, y, 2);
+                    else gameSound.rockBreak(x, y);
+                } else if (rst === 1 && instance.deathSounded) {
+                    instance.deathSounded = false;
+                }
+                continue;
+            }
             let motion = compensation();
             let rst = instance.render.status.getFade();
             // first frame of a death fade: play a size-appropriate sound
@@ -7305,6 +7316,20 @@ import * as tutorial from './tutorial.js';
             drawGUI(tick, util.getScreenRatio());
             tutorial.hook();
             drawTopIndicators();
+            if (global.gameStart && !global.died && !global.disconnected) {
+                let ram = 0;
+                const type = gui && gui.type;
+                if (type) {
+                    const mock = global.mockups[parseInt(String(type).split("-")[0], 10)];
+                    if (mock && (!mock.guns || mock.guns.length === 0)) {
+                        const spd = Math.hypot(global.player.vx || 0, global.player.vy || 0);
+                        ram = Math.max(0, Math.min(1, spd / 8));
+                    }
+                }
+                gameSound.rammerMove(ram);
+            } else {
+                gameSound.rammerMove(0);
+            }
             if (global.gameConnecting && !global.disconnected) {
                 drawConnectingScreen();
             };

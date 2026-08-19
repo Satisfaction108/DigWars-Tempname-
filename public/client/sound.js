@@ -8,6 +8,7 @@
 // Master bus high-cuts the fatiguing band so a bullet-storm stays soft.
 // World sounds are distance-attenuated and stereo-panned, with throttles
 // and busy-ducking so mining never turns into a machine gun.
+// Sample hits live in public/sounds/ and skip the synth color filters.
 //
 // Console API: gameSound.setVolume(0..1), gameSound.mute()
 import { global } from "./global.js";
@@ -19,23 +20,68 @@ const SOUND_ENABLED = true;
 
 const jit = (n, amt = 0.06) => n * (1 - amt + Math.random() * amt * 2);
 
+// Drop files in public/sounds/. Missing optional clips just keep the synth.
+const SAMPLES = {
+    shoot:         '/sounds/shoot.wav',
+    droneSpawn:    '/sounds/drone-spawn.wav',
+    rockHit:       '/sounds/rock-hit.wav',
+    rockBreak:     '/sounds/rock-break.wav',
+    oreBreak:      '/sounds/ore-break.wav',
+    gemPickup:     '/sounds/gem-pickup.wav',
+    combatHit:     '/sounds/combat-hit.wav',
+    combatHurt:    '/sounds/combat-hurt.wav',
+    combatKill:    '/sounds/combat-kill.wav',
+    dieOnScreen:   '/sounds/die-on-screen.wav',
+    satchelFull:   '/sounds/satchel-full.wav',
+    depositTick:   '/sounds/deposit-tick.wav',
+    depositDone:   '/sounds/deposit-done.wav',
+    bankCelebrate: '/sounds/bank-celebrate.mp3',
+    uiClick:       '/sounds/buttonclick.wav',
+    rammerMove:    '/sounds/rammer-move.wav',
+};
+const SAMPLE_FALLBACK = {
+    bankCelebrate: '/sounds/bank-celebrate.wav',
+};
+const REQUIRED_SAMPLES = new Set(['shoot', 'rockBreak', 'oreBreak']);
+
 class GameSound {
     constructor() {
         this.ctx     = null;
-        this.master  = null;
+        this.master  = null;  // colored synth bus
+        this.dry     = null;  // uncolored sample bus (keeps WAVs crisp)
+        this.out     = null;  // synth master volume
+        this.sampleGain = null;
         this._pink   = null;
         this._brown  = null;
+        this._buf    = {};
         this._last   = {};
         this._recent = [];
+        this._shoots = [];
+        this._loops  = {};
         let v = parseFloat(localStorage.getItem(VOLUME_KEY));
         this.volume  = isNaN(v) ? 0.7 : v;
         this._hookGesture();
+        this._hookUiClicks();
     }
 
     _hookGesture() {
         const kick = () => { this._init(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); };
         for (const ev of ['pointerdown', 'keydown', 'touchstart'])
             document.addEventListener(ev, kick, { passive: true });
+    }
+
+    _hookUiClicks() {
+        const hit = (el) => el && el.closest && el.closest(
+            'button, .sp-tab, b[data-key], input[type=checkbox], input[type=range], select, label, #homeSettingsClose, #homeSettingsOverlay'
+        );
+        document.addEventListener('click', (e) => {
+            if (!global.gameStart) return;
+            const el = hit(e.target);
+            if (!el) return;
+            if (el.tagName === 'CANVAS' || (el.id && el.id.startsWith('gameCanvas'))) return;
+            if (el.closest && el.closest('#startMenuWrapper')) return;
+            this.uiClick();
+        }, true);
     }
 
     _init() {
@@ -45,9 +91,12 @@ class GameSound {
         if (!AC) return;
         this.ctx = new AC();
 
-        // gain -> highshelf (cut harsh air) -> gentle lowpass ceiling -> compressor -> out
+        // synth -> highshelf/lowpass (ear-safe) ┐
+        // samples -> dry (uncolored)            ├─> volume -> compressor -> out
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.volume;
+        this.dry    = this.ctx.createGain();
+        this.out    = this.ctx.createGain();
+        this.out.gain.value = this.volume;
 
         const shelf = this.ctx.createBiquadFilter();
         shelf.type = 'highshelf';
@@ -68,11 +117,87 @@ class GameSound {
 
         this.master.connect(shelf);
         shelf.connect(air);
-        air.connect(comp);
+        air.connect(this.out);
+        this.out.connect(comp);
         comp.connect(this.ctx.destination);
+
+        // Samples skip the synth filters AND the compressor so the WAV
+        // plays at the same loudness/tone you hear in a media player.
+        this.sampleGain = this.ctx.createGain();
+        this.sampleGain.gain.value = this.volume;
+        this.dry.connect(this.sampleGain);
+        this.sampleGain.connect(this.ctx.destination);
 
         this._pink  = this._makeNoise('pink');
         this._brown = this._makeNoise('brown');
+        this._loadSamples();
+    }
+
+    async _loadSamples() {
+        await Promise.all(Object.entries(SAMPLES).map(async ([key, url]) => {
+            const urls = [url, SAMPLE_FALLBACK[key]].filter(Boolean);
+            for (const u of urls) {
+                try {
+                    const res = await fetch(u);
+                    if (!res.ok) continue;
+                    const arr = await res.arrayBuffer();
+                    this._buf[key] = await this.ctx.decodeAudioData(arr.slice(0));
+                    return;
+                } catch (e) { /* try fallback */ }
+            }
+            if (REQUIRED_SAMPLES.has(key)) console.warn('sfx failed to load', url);
+        }));
+    }
+
+    // Plays a decoded WAV as-is (no pitch, no filter). Ducking is volume only.
+    _playSample(name, { peak = 1, pan = 0, rate = 1, delay = 0, duck = true } = {}) {
+        const buf = this._buf[name];
+        if (!buf || !this.dry) return false;
+        const t0 = this.ctx.currentTime + delay;
+        const s = this.ctx.createBufferSource();
+        s.buffer = buf;
+        s.playbackRate.value = rate;
+        const g = this.ctx.createGain();
+        const vol = Math.max(0.0001, peak * (duck ? this._busyGain() : 1));
+        g.gain.setValueAtTime(vol, t0);
+        s.connect(g);
+        let node = g;
+        if (this.ctx.createStereoPanner) {
+            const p = this.ctx.createStereoPanner();
+            p.pan.value = pan;
+            g.connect(p);
+            node = p;
+        }
+        node.connect(this.dry);
+        s.start(t0);
+        return true;
+    }
+
+    _ensureLoop(name) {
+        if (this._loops[name]) return this._loops[name];
+        const buf = this._buf[name];
+        if (!buf || !this.dry) return null;
+        const s = this.ctx.createBufferSource();
+        s.buffer = buf;
+        s.loop = true;
+        const g = this.ctx.createGain();
+        g.gain.value = 0.0001;
+        s.connect(g);
+        g.connect(this.dry);
+        s.start();
+        const loop = { src: s, gain: g };
+        this._loops[name] = loop;
+        return loop;
+    }
+
+    _setLoopGain(name, peak) {
+        const loop = this._ensureLoop(name);
+        if (!loop) return false;
+        const t = this.ctx.currentTime;
+        const v = Math.max(0.0001, peak);
+        loop.gain.gain.cancelScheduledValues(t);
+        loop.gain.gain.setTargetAtTime(v, t, 0.08);
+        return true;
     }
 
     _makeNoise(kind) {
@@ -111,7 +236,8 @@ class GameSound {
     setVolume(v) {
         this.volume = Math.max(0, Math.min(1, v));
         localStorage.setItem(VOLUME_KEY, this.volume);
-        if (this.master) this.master.gain.value = this.volume;
+        if (this.out) this.out.gain.value = this.volume;
+        if (this.sampleGain) this.sampleGain.gain.value = this.volume;
     }
     mute() { this.setVolume(0); }
 
@@ -139,9 +265,16 @@ class GameSound {
 
     _busyGain() {
         const now = performance.now();
-        this._recent = this._recent.filter(t => now - t < 280);
+        this._recent = this._recent.filter(t => now - t < 220);
         this._recent.push(now);
-        return 1 / Math.sqrt(Math.max(1, this._recent.length * 0.75));
+        return Math.max(0.55, 1 / Math.sqrt(Math.max(1, this._recent.length * 0.55)));
+    }
+
+    _shootDuck() {
+        const now = performance.now();
+        this._shoots = this._shoots.filter(t => now - t < 160);
+        this._shoots.push(now);
+        return Math.max(0.2, 1 / Math.sqrt(Math.max(1, this._shoots.length * 1.1)));
     }
 
     // Rounded envelope: never a click. Attack is the difference between
@@ -250,10 +383,12 @@ class GameSound {
     // Mining chip: a hollow wooden "tok". Progress brightens the body a little,
     // never the noise. Soft/graze hits are almost a murmur.
     rockHit(x, y, stage = 0, soft = false) {
-        if (!this._ready() || !this._throttle('rockHit', soft ? 130 : 55)) return;
+        if (!this._ready() || !this._throttle('rockHit', soft ? 140 : 70)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol * this._busyGain() * (soft ? 0.28 : 1);
+        const v = sp.vol * (soft ? 0.55 : 1);
+        // File is much quieter than shoot; gain is volume-only so chips cut through.
+        if (this._playSample('rockHit', { peak: 8 * v, pan: sp.pan, duck: false })) return;
         const st = 1 + stage * 0.07;
         this._tone({
             freq: 196 * st, glideTo: 128 * st, type: 'sine',
@@ -265,12 +400,13 @@ class GameSound {
         });
     }
 
-    // Rock gone: a cushioned bloom — tension releasing, not a crumble.
+    // Rock gone: the break WAV. Synth fallback if it has not loaded.
     rockBreak(x, y) {
         if (!this._ready() || !this._throttle('rockBreak', 80)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol * this._busyGain();
+        const v = sp.vol;
+        if (this._playSample('rockBreak', { peak: 1.65 * v, pan: sp.pan, duck: false })) return;
         this._impact({ pan: sp.pan, v, sub: 64, body: 148, bodyTo: 72,
                        air: 420, weight: 0.42, dur: 0.18 });
         this._tone({ freq: 98, type: 'sine', dur: 0.22, peak: 0.08 * v,
@@ -282,8 +418,9 @@ class GameSound {
         if (!this._ready() || !this._throttle('shoot', 60)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol * this._busyGain();
+        const v = sp.vol;
         const p = Math.min(1.5, 0.55 + (power || 1) * 0.4);
+        if (this._playSample('shoot', { peak: 0.28 * v * this._shootDuck(), pan: sp.pan, duck: false })) return;
         this._puff({
             kind: 'brown', cut: 520, cutTo: 280, Q: 0.75,
             dur: 0.055, peak: 0.07 * p * v, pan: sp.pan, attack: 0.008,
@@ -294,13 +431,51 @@ class GameSound {
         });
     }
 
-    // Ore: the same bloom, plus a warm harmonic glow (fifths, not broken glass).
+    // Drone / swarm / minion leaving the barrel. Never used for bullets.
+    droneSpawn(x, y) {
+        if (!this._ready() || !this._throttle('droneSpawn', 90)) return;
+        const sp = this._spatial(x, y);
+        if (!sp) return;
+        if (this._playSample('droneSpawn', { peak: 0.48 * sp.vol, pan: sp.pan, rate: 1.28, duck: false })) return;
+        this._puff({
+            kind: 'brown', cut: 380, cutTo: 160, Q: 0.6,
+            dur: 0.09, peak: 0.06 * sp.vol, pan: sp.pan, attack: 0.012,
+        });
+        this._tone({
+            freq: 148, glideTo: 92, type: 'sine',
+            dur: 0.1, peak: 0.04 * sp.vol, pan: sp.pan, attack: 0.012,
+        });
+    }
+
+    // In-game UI: settings, keybinds, options, close, chat toggle, tank upgrade.
+    uiClick() {
+        if (!global.gameStart || !this._ready() || !this._throttle('uiClick', 70)) return;
+        if (this._playSample('uiClick', { peak: 0.7, duck: false })) return;
+        this._tone({ freq: 420, glideTo: 310, type: 'sine', dur: 0.04, peak: 0.05, attack: 0.004 });
+    }
+
+    // Skill / build bar. Same click as the rest of the in-game UI.
+    buildUpgrade() {
+        this.uiClick();
+    }
+
+    // Soft air-hum while a rammer (no body guns) is moving. Not treads, not metal.
+    rammerMove(amount = 0) {
+        if (!this._ready()) return;
+        const a = Math.max(0, Math.min(1, amount));
+        if (!this._buf.rammerMove) return;
+        if (a < 0.02 && !this._loops.rammerMove) return;
+        this._setLoopGain('rammerMove', 0.5 * a);
+    }
+
+    // Ore rock destroyed.
     oreBreak(x, y, tier = 1) {
         if (!this._ready() || !this._throttle('oreBreak', 80)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol * this._busyGain();
+        const v = sp.vol;
         const t = Math.max(1, Math.min(4, tier | 0));
+        if (this._playSample('oreBreak', { peak: 1.65 * v, pan: sp.pan, duck: false })) return;
         this._impact({ pan: sp.pan, v, sub: 68, body: 160, bodyTo: 80,
                        air: 500, weight: 0.36, dur: 0.16 });
         const base = 330 + t * 55;
@@ -317,7 +492,8 @@ class GameSound {
     gemPickup(combo = 0) {
         if (!this._ready() || !this._throttle('gem', 50)) return;
         const steps = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
-        const st = steps[Math.min(combo, steps.length - 1)];
+        const st = steps[Math.min(combo, 4)];
+        if (this._playSample('gemPickup', { duck: false })) return;
         const f  = 659.25 * Math.pow(2, st / 12);
         this._tone({ freq: f, type: 'sine', dur: 0.16, peak: 0.12, attack: 0.01 });
         this._tone({ freq: f * 1.5, type: 'sine', dur: 0.12, peak: 0.035, delay: 0.012, attack: 0.014 });
@@ -325,13 +501,15 @@ class GameSound {
 
     // Vault trickle: a tiny wooden clock tick.
     depositTick() {
-        if (!this._ready() || !this._throttle('depositTick', 95)) return;
+        if (!this._ready() || !this._throttle('depositTick', 40)) return;
+        if (this._playSample('depositTick')) return;
         this._tone({ freq: 246, glideTo: 196, type: 'sine', dur: 0.04, peak: 0.055, attack: 0.006 });
     }
 
     // Vault seals: warm low bloom + a major-third chime.
     depositDone() {
         if (!this._ready() || !this._throttle('depositDone', 400)) return;
+        if (this._playSample('depositDone', { duck: false })) return;
         this._impact({ sub: 70, body: 132, bodyTo: 78, air: 380, weight: 0.38, dur: 0.18 });
         this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.09, delay: 0.08, attack: 0.02 });
         this._tone({ freq: 494, type: 'sine', dur: 0.26, peak: 0.055, delay: 0.14, attack: 0.024 });
@@ -340,11 +518,16 @@ class GameSound {
     // Satchel cap: two soft knocks, like knuckles on a desk.
     satchelFull() {
         if (!this._ready() || !this._throttle('satchelFull', 1500)) return;
+        if (this._playSample('satchelFull', { delay: 0, duck: false })) {
+            this._playSample('satchelFull', { delay: 0.22, duck: false });
+            this._playSample('satchelFull', { delay: 0.44, duck: false });
+            return;
+        }
         this._tone({ freq: 164, glideTo: 110, type: 'sine', dur: 0.09, peak: 0.14, attack: 0.008 });
         this._tone({ freq: 174, glideTo: 116, type: 'sine', dur: 0.11, peak: 0.16, delay: 0.14, attack: 0.008 });
     }
 
-    // Death in view: size = weight of the bloom. Always muffled.
+    // Death in view (tanks, not bullets). Person-died clip, spatial.
     die(x, y, size = 20) {
         if (!this._ready()) return;
         const sp = this._spatial(x, y);
@@ -355,23 +538,26 @@ class GameSound {
             this._puff({ kind: 'brown', cut: 480, cutTo: 240, dur: 0.05,
                          peak: 0.06 * v, pan: sp.pan, attack: 0.012 });
         } else if (size <= 55) {
-            if (!this._throttle('dieM', 100)) return;
+            if (!this._throttle('dieM', 140)) return;
             const v = sp.vol * this._busyGain();
+            if (this._playSample('dieOnScreen', { peak: sp.vol, pan: sp.pan, duck: false })) return;
             this._impact({ pan: sp.pan, v, sub: 80, body: 150, bodyTo: 90,
                            air: 400, weight: 0.26, dur: 0.12 });
         } else {
-            if (!this._throttle('dieL', 150)) return;
+            if (!this._throttle('dieL', 180)) return;
             const v = sp.vol * this._busyGain();
+            if (this._playSample('dieOnScreen', { peak: sp.vol, pan: sp.pan, duck: false })) return;
             this._impact({ pan: sp.pan, v, sub: 58, body: 128, bodyTo: 64,
                            air: 360, weight: 0.4, dur: 0.2 });
         }
     }
 
-    // Landed a hit: a rounded mid tick. Crits add a fifth, still in the mids.
+    // You hit another player. Damage.wav — kept quieter than a shoot.
     combatHit(tier = 0) {
         if (!this._ready() || !this._throttle('combatHit', 45)) return;
         const t = Math.max(0, Math.min(2, tier | 0));
         const v = this._busyGain();
+        if (this._playSample('combatHit')) return;
         const f = 620 + t * 90;
         this._tone({ freq: f, glideTo: f * 0.82, type: 'sine',
                      dur: 0.055 + t * 0.015, peak: 0.09 * v, attack: 0.006 });
@@ -381,11 +567,12 @@ class GameSound {
                                  peak: 0.035 * v, delay: 0.01, attack: 0.01 });
     }
 
-    // Took a hit: cushioned thud, heavier with the chunk of life lost.
+    // You took a hit. Gettinghit.wav — also kept quiet.
     combatHurt(frac = 0.3) {
         if (!this._ready() || !this._throttle('combatHurt', 60)) return;
         const f = Math.max(0.15, Math.min(1, frac));
         const v = this._busyGain();
+        if (this._playSample('combatHurt')) return;
         this._impact({
             v, sub: 62, body: 120 + 20 * f, bodyTo: 68,
             air: 340, weight: 0.22 + 0.22 * f, dur: 0.12 + f * 0.06,
@@ -395,6 +582,7 @@ class GameSound {
     // You got the kill: deeper bloom + a short warm lift. Satisfying, not mean.
     combatKill() {
         if (!this._ready() || !this._throttle('combatKill', 180)) return;
+        if (this._playSample('combatKill', { duck: false })) return;
         this._impact({ sub: 56, body: 138, bodyTo: 66, air: 380, weight: 0.48, dur: 0.2 });
         this._tone({ freq: 246, type: 'sine', dur: 0.16, peak: 0.08, delay: 0.05, attack: 0.016 });
         this._tone({ freq: 330, type: 'sine', dur: 0.2, peak: 0.05, delay: 0.1, attack: 0.02 });
@@ -403,6 +591,7 @@ class GameSound {
     // Banked a milestone: gold triad, slow attacks, no noise hit.
     bankCelebrate() {
         if (!this._ready() || !this._throttle('bankCelebrate', 400)) return;
+        if (this._playSample('bankCelebrate', { peak: 1.45, duck: false })) return;
         this._tone({ freq: 98, type: 'sine', dur: 0.18, peak: 0.1, attack: 0.016 });
         this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.1, delay: 0.04, attack: 0.02 });
         this._tone({ freq: 494, type: 'sine', dur: 0.3, peak: 0.07, delay: 0.1, attack: 0.024 });
