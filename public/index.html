@@ -82,6 +82,7 @@
         </div>
         <div class="sp-tabs">
             <span class="sp-tab active" data-tab="sp-options">Options</span>
+            <span class="sp-tab" data-tab="sp-sound">Sound</span>
             <span class="sp-tab sp-desktop-only" data-tab="sp-keybinds">Keybinds</span>
         </div>
         <div class="sp-body">
@@ -192,6 +193,27 @@
                 <div class="sp-checks mobile-only">
                     <label class="container"><input id="showCrosshair" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Show Crosshair</label>
                     <label class="container"><input id="showJoystick" tabindex="-1" class="checkbox" type="checkbox"><span class="checkmark"></span>Show Joystick</label>
+                </div>
+            </div>
+
+            <div id="sp-sound" class="sp-pane">
+                <div class="sp-label">Master</div>
+                <div class="sp-checks">
+                    <label class="container"><input id="sfxOn" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Sound Effects</label>
+                    <label class="container"><input id="sfxHeadphones" class="checkbox" type="checkbox" checked><span class="checkmark"></span>3D Headphones</label>
+                </div>
+                <div class="sp-slider">
+                    <span>Main Volume</span>
+                    <input id="sfxVolume" type="range" min="0" max="100" value="70">
+                    <b id="sfxVolumeVal">70%</b>
+                </div>
+                <div class="sp-label">Types</div>
+                <div id="sfxMix"></div>
+                <div class="sp-label">Extra</div>
+                <div class="sp-checks">
+                    <label class="container"><input id="sfxBusyDuck" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Soften overlapping shots</label>
+                    <label class="container"><input id="sfxFarSounds" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Hear far-away sounds</label>
+                    <label class="container"><input id="sfxMuteHidden" class="checkbox" type="checkbox" checked><span class="checkmark"></span>Mute when tabbed out</label>
                 </div>
             </div>
 

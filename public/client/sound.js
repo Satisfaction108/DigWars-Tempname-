@@ -14,6 +14,62 @@
 import { global } from "./global.js";
 
 const VOLUME_KEY = 'dw_soundVolume';
+const PREFS_KEY = 'dw_soundPrefs';
+
+const MIX_CATS = [
+    { id: 'combat',      label: 'Combat' },
+    { id: 'deaths',      label: 'Deaths' },
+    { id: 'guns',        label: 'Guns' },
+    { id: 'drones',      label: 'Drones' },
+    { id: 'mining',      label: 'Mining' },
+    { id: 'gems',        label: 'Gems' },
+    { id: 'depositing',  label: 'Depositing' },
+    { id: 'celebration', label: 'Bank Celebration' },
+    { id: 'ui',          label: 'Menu & Upgrades' },
+    { id: 'movement',    label: 'Rammer Movement' },
+];
+
+function defaultPrefs() {
+    const cats = {}, catOn = {};
+    for (const c of MIX_CATS) { cats[c.id] = 1; catOn[c.id] = true; }
+    let vol = parseFloat(localStorage.getItem(VOLUME_KEY));
+    if (isNaN(vol)) vol = 0.7;
+    return {
+        enabled: true,
+        headphones3d: true,
+        volume: vol,
+        busyDuck: true,
+        farSounds: true,
+        muteHidden: true,
+        cats, catOn,
+    };
+}
+
+function loadPrefs() {
+    const d = defaultPrefs();
+    try {
+        const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
+        if (!raw || typeof raw !== 'object') return d;
+        if (typeof raw.enabled === 'boolean') d.enabled = raw.enabled;
+        if (typeof raw.headphones3d === 'boolean') d.headphones3d = raw.headphones3d;
+        if (typeof raw.volume === 'number') d.volume = Math.max(0, Math.min(1, raw.volume));
+        if (typeof raw.busyDuck === 'boolean') d.busyDuck = raw.busyDuck;
+        if (typeof raw.farSounds === 'boolean') d.farSounds = raw.farSounds;
+        if (typeof raw.muteHidden === 'boolean') d.muteHidden = raw.muteHidden;
+        if (raw.cats && typeof raw.cats === 'object') {
+            for (const c of MIX_CATS) {
+                const n = parseFloat(raw.cats[c.id]);
+                if (!isNaN(n)) d.cats[c.id] = Math.max(0, Math.min(1, n));
+            }
+        }
+        if (raw.catOn && typeof raw.catOn === 'object') {
+            for (const c of MIX_CATS) {
+                if (typeof raw.catOn[c.id] === 'boolean') d.catOn[c.id] = raw.catOn[c.id];
+            }
+        }
+    } catch (e) { /* keep defaults */ }
+    return d;
+}
 
 // MASTER KILL SWITCH — flip to false to silence everything; call sites stay wired.
 const SOUND_ENABLED = true;
@@ -58,10 +114,19 @@ class GameSound {
         this._recent = [];
         this._shoots = [];
         this._loops  = {};
-        let v = parseFloat(localStorage.getItem(VOLUME_KEY));
-        this.volume  = isNaN(v) ? 0.7 : v;
+        const prefs = loadPrefs();
+        this.enabled = prefs.enabled;
+        this.headphones3d = prefs.headphones3d;
+        this.volume = prefs.volume;
+        this.busyDuck = prefs.busyDuck;
+        this.farSounds = prefs.farSounds;
+        this.muteHidden = prefs.muteHidden;
+        this.cats = prefs.cats;
+        this.catOn = prefs.catOn;
+        this._tabHidden = false;
         this._hookGesture();
         this._hookUiClicks();
+        this._hookPrefsUi();
     }
 
     _hookGesture() {
@@ -84,6 +149,108 @@ class GameSound {
         }, true);
     }
 
+    _savePrefs() {
+        const prefs = {
+            enabled: this.enabled,
+            headphones3d: this.headphones3d,
+            volume: this.volume,
+            busyDuck: this.busyDuck,
+            farSounds: this.farSounds,
+            muteHidden: this.muteHidden,
+            cats: { ...this.cats },
+            catOn: { ...this.catOn },
+        };
+        localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+        localStorage.setItem(VOLUME_KEY, this.volume);
+    }
+
+    _applyMaster() {
+        const live = SOUND_ENABLED && this.enabled && this.volume > 0 && !(this.muteHidden && this._tabHidden);
+        const g = live ? this.volume : 0;
+        if (this.out) this.out.gain.value = g;
+        if (this.sampleGain) this.sampleGain.gain.value = g;
+        if (!live && this._loops.rammerMove) this._setLoopGain('rammerMove', 0.0001);
+        const pane = document.getElementById('sp-sound');
+        if (pane) pane.classList.toggle('is-muted', !this.enabled);
+    }
+
+    _mix(cat) {
+        if (!SOUND_ENABLED || !this.enabled) return 0;
+        if (this.muteHidden && this._tabHidden) return 0;
+        if (!this.ctx || this.ctx.state !== 'running' || this.volume <= 0) return 0;
+        if (cat && this.catOn[cat] === false) return 0;
+        return cat ? (this.cats[cat] ?? 1) : 1;
+    }
+
+    _hookPrefsUi() {
+        const boot = () => {
+            const pane = document.getElementById('sp-sound');
+            const mixHost = document.getElementById('sfxMix');
+            if (!pane || !mixHost || mixHost.dataset.ready) return;
+            mixHost.dataset.ready = '1';
+            mixHost.className = 'sp-mix';
+            for (const c of MIX_CATS) {
+                const row = document.createElement('div');
+                row.className = 'sp-mix-row';
+                row.innerHTML =
+                    `<label class="container"><input class="checkbox" type="checkbox" data-sfx-on="${c.id}" ${this.catOn[c.id] ? 'checked' : ''}><span class="checkmark"></span></label>` +
+                    `<span>${c.label}</span>` +
+                    `<input type="range" min="0" max="100" value="${Math.round((this.cats[c.id] ?? 1) * 100)}" data-sfx-vol="${c.id}">` +
+                    `<b data-sfx-val="${c.id}">${Math.round((this.cats[c.id] ?? 1) * 100)}%</b>`;
+                mixHost.appendChild(row);
+            }
+            const on = document.getElementById('sfxOn');
+            const hp = document.getElementById('sfxHeadphones');
+            const vol = document.getElementById('sfxVolume');
+            const volVal = document.getElementById('sfxVolumeVal');
+            const duck = document.getElementById('sfxBusyDuck');
+            const far = document.getElementById('sfxFarSounds');
+            const hide = document.getElementById('sfxMuteHidden');
+            if (on) on.checked = this.enabled;
+            if (hp) hp.checked = this.headphones3d;
+            if (vol) vol.value = String(Math.round(this.volume * 100));
+            if (volVal) volVal.textContent = Math.round(this.volume * 100) + '%';
+            if (duck) duck.checked = this.busyDuck;
+            if (far) far.checked = this.farSounds;
+            if (hide) hide.checked = this.muteHidden;
+            pane.classList.toggle('is-muted', !this.enabled);
+
+            pane.addEventListener('change', (e) => {
+                const t = e.target;
+                if (!t) return;
+                if (t.id === 'sfxOn') this.enabled = t.checked;
+                else if (t.id === 'sfxHeadphones') this.headphones3d = t.checked;
+                else if (t.id === 'sfxBusyDuck') this.busyDuck = t.checked;
+                else if (t.id === 'sfxFarSounds') this.farSounds = t.checked;
+                else if (t.id === 'sfxMuteHidden') this.muteHidden = t.checked;
+                else if (t.dataset.sfxOn) this.catOn[t.dataset.sfxOn] = t.checked;
+                this._savePrefs();
+                this._applyMaster();
+            });
+            pane.addEventListener('input', (e) => {
+                const t = e.target;
+                if (!t) return;
+                if (t.id === 'sfxVolume') {
+                    this.setVolume(parseInt(t.value, 10) / 100);
+                    if (volVal) volVal.textContent = t.value + '%';
+                    return;
+                }
+                const id = t.dataset.sfxVol;
+                if (!id) return;
+                this.cats[id] = Math.max(0, Math.min(1, parseInt(t.value, 10) / 100));
+                const lab = pane.querySelector(`[data-sfx-val="${id}"]`);
+                if (lab) lab.textContent = t.value + '%';
+                this._savePrefs();
+            });
+            document.addEventListener('visibilitychange', () => {
+                this._tabHidden = document.hidden;
+                this._applyMaster();
+            });
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+        else boot();
+    }
+
     _init() {
         if (!SOUND_ENABLED) return;
         if (this.ctx) return;
@@ -96,7 +263,6 @@ class GameSound {
         this.master = this.ctx.createGain();
         this.dry    = this.ctx.createGain();
         this.out    = this.ctx.createGain();
-        this.out.gain.value = this.volume;
 
         const shelf = this.ctx.createBiquadFilter();
         shelf.type = 'highshelf';
@@ -124,9 +290,9 @@ class GameSound {
         // Samples skip the synth filters AND the compressor so the WAV
         // plays at the same loudness/tone you hear in a media player.
         this.sampleGain = this.ctx.createGain();
-        this.sampleGain.gain.value = this.volume;
         this.dry.connect(this.sampleGain);
         this.sampleGain.connect(this.ctx.destination);
+        this._applyMaster();
 
         this._pink  = this._makeNoise('pink');
         this._brown = this._makeNoise('brown');
@@ -235,24 +401,23 @@ class GameSound {
 
     setVolume(v) {
         this.volume = Math.max(0, Math.min(1, v));
-        localStorage.setItem(VOLUME_KEY, this.volume);
-        if (this.out) this.out.gain.value = this.volume;
-        if (this.sampleGain) this.sampleGain.gain.value = this.volume;
+        this._savePrefs();
+        this._applyMaster();
     }
     mute() { this.setVolume(0); }
 
-    _ready() { return this.ctx && this.ctx.state === 'running' && this.volume > 0; }
+    _ready(cat) { return this._mix(cat) > 0; }
 
     _spatial(x, y) {
         const lx = global.player ? global.player.renderx : 0;
         const ly = global.player ? global.player.rendery : 0;
         const dx = x - lx, dy = y - ly;
         const d  = Math.hypot(dx, dy);
-        const MAXD = 3200;
+        const MAXD = this.farSounds ? 3200 : 1400;
         if (d > MAXD) return null;
         const t   = Math.max(0, (d - 500) / (MAXD - 500));
         const vol = (1 - t) * (1 - t);
-        const pan = Math.max(-0.75, Math.min(0.75, dx / 1600));
+        const pan = this.headphones3d ? Math.max(-0.75, Math.min(0.75, dx / 1600)) : 0;
         return { vol, pan };
     }
 
@@ -264,6 +429,7 @@ class GameSound {
     }
 
     _busyGain() {
+        if (!this.busyDuck) return 1;
         const now = performance.now();
         this._recent = this._recent.filter(t => now - t < 220);
         this._recent.push(now);
@@ -271,6 +437,7 @@ class GameSound {
     }
 
     _shootDuck() {
+        if (!this.busyDuck) return 1;
         const now = performance.now();
         this._shoots = this._shoots.filter(t => now - t < 160);
         this._shoots.push(now);
@@ -383,10 +550,11 @@ class GameSound {
     // Mining chip: a hollow wooden "tok". Progress brightens the body a little,
     // never the noise. Soft/graze hits are almost a murmur.
     rockHit(x, y, stage = 0, soft = false) {
-        if (!this._ready() || !this._throttle('rockHit', soft ? 140 : 70)) return;
+        const m = this._mix('mining');
+        if (!m || !this._throttle('rockHit', soft ? 140 : 70)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol * (soft ? 0.55 : 1);
+        const v = sp.vol * (soft ? 0.55 : 1) * m;
         // File is much quieter than shoot; gain is volume-only so chips cut through.
         if (this._playSample('rockHit', { peak: 8 * v, pan: sp.pan, duck: false })) return;
         const st = 1 + stage * 0.07;
@@ -402,10 +570,11 @@ class GameSound {
 
     // Rock gone: the break WAV. Synth fallback if it has not loaded.
     rockBreak(x, y) {
-        if (!this._ready() || !this._throttle('rockBreak', 80)) return;
+        const m = this._mix('mining');
+        if (!m || !this._throttle('rockBreak', 80)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol;
+        const v = sp.vol * m;
         if (this._playSample('rockBreak', { peak: 1.65 * v, pan: sp.pan, duck: false })) return;
         this._impact({ pan: sp.pan, v, sub: 64, body: 148, bodyTo: 72,
                        air: 420, weight: 0.42, dur: 0.18 });
@@ -415,10 +584,11 @@ class GameSound {
 
     // Gun: a muted air pulse. Texture in a fight, never a pew and never a clap.
     shoot(x, y, power = 1) {
-        if (!this._ready() || !this._throttle('shoot', 60)) return;
+        const m = this._mix('guns');
+        if (!m || !this._throttle('shoot', 60)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol;
+        const v = sp.vol * m;
         const p = Math.min(1.5, 0.55 + (power || 1) * 0.4);
         if (this._playSample('shoot', { peak: 0.28 * v * this._shootDuck(), pan: sp.pan, duck: false })) return;
         this._puff({
@@ -433,25 +603,27 @@ class GameSound {
 
     // Drone / swarm / minion leaving the barrel. Never used for bullets.
     droneSpawn(x, y) {
-        if (!this._ready() || !this._throttle('droneSpawn', 90)) return;
+        const m = this._mix('drones');
+        if (!m || !this._throttle('droneSpawn', 90)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        if (this._playSample('droneSpawn', { peak: 0.48 * sp.vol, pan: sp.pan, rate: 1.28, duck: false })) return;
+        if (this._playSample('droneSpawn', { peak: 0.48 * sp.vol * m, pan: sp.pan, rate: 1.28, duck: false })) return;
         this._puff({
             kind: 'brown', cut: 380, cutTo: 160, Q: 0.6,
-            dur: 0.09, peak: 0.06 * sp.vol, pan: sp.pan, attack: 0.012,
+            dur: 0.09, peak: 0.06 * sp.vol * m, pan: sp.pan, attack: 0.012,
         });
         this._tone({
             freq: 148, glideTo: 92, type: 'sine',
-            dur: 0.1, peak: 0.04 * sp.vol, pan: sp.pan, attack: 0.012,
+            dur: 0.1, peak: 0.04 * sp.vol * m, pan: sp.pan, attack: 0.012,
         });
     }
 
     // In-game UI: settings, keybinds, options, close, chat toggle, tank upgrade.
     uiClick() {
-        if (!global.gameStart || !this._ready() || !this._throttle('uiClick', 70)) return;
-        if (this._playSample('uiClick', { peak: 0.7, duck: false })) return;
-        this._tone({ freq: 420, glideTo: 310, type: 'sine', dur: 0.04, peak: 0.05, attack: 0.004 });
+        const m = this._mix('ui');
+        if (!global.gameStart || !m || !this._throttle('uiClick', 70)) return;
+        if (this._playSample('uiClick', { peak: 0.7 * m, duck: false })) return;
+        this._tone({ freq: 420, glideTo: 310, type: 'sine', dur: 0.04, peak: 0.05 * m, attack: 0.004 });
     }
 
     // Skill / build bar. Same click as the rest of the in-game UI.
@@ -461,19 +633,24 @@ class GameSound {
 
     // Soft air-hum while a rammer (no body guns) is moving. Not treads, not metal.
     rammerMove(amount = 0) {
-        if (!this._ready()) return;
+        const m = this._mix('movement');
+        if (!m) {
+            if (this._loops.rammerMove) this._setLoopGain('rammerMove', 0.0001);
+            return;
+        }
         const a = Math.max(0, Math.min(1, amount));
         if (!this._buf.rammerMove) return;
         if (a < 0.02 && !this._loops.rammerMove) return;
-        this._setLoopGain('rammerMove', 0.5 * a);
+        this._setLoopGain('rammerMove', 0.5 * a * m);
     }
 
     // Ore rock destroyed.
     oreBreak(x, y, tier = 1) {
-        if (!this._ready() || !this._throttle('oreBreak', 80)) return;
+        const m = this._mix('mining');
+        if (!m || !this._throttle('oreBreak', 80)) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
-        const v = sp.vol;
+        const v = sp.vol * m;
         const t = Math.max(1, Math.min(4, tier | 0));
         if (this._playSample('oreBreak', { peak: 1.65 * v, pan: sp.pan, duck: false })) return;
         this._impact({ pan: sp.pan, v, sub: 68, body: 160, bodyTo: 80,
@@ -490,74 +667,76 @@ class GameSound {
 
     // Gem: the one melodic beat. Soft bell, pentatonic chain, no hiss.
     gemPickup(combo = 0) {
-        if (!this._ready() || !this._throttle('gem', 50)) return;
+        const m = this._mix('gems');
+        if (!m || !this._throttle('gem', 50)) return;
         const steps = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
         const st = steps[Math.min(combo, 4)];
-        if (this._playSample('gemPickup', { duck: false })) return;
+        if (this._playSample('gemPickup', { peak: m, duck: false })) return;
         const f  = 659.25 * Math.pow(2, st / 12);
-        this._tone({ freq: f, type: 'sine', dur: 0.16, peak: 0.12, attack: 0.01 });
-        this._tone({ freq: f * 1.5, type: 'sine', dur: 0.12, peak: 0.035, delay: 0.012, attack: 0.014 });
+        this._tone({ freq: f, type: 'sine', dur: 0.16, peak: 0.12 * m, attack: 0.01 });
+        this._tone({ freq: f * 1.5, type: 'sine', dur: 0.12, peak: 0.035 * m, delay: 0.012, attack: 0.014 });
     }
 
     // Vault trickle: a tiny wooden clock tick.
     depositTick() {
-        if (!this._ready() || !this._throttle('depositTick', 40)) return;
-        if (this._playSample('depositTick')) return;
-        this._tone({ freq: 246, glideTo: 196, type: 'sine', dur: 0.04, peak: 0.055, attack: 0.006 });
+        const m = this._mix('depositing');
+        if (!m || !this._throttle('depositTick', 40)) return;
+        if (this._playSample('depositTick', { peak: m })) return;
+        this._tone({ freq: 246, glideTo: 196, type: 'sine', dur: 0.04, peak: 0.055 * m, attack: 0.006 });
     }
 
-    // Vault seals: warm low bloom + a major-third chime.
     depositDone() {
-        if (!this._ready() || !this._throttle('depositDone', 400)) return;
-        if (this._playSample('depositDone', { duck: false })) return;
-        this._impact({ sub: 70, body: 132, bodyTo: 78, air: 380, weight: 0.38, dur: 0.18 });
-        this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.09, delay: 0.08, attack: 0.02 });
-        this._tone({ freq: 494, type: 'sine', dur: 0.26, peak: 0.055, delay: 0.14, attack: 0.024 });
+        const m = this._mix('depositing');
+        if (!m || !this._throttle('depositDone', 400)) return;
+        if (this._playSample('depositDone', { peak: m, duck: false })) return;
+        this._impact({ sub: 70, body: 132, bodyTo: 78, air: 380, weight: 0.38 * m, dur: 0.18 });
+        this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.09 * m, delay: 0.08, attack: 0.02 });
+        this._tone({ freq: 494, type: 'sine', dur: 0.26, peak: 0.055 * m, delay: 0.14, attack: 0.024 });
     }
 
-    // Satchel cap: two soft knocks, like knuckles on a desk.
     satchelFull() {
-        if (!this._ready() || !this._throttle('satchelFull', 1500)) return;
-        if (this._playSample('satchelFull', { delay: 0, duck: false })) {
-            this._playSample('satchelFull', { delay: 0.22, duck: false });
-            this._playSample('satchelFull', { delay: 0.44, duck: false });
+        const m = this._mix('gems');
+        if (!m || !this._throttle('satchelFull', 1500)) return;
+        if (this._playSample('satchelFull', { peak: m, delay: 0, duck: false })) {
+            this._playSample('satchelFull', { peak: m, delay: 0.22, duck: false });
+            this._playSample('satchelFull', { peak: m, delay: 0.44, duck: false });
             return;
         }
-        this._tone({ freq: 164, glideTo: 110, type: 'sine', dur: 0.09, peak: 0.14, attack: 0.008 });
-        this._tone({ freq: 174, glideTo: 116, type: 'sine', dur: 0.11, peak: 0.16, delay: 0.14, attack: 0.008 });
+        this._tone({ freq: 164, glideTo: 110, type: 'sine', dur: 0.09, peak: 0.14 * m, attack: 0.008 });
+        this._tone({ freq: 174, glideTo: 116, type: 'sine', dur: 0.11, peak: 0.16 * m, delay: 0.14, attack: 0.008 });
     }
 
-    // Death in view (tanks, not bullets). Person-died clip, spatial.
     die(x, y, size = 20) {
-        if (!this._ready()) return;
+        const m = this._mix('deaths');
+        if (!m) return;
         const sp = this._spatial(x, y);
         if (!sp) return;
         if (size <= 22) {
             if (!this._throttle('dieS', 70)) return;
-            const v = sp.vol * this._busyGain();
+            const v = sp.vol * this._busyGain() * m;
             this._puff({ kind: 'brown', cut: 480, cutTo: 240, dur: 0.05,
                          peak: 0.06 * v, pan: sp.pan, attack: 0.012 });
         } else if (size <= 55) {
             if (!this._throttle('dieM', 140)) return;
-            const v = sp.vol * this._busyGain();
-            if (this._playSample('dieOnScreen', { peak: sp.vol, pan: sp.pan, duck: false })) return;
+            const v = sp.vol * this._busyGain() * m;
+            if (this._playSample('dieOnScreen', { peak: sp.vol * m, pan: sp.pan, duck: false })) return;
             this._impact({ pan: sp.pan, v, sub: 80, body: 150, bodyTo: 90,
                            air: 400, weight: 0.26, dur: 0.12 });
         } else {
             if (!this._throttle('dieL', 180)) return;
-            const v = sp.vol * this._busyGain();
-            if (this._playSample('dieOnScreen', { peak: sp.vol, pan: sp.pan, duck: false })) return;
+            const v = sp.vol * this._busyGain() * m;
+            if (this._playSample('dieOnScreen', { peak: sp.vol * m, pan: sp.pan, duck: false })) return;
             this._impact({ pan: sp.pan, v, sub: 58, body: 128, bodyTo: 64,
                            air: 360, weight: 0.4, dur: 0.2 });
         }
     }
 
-    // You hit another player. Damage.wav — kept quieter than a shoot.
     combatHit(tier = 0) {
-        if (!this._ready() || !this._throttle('combatHit', 45)) return;
+        const m = this._mix('combat');
+        if (!m || !this._throttle('combatHit', 45)) return;
         const t = Math.max(0, Math.min(2, tier | 0));
-        const v = this._busyGain();
-        if (this._playSample('combatHit')) return;
+        const v = this._busyGain() * m;
+        if (this._playSample('combatHit', { peak: m })) return;
         const f = 620 + t * 90;
         this._tone({ freq: f, glideTo: f * 0.82, type: 'sine',
                      dur: 0.055 + t * 0.015, peak: 0.09 * v, attack: 0.006 });
@@ -569,10 +748,11 @@ class GameSound {
 
     // You took a hit. Gettinghit.wav — also kept quiet.
     combatHurt(frac = 0.3) {
-        if (!this._ready() || !this._throttle('combatHurt', 60)) return;
+        const m = this._mix('combat');
+        if (!m || !this._throttle('combatHurt', 60)) return;
         const f = Math.max(0.15, Math.min(1, frac));
-        const v = this._busyGain();
-        if (this._playSample('combatHurt')) return;
+        const v = this._busyGain() * m;
+        if (this._playSample('combatHurt', { peak: m })) return;
         this._impact({
             v, sub: 62, body: 120 + 20 * f, bodyTo: 68,
             air: 340, weight: 0.22 + 0.22 * f, dur: 0.12 + f * 0.06,
@@ -581,21 +761,22 @@ class GameSound {
 
     // You got the kill: deeper bloom + a short warm lift. Satisfying, not mean.
     combatKill() {
-        if (!this._ready() || !this._throttle('combatKill', 180)) return;
-        if (this._playSample('combatKill', { duck: false })) return;
-        this._impact({ sub: 56, body: 138, bodyTo: 66, air: 380, weight: 0.48, dur: 0.2 });
-        this._tone({ freq: 246, type: 'sine', dur: 0.16, peak: 0.08, delay: 0.05, attack: 0.016 });
-        this._tone({ freq: 330, type: 'sine', dur: 0.2, peak: 0.05, delay: 0.1, attack: 0.02 });
+        const m = this._mix('combat');
+        if (!m || !this._throttle('combatKill', 180)) return;
+        if (this._playSample('combatKill', { peak: m, duck: false })) return;
+        this._impact({ sub: 56, body: 138, bodyTo: 66, air: 380, weight: 0.48 * m, dur: 0.2 });
+        this._tone({ freq: 246, type: 'sine', dur: 0.16, peak: 0.08 * m, delay: 0.05, attack: 0.016 });
+        this._tone({ freq: 330, type: 'sine', dur: 0.2, peak: 0.05 * m, delay: 0.1, attack: 0.02 });
     }
 
-    // Banked a milestone: gold triad, slow attacks, no noise hit.
     bankCelebrate() {
-        if (!this._ready() || !this._throttle('bankCelebrate', 400)) return;
-        if (this._playSample('bankCelebrate', { peak: 1.45, duck: false })) return;
-        this._tone({ freq: 98, type: 'sine', dur: 0.18, peak: 0.1, attack: 0.016 });
-        this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.1, delay: 0.04, attack: 0.02 });
-        this._tone({ freq: 494, type: 'sine', dur: 0.3, peak: 0.07, delay: 0.1, attack: 0.024 });
-        this._tone({ freq: 587, type: 'sine', dur: 0.34, peak: 0.045, delay: 0.16, attack: 0.03 });
+        const m = this._mix('celebration');
+        if (!m || !this._throttle('bankCelebrate', 400)) return;
+        if (this._playSample('bankCelebrate', { peak: 1.45 * m, duck: false })) return;
+        this._tone({ freq: 98, type: 'sine', dur: 0.18, peak: 0.1 * m, attack: 0.016 });
+        this._tone({ freq: 392, type: 'sine', dur: 0.28, peak: 0.1 * m, delay: 0.04, attack: 0.02 });
+        this._tone({ freq: 494, type: 'sine', dur: 0.3, peak: 0.07 * m, delay: 0.1, attack: 0.024 });
+        this._tone({ freq: 587, type: 'sine', dur: 0.34, peak: 0.045 * m, delay: 0.16, attack: 0.03 });
     }
 }
 

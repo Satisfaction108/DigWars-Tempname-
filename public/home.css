@@ -275,6 +275,35 @@ body {
 .sp-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin-bottom: 6px; }
 .sp-checks .container { min-height: 16px; line-height: 15px; display: block; overflow: visible; }
 
+.sp-slider {
+    display: grid;
+    grid-template-columns: 1fr 110px 40px;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 10px;
+    font: 600 12px Ubuntu;
+    color: var(--text);
+}
+.sp-slider input[type=range], .sp-mix input[type=range] {
+    width: 100%;
+    accent-color: var(--heading, #ffd75e);
+    cursor: pointer;
+}
+.sp-slider b { font: 700 11px Ubuntu; color: var(--text2); text-align: right; }
+.sp-mix { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 10px; }
+.sp-mix-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 92px 36px;
+    align-items: center;
+    gap: 8px;
+    font: 600 12px Ubuntu;
+    color: var(--text);
+}
+.sp-mix-row .container { margin: 0; min-height: 16px; }
+.sp-mix-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-mix-row b { font: 700 10px Ubuntu; color: var(--text2); text-align: right; }
+#sp-sound.is-muted #sfxMix { opacity: .38; pointer-events: none; }
+
 #homeSettingsPanel select {
     display: block;
     width: 100%;
@@ -1077,6 +1106,11 @@ body.in-game #homeSettingsPanel .kb-row span { color: #b7b1a2; }
 body.in-game #homeSettingsPanel .kb-note { color: #9b968a; }
 body.in-game #homeSettingsOverlay { background: rgba(0,0,0,.55); }
 body.in-game #homeSettingsPanel .kb-row { background: #0d0e14; border: 1px solid #000; border-radius: 8px; }
+body.in-game #homeSettingsPanel .sp-slider,
+body.in-game #homeSettingsPanel .sp-mix-row { color: #e8e3d4; }
+body.in-game #homeSettingsPanel .sp-slider b,
+body.in-game #homeSettingsPanel .sp-mix-row b { color: #9b968a; }
+body.in-game #homeSettingsPanel input[type=range] { accent-color: #ffd75e; }
 body.in-game #homeSettingsPanel .kb-header span { color: #ffd75e; }
 body.in-game #homeSettingsPanel .kb-row b.kb-editing {
     border-color: #ffd75e;
