@@ -137,16 +137,33 @@ exports.time = () => {
     return Date.now() - exports.serverStartTime;
 };
 
-// create a custom timestamp format for log statements
+// Wall-clock stamps for humans. Default is Pacific (your TZ). Override with LOG_TZ.
+const LOG_TZ = process.env.LOG_TZ || 'America/Los_Angeles';
+const logStampFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: LOG_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'short',
+});
+exports.logStamp = () => {
+    const p = {};
+    for (const { type, value } of logStampFmt.formatToParts(new Date())) p[type] = value;
+    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second} ${p.timeZoneName}`;
+};
 
 exports.log = text => {
-    console.log('[' + (exports.time() / 1000).toFixed(3) + ']: ' + text);
+    console.log('[' + exports.logStamp() + ']: ' + text);
 };
 exports.saveToLog = (title, description, color) => {
     console.log("[!]: " + title + " (#" + color.toString(16).padStart(6, "0") + ")\n :: " + description);
 }
 exports.warn = text => {
-    console.log('[' + (exports.time() / 1000).toFixed(3) + ']: ' + '[WARNING]: ' + text);
+    console.log('[' + exports.logStamp() + ']: ' + '[WARNING]: ' + text);
 };
 exports.error = text => {
     console.log(text);
