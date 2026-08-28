@@ -942,13 +942,13 @@ class gameHandler {
 
     // Keeps the world feeling inhabited.
     //
-    // Bots roam and mine perfectly well on their own, but the map is 6300x6300
-    // and a player sees roughly a 618 unit radius, about 3 percent of it. Left
-    // alone they diffuse and the player meets nobody, which reads as a dead
-    // server even though everything is running. This nudges a few of the
-    // nearest idle bots toward whoever is playing, so encounters actually
-    // happen. It never teleports and never targets the player directly: it
-    // sets a destination in their region and lets the bot drive there.
+    // Bots roam and mine perfectly well on their own, but a player sees only
+    // about a 618 unit radius of a multi-thousand-unit world. Left alone they
+    // diffuse and the player meets nobody, which reads as a dead server even
+    // though everything is running. This nudges a few of the nearest idle bots
+    // toward whoever is playing, so encounters actually happen. It never
+    // teleports and never targets the player directly: it sets a destination in
+    // their region and lets the bot drive there.
     directorTick() {
         const now = Date.now();
         // Players under mercy are not hosts: funneling fresh bots toward
@@ -961,7 +961,13 @@ class gameHandler {
         const live = this.bots.filter(b => b && !b.isDead() && !b.isGhost);
         if (!live.length) return;
 
-        const NEAR = 1500, WANT = 3;
+        // NEAR must stay in the same order of magnitude as what the player can
+        // actually SEE (~618 units), not what the server considers close. At
+        // 1500 the director counted bots two screens away as company and went
+        // back to sleep while the player stared at an empty tunnel - the exact
+        // failure it exists to prevent. 900 means "on screen or one beat from
+        // walking onto it".
+        const NEAR = 900, WANT = 4;
         for (const host of humans) {
             const near = live.filter(b => Math.hypot(b.x - host.x, b.y - host.y) <= NEAR);
             if (near.length >= WANT) continue;
@@ -973,13 +979,19 @@ class gameHandler {
 
             for (const bot of candidates.slice(0, WANT - near.length)) {
                 const angle = Math.random() * Math.PI * 2;
-                const dist = 420 + Math.random() * 520;
+                // Stay inside NEAR: a bot dropped past it does not count as
+                // company, so the director would immediately re-task somebody
+                // else for the same player and thin the crowd it just built.
+                const dist = 380 + Math.random() * 440;
                 bot._botDirectorPoint = {
                     x: host.x + Math.cos(angle) * dist,
                     y: host.y + Math.sin(angle) * dist,
                 };
-                // long enough to actually walk there, then they are free again
-                bot._botDirectorUntil = now + 22000;
+                // long enough to actually walk there, then they are free again.
+                // Shorter than it used to be: on a compact map the trip is
+                // shorter, and a bot released sooner can be re-tasked toward
+                // the next player instead of sitting on a stale lease.
+                bot._botDirectorUntil = now + 14000;
             }
         }
     }
@@ -1620,6 +1632,10 @@ class gameHandler {
                     }
                 } else if (instance.type === 'tank' || instance.type === 'miniboss' ||
                            instance.type === 'minion') {
+                    // Keep the satchel on the tank's back. Has to run per tick
+                    // rather than on gem change, because "back" tracks movement
+                    // and aim, which change constantly while the load does not.
+                    gems.orientSatchel(instance);
                     const r = instance.realSize;
                     const p = _tg.pushCircleFromVoronoi(instance, r);
                     let dx = p.dx, dy = p.dy;

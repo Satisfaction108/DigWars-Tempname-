@@ -27,6 +27,7 @@ const MIX_CATS = [
     { id: 'celebration', label: 'Bank Celebration' },
     { id: 'ui',          label: 'Menu & Upgrades' },
     { id: 'movement',    label: 'Rammer Movement' },
+    { id: 'satchel',     label: 'Satchel Tension' },
 ];
 
 function defaultPrefs() {
@@ -76,6 +77,14 @@ const SOUND_ENABLED = true;
 
 const jit = (n, amt = 0.06) => n * (1 - amt + Math.random() * amt * 2);
 
+// ── Satchel tension ────────────────────────────────────────────────────────
+// Below TENSION_START you are not carrying enough to be afraid of losing, so
+// the heart stays quiet - otherwise the effect is wallpaper and stops meaning
+// anything. Above it the beat accelerates all the way to the cap.
+const TENSION_START = 0.30;
+const HEART_SLOW    = 1180;   // ms between beats the moment tension starts
+const HEART_FAST    = 430;    // ms between beats at a full satchel
+
 // Drop files in public/sounds/. Missing optional clips just keep the synth.
 const SAMPLES = {
     shoot:         '/sounds/shoot.wav',
@@ -114,6 +123,10 @@ class GameSound {
         this._recent = [];
         this._shoots = [];
         this._loops  = {};
+        // Exposed so the satchel vignette starts at exactly the same load the
+        // heartbeat does. Two thresholds that can drift apart would read as a
+        // rendering bug, not a design choice.
+        this.tensionStart = TENSION_START;
         const prefs = loadPrefs();
         this.enabled = prefs.enabled;
         this.headphones3d = prefs.headphones3d;
@@ -704,6 +717,66 @@ class GameSound {
         }
         this._tone({ freq: 164, glideTo: 110, type: 'sine', dur: 0.09, peak: 0.14 * m, attack: 0.008 });
         this._tone({ freq: 174, glideTo: 116, type: 'sine', dur: 0.11, peak: 0.16 * m, delay: 0.14, attack: 0.008 });
+    }
+
+    // ── The satchel heartbeat ───────────────────────────────────────────────
+    //
+    // Every other sound in this engine is a one-shot fired by an event. This
+    // is the only one that is a continuous STATE: it says "you are carrying
+    // something you can lose" for exactly as long as that is true, and it gets
+    // more frightened the richer you are. Call it every frame with the current
+    // satchel load; it schedules its own beats.
+    satchelTension(load = 0) {
+        const t = Math.max(0, Math.min(1, (load - TENSION_START) / (1 - TENSION_START)));
+        if (t <= 0) { this._heartAt = 0; this._heartGap = 0; return; }
+        const now = performance.now();
+        // smoothstep, not linear: the last third of the satchel is where the
+        // panic actually sets in. A flat ramp reads as a metronome.
+        const gap = HEART_SLOW + (HEART_FAST - HEART_SLOW) * (t * t * (3 - 2 * t));
+        this._heartGap = gap;
+        if (!this._heartAt) this._heartAt = now;
+        if (now < this._heartAt) return;
+        this._heartAt = now + gap;
+        // The clock above runs even with the category muted, because the
+        // vignette throbs off satchelPulse() and must not freeze or drift just
+        // because the player turned this sound down.
+        const m = this._mix('satchel');
+        if (!m) return;
+        const peak = (0.05 + 0.20 * t) * m;
+        // lub-dub. The second beat is softer, lower and close behind the first,
+        // the way a real one is - two tones, no sample, costs nothing.
+        this._tone({ freq: 62, glideTo: 40, type: 'sine', dur: 0.16,
+                     peak, attack: 0.006 });
+        this._tone({ freq: 54, glideTo: 36, type: 'sine', dur: 0.20,
+                     peak: peak * 0.62, delay: 0.155, attack: 0.006 });
+    }
+
+    // 0..1, how far the heart is through its current beat. The vignette reads
+    // this instead of running its own sine, so the screen throbs on exactly
+    // the beat you hear rather than slowly drifting against it.
+    satchelPulse() {
+        if (!this._heartAt || !this._heartGap) return 0;
+        const left = this._heartAt - performance.now();
+        return Math.max(0, Math.min(1, 1 - left / this._heartGap));
+    }
+
+    // The sound of losing it: fires when the satchel is emptied by DEATH, not
+    // by banking. Deliberately the inverse of the pickup chime - that one
+    // climbs a pentatonic ladder, this one falls off it and lands on a thud.
+    satchelLoss(load = 1) {
+        this._heartAt = 0;
+        this._heartGap = 0;
+        const m = this._mix('satchel');
+        if (!m) return;
+        const v = Math.max(0.3, Math.min(1, load));
+        for (let i = 0; i < 5; i++) {
+            this._tone({ freq: 523.25 / Math.pow(2, i / 3.2), glideTo: 70,
+                         type: 'sine', dur: 0.34,
+                         peak: 0.13 * v * m * (1 - i * 0.14), delay: i * 0.05,
+                         attack: 0.008 });
+        }
+        this._impact({ v, sub: 56, body: 128, bodyTo: 58, air: 320,
+                       weight: 0.55 * m, dur: 0.5 });
     }
 
     die(x, y, size = 20) {

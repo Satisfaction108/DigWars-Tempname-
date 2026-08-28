@@ -92,10 +92,15 @@ function spawnOreBurst(rock, breaker) {
     }
 }
 
-function talkGems(body, delta) {
+// `lost` marks the one case where the satchel was emptied by DEATH rather than
+// by banking, so the client can play the loss sting for it and nothing else.
+// Banking already reports delta 0 (the vault decrements carriedGems itself and
+// then re-syncs), so today a negative delta could only be a death - but that is
+// an accident of the deposit path, not a contract. The flag says it outright.
+function talkGems(body, delta, lost = 0) {
     if (body.socket) {
         body.socket.talk('GEM', body.carriedGems | 0, body.gemCap | 0, delta | 0,
-                         (body.socket.gemBanked || 0) | 0);
+                         (body.socket.gemBanked || 0) | 0, lost | 0);
     }
 }
 
@@ -115,17 +120,183 @@ function setBanked(body, amount) {
     return amount;
 }
 
+// How far back the pack rides, in hull radii. Just past 1 so it reads as worn
+// ON the tank rather than embedded in it - the hull covers its inner edge,
+// which is what sells "backpack" instead of "floating gem".
+const SATCHEL_OFFSET = 1.02;
+
+// The pack wears the CURRENT team's colour, re-applied whenever the team
+// changes rather than baked in when the prop is built.
+//
+// It has to work this way: sockets.js spawns the body and calls initSatchel()
+// BEFORE the gamemode switch assigns body.team, so at construction time every
+// player's team is undefined and they all fell through to the blue class -
+// which is why a red player carried a blue satchel while bots (whose team IS
+// set first) were correct. Re-defining also picks up any later team change for
+// free. Prop.define() only touches shape/colour/stroke, never bound, so this is
+// safe to call on a live prop.
+function applySatchelTeamColor(body) {
+    if (body._satchelTeam === body.team) return;
+    body._satchelTeam = body.team;
+    const kind = body.team === TEAM_RED ? 'gemHoardShard' : 'gemHoardEmerald';
+    if (body.gemHoardProp) body.gemHoardProp.define(kind);
+    if (body.gemHoardFacetProp) body.gemHoardFacetProp.define(kind + 'Facet');
+}
+
+// Entity.define() unconditionally clears body.props, but only re-fires the
+// 'define' event (which is what re-attached these) when its emitEvent argument
+// is true. armBot() defines with emitEvent=false, so every bot lost its satchel
+// the moment it was armed - bots carried gems that nobody could see, while
+// players were fine because their defines do emit. Re-attaching at the point of
+// use is immune to that: it does not care who cleared the map, or why.
+function ensureSatchelProps(body) {
+    const p = body.gemHoardProp, f = body.gemHoardFacetProp;
+    if (!body.props) return;
+    if (p && body.props.get(p.id) !== p) body.props.set(p.id, p);
+    if (f && body.props.get(f.id) !== f) body.props.set(f.id, f);
+}
+
 function updateSatchel(body) {
     const p = body.gemHoardProp, f = body.gemHoardFacetProp;
+    applySatchelTeamColor(body);
+    ensureSatchelProps(body);
     if (p) {
-        const load = Math.min(1, (body.carriedGems || 0) / (body.gemCap || SATCHEL_CAP));
-        // starts as a tiny chip on the first find and grows linearly to a
-        
-        const size = load > 0 ? 0.12 + 0.8 * load : 0;
+        // Round FIRST. Banking subtracts floating-point chunks and leaves a
+        // residue like 1e-9 behind; vault.js and outposts.js only snap
+        // carriedGems back to a whole number AFTER calling this. Reading the
+        // raw value therefore made "carried > 0" true for that residue, and a
+        // fully-banked satchel kept its minimum-size pack stuck on the tank.
+        // Whole gems are the only unit that means anything here anyway.
+        const carried = Math.round(body.carriedGems || 0);
+        const load = Math.min(1, carried / (body.gemCap || SATCHEL_CAP));
+        // A pack, not a boulder. The old curve topped out near a full hull
+        // width, which is why every previous on-tank wealth design got
+        // rejected - it swallowed the tank. Starts as a small bump on the
+        // first find and grows to a bit over half the hull.
+        // Zero when empty: the client skips zero-size props, so an empty
+        // satchel costs nothing and draws nothing.
+        const size = carried > 0 ? 0.26 + 0.30 * load : 0;
         p.bound.size = size;
-        if (f) f.bound.size = size * 0.52;
+        p.bound.offset = size > 0 ? SATCHEL_OFFSET : 0;
+        if (f) {
+            f.bound.size = size * 0.52;
+            f.bound.offset = p.bound.offset;
+        }
     }
     body.refreshBodyAttributes();
+}
+
+// A turret that finds its own target instead of pointing where the hull does.
+// This is the property that actually matters for placing the pack, so it is
+// tested directly rather than by trusting a definition flag.
+function isAutoTurret(t) {
+    return !!(t && t.controllers && t.controllers.some(
+        c => c && c.constructor && c.constructor.name === 'io_nearestDifferentMaster'));
+}
+
+function autofireOn(body) {
+    const cmd = body.socket && body.socket.player && body.socket.player.command;
+    // Bots have no command object and never stop shooting, so they count as
+    // permanently auto-firing.
+    return cmd ? !!cmd.autofire : true;
+}
+
+// Where the pack hangs. "Back" is not one thing in this game, because the
+// archetypes disagree about what "forward" means:
+//
+//   rammers        - the hull SPINS, so body.facing is meaningless. Forward is
+//                    where they are driving.
+//   auto smasher   - a spinning hull with one self-aiming turret. That turret
+//                    is the only thing on it that points anywhere, so it is
+//                    forward.
+//   radial autos   - Auto-3/4/5: spinning hull, several self-aiming weapons.
+//                    Auto-firing means the player is aiming with the mouse, so
+//                    forward is the aim; otherwise fall back to movement.
+//   everything else- including auto assassin / auto gunner, whose bolted-on
+//                    turret is a sidearm rather than the tank's nose: forward
+//                    is where the player is pointing.
+//
+// Returns undefined when there is no meaningful answer this frame (a parked
+// rammer), so the caller can hold the last good angle instead of snapping.
+// Entity.guns / .turrets are Maps, but Prop and Turret hold plain arrays for the
+// same fields. Take either rather than assuming one and crashing the tick loop.
+function listOf(v) {
+    if (!v) return [];
+    if (Array.isArray(v)) return v;
+    if (typeof v.values === 'function') return [...v.values()];
+    return [];
+}
+
+function satchelBackAngle(body) {
+    const autos = listOf(body.turrets).filter(isAutoTurret);
+    const hasOwnGuns = listOf(body.guns).length > 0;
+    // IS_SMASHER is the definition flag for a rammer hull; at runtime it only
+    // survives as settings.reloadToAcceleration (entity.js maps it there,
+    // because for a smasher the reload stat drives acceleration). Indirect, but
+    // it is the real marker - and it is what separates a smasher from an
+    // Auto-3, which ALSO has no hull guns and would otherwise be mistaken for
+    // a rammer.
+    const isSmasherHull = !!(body.settings && body.settings.reloadToAcceleration);
+
+    const moveAway = () => {
+        const v = body.velocity;
+        const sp = v ? Math.hypot(v.x, v.y) : 0;
+        // Below a crawl the heading is numerical noise and the pack would
+        // jitter around a parked tank.
+        if (sp < 0.05) return undefined;
+        return Math.atan2(-v.y, -v.x);
+    };
+    const aimAway = () => {
+        const t = body.control && body.control.target;
+        if (!t || (!t.x && !t.y)) return body.facing + Math.PI;
+        return Math.atan2(-t.y, -t.x);
+    };
+
+    if (isSmasherHull) {
+        // Auto smasher: the bolted-on turret is the only part of it that points
+        // anywhere, so the pack hides behind that.
+        if (autos.length) return autos[0].facing + Math.PI;
+        return moveAway();
+    }
+    if (!hasOwnGuns && autos.length >= 2) {
+        return autofireOn(body) ? aimAway() : moveAway();
+    }
+    return aimAway();
+}
+
+// Shortest-arc ease, so the pack swings around the hull instead of spinning the
+// long way when the angle wraps past PI.
+function easeAngle(from, to, k) {
+    if (from === undefined || !isFinite(from)) return to;
+    let d = (to - from) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    return from + d * k;
+}
+
+// Called every tick for every tank that can carry. Cheap: bails immediately on
+// the (common) empty satchel, since an empty pack is not drawn anyway.
+function orientSatchel(body) {
+    const p = body.gemHoardProp;
+    if (!p || !(body.carriedGems > 0)) return;
+    applySatchelTeamColor(body);
+    ensureSatchelProps(body);
+
+    let want = satchelBackAngle(body);
+    if (want === undefined) want = body._satchelAngle;
+    if (want === undefined) want = body.facing + Math.PI;
+    body._satchelAngle = easeAngle(body._satchelAngle, want, 0.22);
+
+    // The client positions a prop at (direction + angle + hullFacing) and - with
+    // mirrorMasterAngle on, which is the Prop default - gives it a facing of
+    // (hullFacing + angle). Putting the whole rotation into `angle` and leaving
+    // `direction` at zero therefore lands BOTH the position and the pack's own
+    // tilt on the absolute angle we want, whatever the hull is doing.
+    const rel = body._satchelAngle - body.facing;
+    p.bound.angle = rel;
+    p.bound.direction = 0;
+    const f = body.gemHoardFacetProp;
+    if (f) { f.bound.angle = rel; f.bound.direction = 0; }
 }
 
 function initSatchel(body) {
@@ -140,10 +311,15 @@ function initSatchel(body) {
         
         
         const kind = body.team === TEAM_RED ? 'gemHoardShard' : 'gemHoardEmerald';
-        const p = new Prop([0, 0, 0, 0, 1], body);
+        // LAYER 0, not 1. The client draws layer-0 props BEFORE the hull and
+        // layer-1 props after it, so 0 is what tucks the pack behind the tank
+        // and makes it read as worn rather than stuck on the front.
+        const p = new Prop([0, 0, 0, 0, 0], body);
         p.define(kind);
         body.gemHoardProp = p;
-        const f = new Prop([0, 0, -0.06, 0, 1], body);
+        // Created after the pack so it draws after it within the same layer -
+        // the lit facet sits on the pack, still behind the hull.
+        const f = new Prop([0, 0, -0.06, 0, 0], body);
         f.define(kind + 'Facet');
         body.gemHoardFacetProp = f;
         
@@ -185,7 +361,7 @@ function dropGemsOnDeath(body, killers = []) {
     body.carriedGems = 0;
     if (bankLoss > 0) setBanked(body, banked - bankLoss);
     updateSatchel(body);
-    talkGems(body, -carried);
+    talkGems(body, -carried, 1);
     const drop = Math.floor(carried * DEATH_DROP) + bankLoss;
     if (drop <= 0) return;
     
@@ -387,4 +563,4 @@ function tickGem(gem, tg, players) {
     }
 }
 
-module.exports = { spawnOreBurst, spawnGem, initSatchel, updateSatchel, dropGemsOnDeath, tickGem, talkGems, setBanked, SATCHEL_CAP };
+module.exports = { spawnOreBurst, spawnGem, initSatchel, updateSatchel, orientSatchel, dropGemsOnDeath, tickGem, talkGems, setBanked, SATCHEL_CAP };

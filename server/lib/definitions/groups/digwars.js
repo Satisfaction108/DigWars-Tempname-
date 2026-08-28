@@ -89,20 +89,37 @@ Class.gemPickupLoot = {
     GLOW: { RADIUS: 1.2, COLOR: "#f5cf6e", ALPHA: 0.4 },
 };
 
+// The satchel a carrying tank wears on its back. Emerald = blue team, Shard =
+// red team (the names are historical; the colour is now the team's).
+//
+// Colour is expressed as the team colour plus a brightness shift rather than a
+// literal hex, so it stays a LIGHTER VERSION OF THE TEAM COLOUR under custom
+// themes instead of drifting off-palette the moment somebody reskins the game.
+// The facet is the same colour lifted further - it is the lit face of the gem.
+// Kept modest on purpose: the client adds this straight onto the base colour's
+// HSL lightness, so a big lift clips to white and throws away the team read -
+// which is the entire point of colouring the pack by team.
+const HOARD_LIFT = 16;   // +0.16 lightness (the client divides this by 100)
+const HOARD_FACET_LIFT = 30;
+// SHAPE 0 is a circle (drawBody treats a falsy side count as an arc). A round
+// bag reads as a satchel; the faceted gem cut read as a jewel stuck to the hull.
+// The facet is a smaller concentric disc - the lighter front panel of the bag.
 Class.gemHoardEmerald = {
     LABEL: "Hoard",
-    SHAPE: GEM_CUT,
-    COLOR: "#1fbf6b",
+    SHAPE: 0,
+    COLOR: { BASE: "blue", BRIGHTNESS_SHIFT: HOARD_LIFT },
     STROKE_WIDTH: 1.1,
 };
-Class.gemHoardEmeraldFacet = { LABEL: "Hoard", SHAPE: GEM_CUT, COLOR: "#6ff5a8", BORDERLESS: true };
+Class.gemHoardEmeraldFacet = { LABEL: "Hoard", SHAPE: 0,
+    COLOR: { BASE: "blue", BRIGHTNESS_SHIFT: HOARD_FACET_LIFT }, BORDERLESS: true };
 Class.gemHoardShard = {
     LABEL: "Hoard",
-    SHAPE: GEM_CUT,
-    COLOR: "#b13ecf",
+    SHAPE: 0,
+    COLOR: { BASE: "red", BRIGHTNESS_SHIFT: HOARD_LIFT },
     STROKE_WIDTH: 1.1,
 };
-Class.gemHoardShardFacet = { LABEL: "Hoard", SHAPE: GEM_CUT, COLOR: "#d98af0", BORDERLESS: true };
+Class.gemHoardShardFacet = { LABEL: "Hoard", SHAPE: 0,
+    COLOR: { BASE: "red", BRIGHTNESS_SHIFT: HOARD_FACET_LIFT }, BORDERLESS: true };
 
 Class.outpostBanner = {
     PARENT: "genericTank",

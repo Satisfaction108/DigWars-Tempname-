@@ -2086,14 +2086,6 @@ import * as tutorial from './tutorial.js';
                 let t = turrets[i];
                 if (t.isProp) t = util.requestEntityImage(t);
                 if (!t.sizeFactor) continue; // zero-size prop
-                // Dig Wars: the hoard prop broadcasts carried load but is
-                // never drawn - the on-tank wealth visual is shelved until
-                // skins land (the HUD wallet bar carries the info)
-                {
-                    const pm = global.mockups[parseInt(t.index)];
-                    if (pm && pm.name === "Hoard") continue;
-                }
-
                 if (t.lerpedFacing === undefined) {
                     t.lerpedFacing = t.facing;
                 } else {
@@ -2245,14 +2237,6 @@ import * as tutorial from './tutorial.js';
                 let t = turrets[i];
                 if (t.isProp) t = util.requestEntityImage(t);
                 if (!t.sizeFactor) continue; // zero-size prop
-                // Dig Wars: the hoard prop broadcasts carried load but is
-                // never drawn - the on-tank wealth visual is shelved until
-                // skins land (the HUD wallet bar carries the info)
-                {
-                    const pm = global.mockups[parseInt(t.index)];
-                    if (pm && pm.name === "Hoard") continue;
-                }
-
                 if (t.lerpedFacing === undefined) {
                     t.lerpedFacing = t.facing;
                 } else {
@@ -5263,25 +5247,65 @@ import * as tutorial from './tutorial.js';
         }
     }
 
+    // The satchel is the best thing in this game and for a long time it was a
+    // number in a bar. This is the other half of it: the screen itself gets
+    // more frightened the richer you are.
+    //
+    // It used to be binary - nothing at all until the cap, then a red pulse -
+    // which meant the entire dangerous middle of a run (a half-full satchel is
+    // already worth killing for) looked exactly like carrying nothing. Now it
+    // rises continuously from gameSound.tensionStart, warm gold while you are
+    // merely rich, bleeding to red as you approach the cap.
+    //
+    // The throb is driven by gameSound.satchelPulse() rather than its own sine
+    // so the screen beats on the same clock as the heartbeat you can hear.
+    // One body, two senses - that sync is the whole effect.
     function drawSatchelDanger() {
         const g = global.gems;
         if (!config.game.satchelWarning) return;
-        if (!g || !(g.cap > 0) || g.carried < g.cap || global.died) return;
-        const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 380);
+        if (!g || !(g.cap > 0) || global.died) return;
+        const load = Math.min(1, (g.carried || 0) / g.cap);
+        const start = gameSound.tensionStart != null ? gameSound.tensionStart : 0.30;
+        const t = (load - start) / (1 - start);
+        if (t <= 0) return;
+        const full = load >= 1;
+
+        // Beat shape: a sharp systolic spike that decays, not a smooth sine -
+        // a sine reads as "breathing", a spike reads as "pulse".
+        const ph = gameSound.satchelPulse
+            ? gameSound.satchelPulse()
+            : (performance.now() % 800) / 800;
+        const beat = Math.pow(1 - ph, 3);
+
         const c = ctx[2];
         const w = global.screenWidth, h = global.screenHeight;
         const r = Math.hypot(w, h) / 2;
+        // Gold at the low end, red at the top: the colour itself tells you how
+        // close to the cap you are without reading the bar.
+        const mix  = Math.min(1, Math.max(0, (load - 0.6) / 0.4));
+        const cr = Math.round(212 + 23 * mix),
+              cg = Math.round(163 - 99 * mix),
+              cb = Math.round(58  - 6  * mix);
+        const rgb = cr + "," + cg + "," + cb;
+        // Steady floor plus the beat on top, so it is present between beats
+        // instead of blinking on and off.
+        const a = (0.035 + 0.10 * t) + (0.03 + 0.13 * t) * beat;
+        // The vignette also closes in: tunnel vision as the load grows.
+        const inner = r * (0.80 - 0.20 * t - 0.03 * beat);
         c.save();
-        const gd = c.createRadialGradient(w / 2, h / 2, r * 0.74, w / 2, h / 2, r);
-        gd.addColorStop(0, "rgba(235,64,52,0)");
-        gd.addColorStop(1, "rgba(235,64,52," + (0.09 + 0.07 * pulse).toFixed(3) + ")");
+        const gd = c.createRadialGradient(w / 2, h / 2, Math.max(1, inner), w / 2, h / 2, r);
+        gd.addColorStop(0, "rgba(" + rgb + ",0)");
+        gd.addColorStop(1, "rgba(" + rgb + "," + a.toFixed(3) + ")");
         c.fillStyle = gd;
         c.fillRect(0, 0, w, h);
         c.restore();
-        c.save();
-        c.globalAlpha = 0.7 + 0.3 * pulse;
-        drawText("Gem limit reached, please bank it!", w / 2, 112, 16, "#eb4034", "center");
-        c.restore();
+
+        if (full) {
+            c.save();
+            c.globalAlpha = 0.68 + 0.32 * beat;
+            drawText("Gem limit reached, please bank it!", w / 2, 112, 16, "#eb4034", "center");
+            c.restore();
+        }
     }
 
     function handleSpeedMonitor() {
@@ -7327,8 +7351,14 @@ import * as tutorial from './tutorial.js';
                     }
                 }
                 gameSound.rammerMove(ram);
+                // The satchel heartbeat is a continuous state, not an event,
+                // so it has to be driven every frame like rammer movement is.
+                const sg = global.gems;
+                gameSound.satchelTension(sg && sg.cap > 0
+                    ? Math.min(1, (sg.carried || 0) / sg.cap) : 0);
             } else {
                 gameSound.rammerMove(0);
+                gameSound.satchelTension(0);
             }
             if (global.gameConnecting && !global.disconnected) {
                 drawConnectingScreen();

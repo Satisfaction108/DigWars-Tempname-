@@ -1260,6 +1260,14 @@ let incoming = async function(message, socket) {
                 } else if (delta < 0) {
                     g.combo = 0;
                     g.popups.length = 0;
+                    // Emptied by death, not by banking (m[4]). The run you were
+                    // in the middle of just ended - say so, loudly. Scaled by
+                    // how full the satchel was, so losing a scrap is a blip and
+                    // losing a full one is the worst sound in the game.
+                    if (m[4] && config.game.gemSounds) {
+                        gameSound.satchelLoss(g.cap > 0
+                            ? Math.min(1, -delta / g.cap) : 1);
+                    }
                 }
                 const wasFull = g.carried >= g.cap && g.cap > 0;
                 g.carried = carried;
