@@ -373,53 +373,245 @@
         var canvas = document.getElementById('snowCanvas');
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
-        var W, H;
-        var COUNT = 60;
-        var flakes = [];
+        var W = 0, H = 0, dpr = 1;
+        var tanks = [];
+        var homeFxOn = true;
+        var homeFxRaf = 0;
+        var reduceMotion = window.matchMedia &&
+            window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // Same gun math the game uses (LENGTH/10, trapezoid barrels), then an
+        // opaque hull on top so barrels never show through the body. The
+        // whole sprite is faded afterward so the tank stays translucent
+        // against the page without becoming see-through.
+        function G(length, width, aspect, x, y, angle) {
+            var ox = x || 0, oy = y || 0;
+            return {
+                length: length / 10,
+                width: width / 10,
+                aspect: aspect == null ? 1 : aspect,
+                angle: ((angle || 0) * Math.PI) / 180,
+                offset: Math.hypot(ox, oy) / 10,
+                direction: Math.atan2(oy, ox)
+            };
+        }
+        function around(guns, count) {
+            var out = [];
+            for (var i = 0; i < count; i++) {
+                var add = (Math.PI * 2 * i) / count;
+                for (var j = 0; j < guns.length; j++) {
+                    var g = guns[j];
+                    out.push({
+                        length: g.length, width: g.width, aspect: g.aspect,
+                        angle: g.angle + add, offset: g.offset, direction: g.direction
+                    });
+                }
+            }
+            return out;
+        }
+        var TANK_KINDS = [
+            { guns: [G(18, 8)] },
+            { guns: [G(20, 8, 1, 0, 5.5), G(20, 8, 1, 0, -5.5)] },
+            { guns: [G(19, 8, 1, 0, 2, 18), G(19, 8, 1, 0, -2, -18), G(22, 8)] },
+            { guns: [G(24, 8)] },
+            { guns: [G(12, 10, 1.4, 8, 0)] },
+            { guns: around([G(18, 8)], 3) },
+            { guns: around([G(18, 8)], 4) },
+            { guns: [G(20.5, 12)] },
+            { guns: [G(20.5, 14)] },
+            { guns: [G(20.5, 19.5)] },
+            { guns: around([G(18, 8, 1, 0, 0, 45), G(18, 8)], 4) },
+            { guns: [G(15, 7), G(3, 7, 1.7, 15, 0)] },
+            { guns: [G(5, 11, 1.3, 8, 0)] },
+            { guns: [G(6, 12, 1.2, 8, 0, 90), G(6, 12, 1.2, 8, 0, -90)] },
+            { guns: [G(12, 3.5, 1, 0, 7.25), G(16, 3.5, 1, 0, 3.75), G(16, 3.5, 1, 0, -3.75), G(12, 3.5, 1, 0, -7.25)] },
+            { guns: [G(23, 7), G(12, 10, 1.4, 8, 0)] },
+            { guns: [G(18, 8), G(16, 8, 1, 0, 0, 150), G(16, 8, 1, 0, 0, -150)] },
+            { guns: [G(18, 8), G(14, 8, 1, 0, 0, 135), G(16, 8, 1, 0, 0, 150), G(14, 8, 1, 0, 0, -135), G(16, 8, 1, 0, 0, -150)] },
+            { guns: [G(18, 8), G(16, 8, 1, 0, -1, 90), G(16, 8, 1, 0, 1, -90), G(16, 8, 1, 0, 0, 150), G(16, 8, 1, 0, 0, -150)] },
+            { guns: [G(16, 8, 1, 0, 3, 30), G(16, 8, 1, 0, -3, -30), G(19, 8, 1, 0, 2, 15), G(19, 8, 1, 0, -2, -15), G(22, 8)] },
+            { guns: [G(17.5, 8, 1, 0, 5.5), G(17.5, 8, 1, 0, -5.5), G(21, 8)] },
+            { guns: [G(25, 8), G(23, 8), G(21, 8), G(19, 8), G(17, 8)] },
+            { guns: [G(21, 8), G(19, 8), G(17, 8)] },
+            { guns: [G(27, 8), G(13, 8, -2.2)] },
+            { guns: [G(32, 8), G(13, 8, -2.2)] },
+            { guns: around([G(20, 8, 1, 0, 5.5), G(20, 8, 1, 0, -5.5)], 3) },
+            { guns: [], smasher: true }
+        ];
+
+        function tankPalette() {
+            var s = getComputedStyle(root);
+            var gun = (s.getPropertyValue('--tank-gun') || '#9a9288').trim();
+            var keys = ['a', 'b', 'c', 'd', 'e'];
+            var out = [];
+            for (var i = 0; i < keys.length; i++) {
+                var k = keys[i];
+                out.push({
+                    fill: (s.getPropertyValue('--tank-' + k) || '#4ec4e8').trim(),
+                    stroke: (s.getPropertyValue('--tank-' + k + '-line') || '#142838').trim(),
+                    gun: gun
+                });
+            }
+            return out;
+        }
+
+        var spriteCache = {};
+
+        function rebuildTanks() {
+            spriteCache = {};
+            tanks = [];
+            var pal = tankPalette();
+            var n = Math.max(10, Math.min(18, Math.round((W * H) / 70000)));
+            for (var i = 0; i < n; i++) {
+                var dir = Math.random() < 0.7 ? 1 : -1;
+                tanks.push({
+                    x: Math.random() * W,
+                    y: (0.06 + Math.random() * 0.88) * H,
+                    r: 28,
+                    ang: Math.random() * Math.PI * 2,
+                    spin: (0.006 + Math.random() * 0.022) * (Math.random() < 0.5 ? 1 : -1),
+                    vx: dir * (1.15 + Math.random() * 1.7),
+                    bob: 4 + Math.random() * 14,
+                    bobT: Math.random() * Math.PI * 2,
+                    bobS: 0.012 + Math.random() * 0.02,
+                    a: (root.getAttribute('data-theme') === 'light' ? 0.34 : 0.30) + Math.random() * 0.12,
+                    kind: TANK_KINDS[(Math.random() * TANK_KINDS.length) | 0],
+                    pal: pal[i % pal.length],
+                    key: i
+                });
+            }
+        }
 
         function resize() {
-            W = canvas.width = window.innerWidth;
-            H = canvas.height = window.innerHeight;
+            dpr = Math.min(window.devicePixelRatio || 1, 2);
+            W = window.innerWidth;
+            H = window.innerHeight;
+            canvas.width = Math.max(1, Math.floor(W * dpr));
+            canvas.height = Math.max(1, Math.floor(H * dpr));
+            canvas.style.width = W + 'px';
+            canvas.style.height = H + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            rebuildTanks();
         }
         resize();
         window.addEventListener('resize', resize);
-
-        for (var i = 0; i < COUNT; i++) flakes.push({
-            x: Math.random() * (W || 800),
-            y: Math.random() * (H || 600),
-            r: 1 + Math.random() * 2,
-            s: 0.3 + Math.random() * 0.7,
-            d: (Math.random() - 0.5) * 0.25,
-            o: 0.25 + Math.random() * 0.4
+        new MutationObserver(function () { rebuildTanks(); }).observe(root, {
+            attributes: true, attributeFilter: ['data-theme']
         });
 
-        function draw() {
+        function drawArrasGun(c, size, g) {
+            var length = size * g.length / 2;
+            var height = size * g.width / 2;
+            var h0 = g.aspect > 0 ? height * g.aspect : height;
+            var h1 = g.aspect > 0 ? height : -height * g.aspect;
+            var ang = g.direction + g.angle;
+            var gx = size * g.offset * Math.cos(ang);
+            var gy = size * g.offset * Math.sin(ang);
+            var sinT = Math.sin(g.angle), cosT = Math.cos(g.angle);
+            var pts = [[0, h1], [length * 2, h0], [length * 2, -h0], [0, -h1]];
+            c.beginPath();
+            for (var i = 0; i < 4; i++) {
+                c.lineTo(pts[i][0] * cosT - pts[i][1] * sinT + gx,
+                         pts[i][0] * sinT + pts[i][1] * cosT + gy);
+            }
+            c.closePath();
+            c.fill();
+            c.stroke();
+        }
+
+        function drawOpaqueTank(c, t) {
+            var size = t.r, pal = t.pal, lw = Math.max(3.2, size * 0.2);
+            c.lineJoin = 'round';
+            c.lineCap = 'round';
+            c.lineWidth = lw;
+            c.strokeStyle = pal.stroke;
+            c.fillStyle = pal.gun;
+            var guns = t.kind.guns || [];
+            for (var i = 0; i < guns.length; i++) drawArrasGun(c, size, guns[i]);
+            // Same fill-then-stroke as the barrels so the hull outline is
+            // not a thinner inner ring.
+            c.fillStyle = pal.fill;
+            c.beginPath();
+            c.arc(0, 0, size, 0, Math.PI * 2);
+            c.fill();
+            c.stroke();
+            if (t.kind.smasher) {
+                var hr = size * 1.14;
+                c.beginPath();
+                for (var s = 0; s < 6; s++) {
+                    var a = Math.PI / 6 + (Math.PI * 2 * s) / 6;
+                    var x = Math.cos(a) * hr, y = Math.sin(a) * hr;
+                    if (s) c.lineTo(x, y); else c.moveTo(x, y);
+                }
+                c.closePath();
+                c.fillStyle = pal.stroke;
+                c.fill();
+                c.stroke();
+                c.fillStyle = pal.fill;
+                c.beginPath();
+                c.arc(0, 0, size, 0, Math.PI * 2);
+                c.fill();
+                c.stroke();
+            }
+        }
+
+        function tankSprite(t) {
+            var id = t.key + ':' + t.pal.fill + ':' + t.r;
+            if (spriteCache[id]) return spriteCache[id];
+            var pad = Math.ceil(t.r * 3.2);
+            var spr = document.createElement('canvas');
+            spr.width = Math.max(1, Math.floor(pad * 2 * dpr));
+            spr.height = spr.width;
+            var sctx = spr.getContext('2d');
+            sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            sctx.translate(pad, pad);
+            drawOpaqueTank(sctx, t);
+            var out = { canvas: spr, pad: pad };
+            spriteCache[id] = out;
+            return out;
+        }
+
+        function tickTanks() {
+            var pad = 110;
+            for (var i = 0; i < tanks.length; i++) {
+                var t = tanks[i];
+                if (!reduceMotion) {
+                    t.x += t.vx;
+                    t.ang += t.spin;
+                    t.bobT += t.bobS;
+                }
+                if (t.x > W + pad) t.x = -pad;
+                else if (t.x < -pad) t.x = W + pad;
+            }
+        }
+
+        function drawHomeFx() {
+            homeFxRaf = 0;
+            if (!homeFxOn) return;
             ctx.clearRect(0, 0, W, H);
-            var color = getComputedStyle(root).getPropertyValue('--snow').trim() || 'rgba(160,160,255,0.4)';
-            for (var i = 0; i < flakes.length; i++) {
-                var f = flakes[i];
-                ctx.globalAlpha = f.o;
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.arc(f.x, f.y, f.r, 0, 6.283);
-                ctx.fill();
-                f.y += f.s;
-                f.x += f.d;
-                if (f.y > H + 4) { f.y = -4; f.x = Math.random() * W; }
-                if (f.x > W + 4) f.x = -4;
-                if (f.x < -4) f.x = W + 4;
+            tickTanks();
+            for (var i = 0; i < tanks.length; i++) {
+                var t = tanks[i];
+                var spr = tankSprite(t);
+                ctx.save();
+                ctx.globalAlpha = t.a;
+                ctx.translate(t.x, t.y + Math.sin(t.bobT) * t.bob);
+                ctx.rotate(t.ang);
+                ctx.drawImage(spr.canvas, -spr.pad, -spr.pad, spr.pad * 2, spr.pad * 2);
+                ctx.restore();
             }
             ctx.globalAlpha = 1;
-            requestAnimationFrame(draw);
+            if (!reduceMotion) homeFxRaf = requestAnimationFrame(drawHomeFx);
         }
-        draw();
+        drawHomeFx();
 
         var homeUI = [
             document.getElementById('themeToggleBtn'),
             document.getElementById('homeSettingsBtn'),
             document.getElementById('homeChangelogBtn'),
             document.getElementById('homeSidebar'),
-            document.getElementById('snowCanvas')
+            document.getElementById('snowCanvas'),
+            document.getElementById('homeFireworkCanvas')
         ];
         var smw = document.getElementById('startMenuWrapper');
         if (smw) {
@@ -430,6 +622,12 @@
                 // unchangeable look while playing (homepage follows the theme)
                 document.body.classList.toggle('in-game', hidden);
                 if (hidden) { closeCL(); closeP(); setDropdownOpen(false); }
+                homeFxOn = !hidden;
+                if (homeFxOn && !homeFxRaf) drawHomeFx();
+                else if (!homeFxOn && homeFxRaf) {
+                    cancelAnimationFrame(homeFxRaf);
+                    homeFxRaf = 0;
+                }
             }).observe(smw, { attributes: true, attributeFilter: ['style'] });
         }
 

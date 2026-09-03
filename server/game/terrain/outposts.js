@@ -193,14 +193,22 @@ function tick(players, dtMs) {
         
         
         
+        d.spill = (d.spill || 0) + (DEPOSIT_RATE * dtMs) / 1000;
         const chunk = Math.min(
-            d.remaining / EFFICIENCY,
-            body.carriedGems || 0,
-            (DEPOSIT_RATE * dtMs) / 1000
+            Math.ceil(d.remaining / EFFICIENCY - 1e-9),
+            body.carriedGems | 0,
+            Math.floor(d.spill)
         );
-        if (chunk <= 0) { body.outpostDeposit = null; talkOutpostProgress(body); continue; }
-        d.remaining -= chunk * EFFICIENCY;
-        body.carriedGems = Math.max(0, (body.carriedGems || 0) - chunk);
+        if (chunk <= 0) {
+            if ((body.carriedGems | 0) <= 0 || d.remaining <= 0) {
+                body.outpostDeposit = null;
+                talkOutpostProgress(body);
+            }
+            continue;
+        }
+        d.spill -= chunk;
+        d.remaining = Math.max(0, d.remaining - chunk * EFFICIENCY);
+        body.carriedGems = Math.max(0, (body.carriedGems | 0) - chunk);
         const socket = body.socket;
         if (socket) {
             
@@ -211,7 +219,7 @@ function tick(players, dtMs) {
             milestones.checkBanked(body);
             war.add(body.team, chunk * EFFICIENCY);
         }
-        const done = d.remaining < 0.5;
+        const done = d.remaining <= 0.5;
         if (done || now - d.lastTalk >= PROGRESS_MS) {
             if (!done) d.lastTalk = now;
             gems.updateSatchel(body);
@@ -221,11 +229,12 @@ function tick(players, dtMs) {
         }
         if (done) {
             body.outpostDeposit = null;
-            body.carriedGems = Math.round(body.carriedGems);
+            body.carriedGems = body.carriedGems | 0;
             if (socket) {
                 socket.gemBanked = Math.round(socket.gemBanked);
                 body.bankedGems = socket.gemBanked;
             }
+            gems.updateSatchel(body);
         }
     }
 }
@@ -251,6 +260,7 @@ function requestDeposit(socket, amount) {
     body.outpostDeposit = {
         remaining: credited,
         total: credited,
+        spill: 0,
         lastHealth: body.health.amount,
         lastTalk: 0,
     };

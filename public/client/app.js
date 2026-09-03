@@ -559,90 +559,150 @@ import * as tutorial from './tutorial.js';
         
         if (!global.mobile) {
             let fireworkCanvas = document.createElement("canvas");
-            fireworkCanvas.style.position = "absolute";
-            fireworkCanvas.style.top = "0";
+            fireworkCanvas.id = "homeFireworkCanvas";
+            fireworkCanvas.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;";
             document.body.insertBefore(fireworkCanvas, document.body.firstChild);
             let b = fireworkCanvas.getContext("2d"),
-            d = () => {
-                let k =
-                "164,14,14 230,80,0 230,119,0 47,127,51 23,78,166 123,31,163".split(
-                    " "
-                );
-                return k[Math.floor(Math.random() * k.length)];
-            },
             fireworks = [],
-            updateFireworks = () => {
-                if (fireworkCanvas.width !== window.innerWidth || fireworkCanvas.height !== window.innerHeight)
-                (fireworkCanvas.width = window.innerWidth),
-                    (fireworkCanvas.height = window.innerHeight),
-                    (fireworks = []),
-                    b.clearRect(0, 0, fireworkCanvas.width, fireworkCanvas.height),
-                    (b.fillStyle = "rgba(255,255,255,0.01)"),
-                    b.fillRect(0, 0, fireworkCanvas.width, fireworkCanvas.height),
-                    (b.lineWidth = 2.5),
-                    (b.lineCap = "round");
-                b.globalCompositeOperation = "destination-out";
-                b.fillStyle = "rgba(0,0,0,0.15)";
-                b.fillRect(0, 0, fireworkCanvas.width, fireworkCanvas.height);
-                b.globalCompositeOperation = "lighter";
-                for (var firework of fireworks) {
-                    var l = firework.x,
-                        t = firework.y;
-                    firework.H += 0.2;
+            fwDpr = 1,
+            fwW = 0,
+            fwH = 0;
+
+            function fxPalette() {
+                const s = getComputedStyle(document.documentElement);
+                const keys = ["a", "b", "c", "d", "e"];
+                const out = [];
+                for (let i = 0; i < keys.length; i++) {
+                    const k = keys[i];
+                    out.push({
+                        fill: (s.getPropertyValue("--tank-" + k) || "#4ec4e8").trim(),
+                        stroke: (s.getPropertyValue("--tank-" + k + "-line") || "#142838").trim(),
+                    });
+                }
+                return out;
+            }
+
+            function pickFx() {
+                const pal = fxPalette();
+                return pal[(Math.random() * pal.length) | 0];
+            }
+
+            function drawCartoonShard(p, alpha) {
+                b.save();
+                b.translate(p.x, p.y);
+                b.rotate(p.ang);
+                b.globalAlpha = alpha;
+                b.lineJoin = "round";
+                b.lineCap = "round";
+                b.lineWidth = Math.max(2.4, p.r * 0.32);
+                b.fillStyle = p.fill;
+                b.strokeStyle = p.stroke;
+                b.beginPath();
+                if (p.sides < 2) {
+                    b.arc(0, 0, p.r, 0, Math.PI * 2);
+                } else {
+                    const rot = p.sides % 2 ? 0 : Math.PI / p.sides;
+                    for (let i = 0; i < p.sides; i++) {
+                        const a = rot - Math.PI / 2 + (Math.PI * 2 * i) / p.sides;
+                        const x = Math.cos(a) * p.r;
+                        const y = Math.sin(a) * p.r;
+                        if (i) b.lineTo(x, y);
+                        else b.moveTo(x, y);
+                    }
+                    b.closePath();
+                }
+                b.fill();
+                b.stroke();
+                b.restore();
+            }
+
+            function spawnBurst(x, y) {
+                const n = 10 + ((Math.random() * 8) | 0);
+                const pal = pickFx();
+                const pal2 = pickFx();
+                for (let i = 0; i < n; i++) {
+                    const ang = ((i + Math.random()) / n) * Math.PI * 2;
+                    const spd = 2.2 + Math.random() * 3.4;
+                    const col = i % 2 ? pal2 : pal;
+                    fireworks.push({
+                        x, y,
+                        M: Math.cos(ang) * spd,
+                        H: Math.sin(ang) * spd - 0.6,
+                        r: 5 + Math.random() * 7,
+                        sides: [0, 3, 4, 5, 6][(Math.random() * 5) | 0],
+                        ang: Math.random() * Math.PI * 2,
+                        spin: (Math.random() - 0.5) * 0.18,
+                        fill: col.fill,
+                        stroke: col.stroke,
+                        time: 28 + Math.random() * 18,
+                        life: 0,
+                        Oa: false,
+                    });
+                }
+            }
+
+            let updateFireworks = () => {
+                const nextDpr = Math.min(window.devicePixelRatio || 1, 2);
+                if (fwW !== window.innerWidth || fwH !== window.innerHeight || fwDpr !== nextDpr) {
+                    fwW = window.innerWidth;
+                    fwH = window.innerHeight;
+                    fwDpr = nextDpr;
+                    fireworkCanvas.width = Math.max(1, Math.floor(fwW * fwDpr));
+                    fireworkCanvas.height = Math.max(1, Math.floor(fwH * fwDpr));
+                    b.setTransform(fwDpr, 0, 0, fwDpr, 0, 0);
+                }
+                b.clearRect(0, 0, fwW, fwH);
+                for (const firework of fireworks) {
+                    firework.H += 0.12;
                     firework.x += firework.M;
                     firework.y += firework.H;
-                    firework.H *= 0.99;
-                    firework.M *= 0.99;
+                    firework.M *= 0.98;
+                    firework.H *= 0.98;
+                    firework.ang += firework.spin || 0;
                     firework.time--;
-                    var f = 0 < firework.time ? (firework.Oa ? 1 : 10 <= firework.time ? 1 : firework.time / 10) : 0;
-                    if (0 < f) {
-                        b.strokeStyle = `rgba(${firework.color},${f})`;
-                        b.beginPath();
-                        b.moveTo(l, t);
-                        b.lineTo(firework.x, firework.y);
-                        b.stroke();
-                    } else {
-                        if (firework.Oa && !firework.vanished) {
-                            l = Math.floor(5 * Math.random()) + 30;
-                            t = 0.5 * Math.random() + 3;
-                            f = 25 + 5 * Math.random();
-                            for (var h = 0; 2 > h; h++) {
-                                let p = d();
-                                for (let r = 0; r < l; r++) {
-                                let v = ((r + Math.random()) / l) * Math.PI * 2,
-                                    P = t + 0.5 * Math.random();
-                                fireworks.push({
-                                    color: p,
-                                    x: firework.x,
-                                    y: firework.y,
-                                    M: Math.cos(v) * P,
-                                    H: -0.8 + Math.sin(v) * P,
-                                    time: f + 2 * Math.random(),
-                                    Oa: !1,
-                                    vanished: !1,
-                                });
-                                }
-                            }
+                    firework.life = (firework.life || 0) + 1;
+                    const fade = Math.max(0, Math.min(1, firework.time / 14));
+                    if (fade > 0) {
+                        if (firework.Oa) {
+                            drawCartoonShard({
+                                x: firework.x,
+                                y: firework.y,
+                                r: 4.5,
+                                sides: 0,
+                                ang: 0,
+                                fill: firework.fill,
+                                stroke: firework.stroke,
+                            }, 0.85);
+                        } else {
+                            const p = Object.assign({}, firework);
+                            p.r = firework.r * (0.55 + 0.45 * fade);
+                            drawCartoonShard(p, 0.55 + 0.35 * fade);
                         }
-                        firework.vanished = !0;
+                    } else if (firework.Oa && !firework.vanished) {
+                        spawnBurst(firework.x, firework.y);
+                        firework.vanished = true;
+                    } else {
+                        firework.vanished = true;
                     }
                 }
-                3e-5 * fireworkCanvas.width > Math.random() &&
-                ((firework = fireworkCanvas.width * Math.random()),
-                (l = fireworkCanvas.height - 10),
-                (t = 4 * Math.random() - 2),
-                (f = 5 * Math.random() - 15),
-                (h = 30 + 10 * Math.random()),
-                fireworks.push({
-                    color: d(),
-                    x: firework,
-                    y: l,
-                    M: t,
-                    H: f,
-                    time: h,
-                    Oa: !0,
-                    vanished: !1,
-                }));
+                if (3e-5 * fwW > Math.random()) {
+                    const col = pickFx();
+                    fireworks.push({
+                        fill: col.fill,
+                        stroke: col.stroke,
+                        x: fwW * Math.random(),
+                        y: fwH + 8,
+                        M: 4 * Math.random() - 2,
+                        H: 5 * Math.random() - 15,
+                        r: 4.5,
+                        sides: 0,
+                        ang: 0,
+                        spin: 0,
+                        time: 32 + 12 * Math.random(),
+                        Oa: true,
+                        vanished: false,
+                    });
+                }
                 if (global.gameStart) fireworkCanvas.remove();
                 else requestAnimationFrame(updateFireworks);
             };

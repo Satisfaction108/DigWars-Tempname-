@@ -27,6 +27,17 @@
     --link: #a888e0;
     --credit1: #4ec83c;
     --scroll-t: #3c2c12;
+    --tank-a: #4ec4e8;
+    --tank-a-line: #142838;
+    --tank-b: #e86262;
+    --tank-b-line: #4a1818;
+    --tank-c: #5ed86a;
+    --tank-c-line: #1a381c;
+    --tank-d: #9b78e0;
+    --tank-d-line: #2a2048;
+    --tank-e: #e8c04a;
+    --tank-e-line: #4a3c10;
+    --tank-gun: #9a9288;
 }
 
 [data-theme="light"] {
@@ -58,6 +69,17 @@
     --link: #5830a0;
     --credit1: #4ab838;
     --scroll-t: #c8b484;
+    --tank-a: #3d8ec4;
+    --tank-a-line: #1a3048;
+    --tank-b: #c85050;
+    --tank-b-line: #5a2222;
+    --tank-c: #4aa85a;
+    --tank-c-line: #244828;
+    --tank-d: #7a5cb8;
+    --tank-d-line: #322850;
+    --tank-e: #c49a28;
+    --tank-e-line: #5a4818;
+    --tank-gun: #b0a894;
 }
 
 #snowCanvas {
@@ -65,7 +87,7 @@
     top: 0; left: 0;
     width: 100%; height: 100%;
     pointer-events: none;
-    z-index: 0;
+    z-index: 1;
 }
 
 body {

@@ -156,26 +156,37 @@ function ensureSatchelProps(body) {
     if (f && body.props.get(f.id) !== f) body.props.set(f.id, f);
 }
 
+// Whole-gem buckets, not a continuous load curve. Banking used to scale the
+// pack by leftover dust: empty a satchel and a 0.6 residue still drew the
+// minimum bag, bank half a small haul and the curve shrank it until it
+// looked gone. These rungs are the only sizes the pack is allowed to be.
+const SATCHEL_SIZE_RUNGS = [
+    { min: 1,    size: 0.26 },
+    { min: 100,  size: 0.32 },
+    { min: 400,  size: 0.38 },
+    { min: 1000, size: 0.44 },
+    { min: 2000, size: 0.50 },
+    { min: 3200, size: 0.56 },
+];
+
+function satchelVisualSize(carried) {
+    if (carried < 1) return 0;
+    let size = 0;
+    for (const rung of SATCHEL_SIZE_RUNGS) {
+        if (carried >= rung.min) size = rung.size;
+    }
+    return size;
+}
+
 function updateSatchel(body) {
     const p = body.gemHoardProp, f = body.gemHoardFacetProp;
     applySatchelTeamColor(body);
     ensureSatchelProps(body);
     if (p) {
-        // Round FIRST. Banking subtracts floating-point chunks and leaves a
-        // residue like 1e-9 behind; vault.js and outposts.js only snap
-        // carriedGems back to a whole number AFTER calling this. Reading the
-        // raw value therefore made "carried > 0" true for that residue, and a
-        // fully-banked satchel kept its minimum-size pack stuck on the tank.
-        // Whole gems are the only unit that means anything here anyway.
-        const carried = Math.round(body.carriedGems || 0);
-        const load = Math.min(1, carried / (body.gemCap || SATCHEL_CAP));
-        // A pack, not a boulder. The old curve topped out near a full hull
-        // width, which is why every previous on-tank wealth design got
-        // rejected - it swallowed the tank. Starts as a small bump on the
-        // first find and grows to a bit over half the hull.
-        // Zero when empty: the client skips zero-size props, so an empty
-        // satchel costs nothing and draws nothing.
-        const size = carried > 0 ? 0.26 + 0.30 * load : 0;
+        // Truncate, same as the HUD (`carried | 0`). Rounding a banking
+        // residue like 0.6 kept a ghost pack on an "empty" tank.
+        const carried = (body.carriedGems || 0) | 0;
+        const size = satchelVisualSize(carried);
         p.bound.size = size;
         p.bound.offset = size > 0 ? SATCHEL_OFFSET : 0;
         if (f) {
@@ -278,7 +289,7 @@ function easeAngle(from, to, k) {
 // the (common) empty satchel, since an empty pack is not drawn anyway.
 function orientSatchel(body) {
     const p = body.gemHoardProp;
-    if (!p || !(body.carriedGems > 0)) return;
+    if (!p || ((body.carriedGems || 0) | 0) < 1) return;
     applySatchelTeamColor(body);
     ensureSatchelProps(body);
 

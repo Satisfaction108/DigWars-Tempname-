@@ -67,6 +67,7 @@ function depositFor(body, amount) {
     body.vaultDeposit = {
         remaining: total,
         total,
+        spill: 0,
         lastHealth: body.health.amount,
         lastTalk: 0,
     };
@@ -123,21 +124,22 @@ function tick(actors, dtMs) {
         
         
         
-        const chunk = Math.min(
-            d.remaining,
-            body.carriedGems || 0,
-            (DEPOSIT_RATE * dtMs) / 1000
-        );
-        if (chunk <= 0) { cancelDeposit(body); continue; }
+        d.spill = (d.spill || 0) + (DEPOSIT_RATE * dtMs) / 1000;
+        const chunk = Math.min(d.remaining, body.carriedGems | 0, Math.floor(d.spill));
+        if (chunk <= 0) {
+            if ((body.carriedGems | 0) <= 0 || d.remaining <= 0) cancelDeposit(body);
+            continue;
+        }
+        d.spill -= chunk;
         d.remaining -= chunk;
-        body.carriedGems = Math.max(0, (body.carriedGems || 0) - chunk);
+        body.carriedGems = Math.max(0, (body.carriedGems | 0) - chunk);
         const banked = body.socket ? (body.socket.gemBanked || 0) : (body.botBanked || 0);
         if (body.isBot) body.botGemsBanked = (body.botGemsBanked || 0) + chunk;
         setBanked(body, banked + chunk);
         war.add(body.team, chunk);
         milestones.checkBanked(body);
 
-        const done = d.remaining < 0.5;
+        const done = d.remaining <= 0;
         if (done || now - d.lastTalk >= PROGRESS_MS) {
             if (!done) d.lastTalk = now;
             gems.updateSatchel(body);
@@ -147,9 +149,10 @@ function tick(actors, dtMs) {
         }
         if (done) {
             body.vaultDeposit = null;
-            body.carriedGems = Math.round(body.carriedGems);
+            body.carriedGems = body.carriedGems | 0;
             const banked = body.socket ? (body.socket.gemBanked || 0) : (body.botBanked || 0);
             setBanked(body, Math.round(banked));
+            gems.updateSatchel(body);
         }
     }
 }
